@@ -62,10 +62,10 @@ target_include_directories(fractal_stream PRIVATE
     ${FFMPEG_INCLUDE_DIRS}
 )
 
-# Loader definition: on macOS use the built-in CoreGL loader; on Linux use GLEW
+# On macOS: no loader flag — ImGui uses its bundled imgui_impl_opengl3_loader.h
+# On Linux: tell ImGui to use GLEW
 if(APPLE)
     target_compile_definitions(fractal_stream PRIVATE
-        IMGUI_IMPL_OPENGL_LOADER_CUSTOM   # ImGui will use its bundled GL header
         SHADERS_DIR="${CMAKE_SOURCE_DIR}/shaders"
     )
 else()

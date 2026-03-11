@@ -11,9 +11,12 @@
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "ui/EquationEditor.h"
+#include "remote/RemoteControl.h"
 
 #include <cstdio>
 #include <string>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 extern "C" {
 #include <libavutil/log.h>
 }
@@ -63,6 +66,25 @@ int main(int argc, char** argv) {
     VideoInput     videoIn;
     StreamOutput   streamOut;
     EquationEditor ui(engine, blend, videoIn, streamOut);
+
+    // Phone remote control — open http://<your-ip>:7777 in a browser
+    RemoteControl remote(engine, blend);
+    if (remote.start(7777)) {
+        // Print all non-loopback IPv4 addresses so user knows what to type
+        fprintf(stderr, "\n=== Phone remote ===\n");
+        struct ifaddrs* ifap = nullptr;
+        if (getifaddrs(&ifap) == 0) {
+            for (auto* ifa = ifap; ifa; ifa = ifa->ifa_next) {
+                if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+                char ip[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &((sockaddr_in*)ifa->ifa_addr)->sin_addr, ip, sizeof(ip));
+                if (std::string(ip) == "127.0.0.1") continue;
+                fprintf(stderr, "  http://%s:7777\n", ip);
+            }
+            freeifaddrs(ifap);
+        }
+        fprintf(stderr, "====================\n\n");
+    }
 
     renderer.init();
 

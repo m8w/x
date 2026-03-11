@@ -51,6 +51,7 @@ set(SOURCES
     src/stream/StreamOutput.cpp
     src/ui/EquationEditor.cpp
     src/ui/FilePicker_linux.cpp  # no-op on macOS via #ifndef __APPLE__
+    src/remote/RemoteControl.cpp
 )
 
 # macOS: native NSOpenPanel file picker (Objective-C++)
@@ -100,6 +101,7 @@ else()
         GLEW::GLEW
         glfw
         ${FFMPEG_LIBRARIES}
+        pthread
     )
 endif()
 

@@ -121,37 +121,111 @@ void EquationEditor::drawVideoPanel() {
         ImGui::TextDisabled("No video loaded — click Browse to choose a file");
 }
 
+// Common service presets: { display label, RTMP base URL }
+struct ServicePreset { const char* label; const char* rtmpBase; };
+static const ServicePreset kPresets[] = {
+    { "YouTube",   "rtmp://a.rtmp.youtube.com/live2/" },
+    { "Twitch",    "rtmp://live.twitch.tv/app/" },
+    { "Facebook",  "rtmps://live-api-s.facebook.com:443/rtmp/" },
+    { "Kick",      "rtmps://fa723fc1b171.global-contribute.live-video.net/app/" },
+    { "TikTok",    "rtmp://push.tiktok.com/live/" },
+    { "Restream",  "rtmp://live.restream.io/live/" },
+    { "Custom",    "" },
+};
+static const int kNumPresets = 7;
+
 void EquationEditor::drawStreamPanel() {
-    ImGui::InputText("RTMP URL", m_rtmpUrl, sizeof(m_rtmpUrl));
-    ImGui::InputText("Stream key", m_streamKey, sizeof(m_streamKey),
-                     ImGuiInputTextFlags_Password);
-
-    // Build full URL on the fly (append key if not already in URL)
-    auto buildURL = [&]() -> std::string {
-        std::string u = m_rtmpUrl;
-        if (m_streamKey[0] != '\0' && u.find(m_streamKey) == std::string::npos) {
-            if (u.back() != '/') u += '/';
-            u += m_streamKey;
-        }
-        return u;
-    };
-
     ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 40000);
     ImGui::Combo("Resolution", &m_resIndex, kResLabels, 4);
+    ImGui::Separator();
 
+    // ── Destination list ──────────────────────────────────────────────────────
+    ImGui::Text("Destinations (%d)", m_streamOut.destCount());
+    ImGui::Spacing();
+
+    int removeIdx = -1;
+    for (int i = 0; i < m_streamOut.destCount(); i++) {
+        DestSink& s = m_streamOut.dest(i);
+        ImGui::PushID(i);
+
+        // Enable toggle
+        ImGui::Checkbox("##en", &s.enabled);
+        ImGui::SameLine();
+
+        // Live status dot
+        if (m_streamOut.isStreaming() && s.connected)
+            ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "[LIVE]");
+        else if (m_streamOut.isStreaming() && !s.connected)
+            ImGui::TextColored({1.0f,0.4f,0.1f,1.0f}, "[ERR] ");
+        else
+            ImGui::TextDisabled("[    ]");
+        ImGui::SameLine();
+
+        // Editable URL (password field to hide stream key embedded in URL)
+        char urlBuf[512];
+        snprintf(urlBuf, sizeof(urlBuf), "%s", s.url.c_str());
+        ImGui::SetNextItemWidth(180);
+        if (ImGui::InputText("##url", urlBuf, sizeof(urlBuf),
+                             ImGuiInputTextFlags_Password))
+            s.url = urlBuf;
+        ImGui::SameLine();
+        ImGui::TextUnformatted(s.name.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) removeIdx = i;
+
+        ImGui::PopID();
+    }
+    if (removeIdx >= 0) m_streamOut.removeDestination(removeIdx);
+
+    // ── Add destination ───────────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Add destination:");
+
+    // Preset buttons
+    for (int p = 0; p < kNumPresets; p++) {
+        if (p > 0) ImGui::SameLine();
+        if (ImGui::SmallButton(kPresets[p].label)) {
+            snprintf(m_newName, sizeof(m_newName), "%s", kPresets[p].label);
+            snprintf(m_newUrl,  sizeof(m_newUrl),  "%s", kPresets[p].rtmpBase);
+        }
+    }
+    ImGui::SetNextItemWidth(80);
+    ImGui::InputText("Name##new", m_newName, sizeof(m_newName));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220);
+    ImGui::InputText("URL/Key##new", m_newUrl, sizeof(m_newUrl),
+                     ImGuiInputTextFlags_Password);
+    ImGui::SameLine();
+    if (ImGui::Button("Add") && m_newName[0] && m_newUrl[0]) {
+        m_streamOut.addDestination(m_newName, m_newUrl);
+        m_newName[0] = '\0';
+        m_newUrl[0]  = '\0';
+    }
+
+    // ── Start / Stop ──────────────────────────────────────────────────────────
+    ImGui::Spacing();
     ImGui::Separator();
     if (!m_streamOut.isStreaming()) {
-        if (ImGui::Button("Start Stream")) {
-            std::string fullUrl = buildURL();
-            m_streamOut.start(fullUrl,
-                              kResW[m_resIndex], kResH[m_resIndex],
+        bool hasAny = false;
+        for (int i = 0; i < m_streamOut.destCount(); i++)
+            if (m_streamOut.dest(i).enabled) { hasAny = true; break; }
+        if (!hasAny) ImGui::BeginDisabled();
+        if (ImGui::Button("Start Stream  ▶")) {
+            m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
                               m_bitrateKbps, 30);
+        }
+        if (!hasAny) {
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(add a destination first)");
         }
     } else {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f,0.1f,0.1f,1.0f));
-        if (ImGui::Button("Stop Stream")) m_streamOut.stop();
+        if (ImGui::Button("Stop Stream  ■")) m_streamOut.stop();
         ImGui::PopStyleColor();
         ImGui::SameLine();
-        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "LIVE");
+        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE to %d destination(s)",
+                           m_streamOut.destCount());
     }
 }

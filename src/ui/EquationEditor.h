@@ -12,17 +12,19 @@ public:
     void draw();   // Call once per frame after ImGui::NewFrame()
 
 private:
-    FractalEngine&  m_engine;
+    FractalEngine&   m_engine;
     BlendController& m_blend;
-    VideoInput&     m_videoIn;
-    StreamOutput&   m_streamOut;
+    VideoInput&      m_videoIn;
+    StreamOutput&    m_streamOut;
 
     // Stream panel state
-    char m_rtmpUrl[512]  = "rtmp://live.restream.io/live/";
-    char m_streamKey[256]= "";
-    int  m_bitrateKbps   = 4000;
-    int  m_resIndex      = 0;   // 0=720p 1=1080p 2=1440p
-    char m_videoPath[512]= "";
+    int  m_bitrateKbps = 4000;
+    int  m_resIndex    = 1;   // default 1080p
+    char m_videoPath[512] = "";
+
+    // Add-destination form
+    char m_newName[64]  = "";
+    char m_newUrl[512]  = "";
 
     void drawBlendPanel();
     void drawFractalPanel();

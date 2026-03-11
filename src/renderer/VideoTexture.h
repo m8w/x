@@ -1,5 +1,5 @@
 #pragma once
-#include <GL/glew.h>
+#include "gl_includes.h"
 extern "C" { #include <libavutil/frame.h> }
 
 // Manages a single GL_TEXTURE_2D that is updated each frame with video data.

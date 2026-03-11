@@ -1,4 +1,4 @@
-#include <GL/glew.h>
+#include "gl_includes.h"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -26,18 +26,23 @@ int main(int argc, char** argv) {
     if (!glfwInit()) return 1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);   // macOS max = 4.1
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // required on macOS
+#endif
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Fractal Stream", nullptr, nullptr);
     if (!window) { glfwTerminate(); return 1; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
+#ifndef __APPLE__
     if (glewInit() != GLEW_OK) {
         fprintf(stderr, "GLEW init failed\n");
         return 1;
     }
+#endif
 
     // ImGui setup
     IMGUI_CHECKVERSION();

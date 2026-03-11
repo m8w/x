@@ -1,4 +1,4 @@
-#version 430 core
+#version 410 core
 // Full 3-D Mandelbulb via sphere ray-marching.
 // Used when u_blend_mandelbulb > 0.5 (switched in by Renderer).
 

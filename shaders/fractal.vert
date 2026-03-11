@@ -1,4 +1,4 @@
-#version 430 core
+#version 410 core
 
 // Fullscreen quad: no VBO needed, positions generated from gl_VertexID
 out vec2 v_uv;   // [0,1] screen UV

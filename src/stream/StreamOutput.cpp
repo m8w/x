@@ -69,9 +69,19 @@ bool StreamOutput::openSink(DestSink& s) {
         s.fmtCtx->oformat->flags |= AVFMT_GLOBALHEADER;
 
     if (!(s.fmtCtx->oformat->flags & AVFMT_NOFILE)) {
-        if (avio_open(&s.fmtCtx->pb, s.url.c_str(), AVIO_FLAG_WRITE) < 0) {
-            fprintf(stderr, "[sink:%s] avio_open failed: %s\n",
-                    s.name.c_str(), s.url.c_str());
+        // Use avio_open2 so we can pass options; needed for rtmps:// (TLS)
+        // and for services that require specific TCP flags.
+        AVDictionary* opts = nullptr;
+        av_dict_set(&opts, "rtmp_live", "live", 0);
+        av_dict_set(&opts, "tls_verify", "0", 0);   // skip cert verify on rtmps
+        int ret = avio_open2(&s.fmtCtx->pb, s.url.c_str(), AVIO_FLAG_WRITE,
+                             nullptr, &opts);
+        av_dict_free(&opts);
+        if (ret < 0) {
+            char errbuf[128];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            fprintf(stderr, "[sink:%s] avio_open2 failed: %s — %s\n",
+                    s.name.c_str(), s.url.c_str(), errbuf);
             avformat_free_context(s.fmtCtx);
             s.fmtCtx = nullptr;
             return false;

@@ -1,6 +1,8 @@
 #include "EquationEditor.h"
+#include "FilePicker.h"
 #include <imgui.h>
 #include <cstdio>
+#include <cstring>
 
 static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440"};
 static const int   kResW[]      = {1280, 1920, 2560};
@@ -23,7 +25,7 @@ void EquationEditor::draw() {
         drawFractalPanel();
     if (ImGui::CollapsingHeader("Euclidean Geometry"))
         drawGeometryPanel();
-    if (ImGui::CollapsingHeader("Video Input"))
+    if (ImGui::CollapsingHeader("Video Input", ImGuiTreeNodeFlags_DefaultOpen))
         drawVideoPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
         drawStreamPanel();
@@ -91,16 +93,32 @@ void EquationEditor::drawGeometryPanel() {
 }
 
 void EquationEditor::drawVideoPanel() {
-    ImGui::InputText("Video file path", m_videoPath, sizeof(m_videoPath));
-    if (ImGui::Button("Open video")) {
-        if (m_videoPath[0] != '\0') m_videoIn.open(m_videoPath);
+    // ── Browse button ─────────────────────────────────────────────────────────
+    if (ImGui::Button("Browse...")) {
+        std::string picked = pickVideoFile();
+        if (!picked.empty()) {
+            snprintf(m_videoPath, sizeof(m_videoPath), "%s", picked.c_str());
+            m_videoIn.open(picked);
+        }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Close")) m_videoIn.close();
+    if (ImGui::Button("Close video")) m_videoIn.close();
+
+    // Manual path entry as fallback
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::InputText("##videopath", m_videoPath, sizeof(m_videoPath),
+                         ImGuiInputTextFlags_EnterReturnsTrue)) {
+        if (m_videoPath[0] != '\0') m_videoIn.open(m_videoPath);
+    }
+    ImGui::TextDisabled("(or type a path and press Enter)");
+
+    ImGui::Separator();
     if (m_videoIn.isOpen())
-        ImGui::Text("Playing: %dx%d", m_videoIn.width(), m_videoIn.height());
+        ImGui::TextColored({0.2f,1.0f,0.4f,1.0f}, "Playing: %dx%d  %s",
+                           m_videoIn.width(), m_videoIn.height(),
+                           m_videoIn.path().c_str());
     else
-        ImGui::TextDisabled("No video loaded");
+        ImGui::TextDisabled("No video loaded — click Browse to choose a file");
 }
 
 void EquationEditor::drawStreamPanel() {

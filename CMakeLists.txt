@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(fractal_stream VERSION 0.1 LANGUAGES CXX)
+project(fractal_stream VERSION 0.1 LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,7 +50,13 @@ set(SOURCES
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
     src/ui/EquationEditor.cpp
+    src/ui/FilePicker_linux.cpp  # no-op on macOS via #ifndef __APPLE__
 )
+
+# macOS: native NSOpenPanel file picker (Objective-C++)
+if(APPLE)
+    list(APPEND SOURCES src/ui/FilePicker.mm)
+endif()
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES})
 
@@ -84,6 +90,7 @@ if(APPLE)
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreVideo"
+        "-framework UniformTypeIdentifiers"
         glfw
         ${FFMPEG_LIBRARIES}
     )

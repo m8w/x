@@ -62,6 +62,8 @@ target_include_directories(fractal_stream PRIVATE
     ${FFMPEG_INCLUDE_DIRS}
 )
 
+target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
+
 # On macOS: no loader flag — ImGui uses its bundled imgui_impl_opengl3_loader.h
 # On Linux: tell ImGui to use GLEW
 if(APPLE)

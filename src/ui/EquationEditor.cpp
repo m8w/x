@@ -4,9 +4,9 @@
 #include <cstdio>
 #include <cstring>
 
-static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440"};
-static const int   kResW[]      = {1280, 1920, 2560};
-static const int   kResH[]      = { 720, 1080, 1440};
+static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440", "3840x2160 (4K)"};
+static const int   kResW[]      = {1280, 1920, 2560, 3840};
+static const int   kResH[]      = { 720, 1080, 1440, 2160};
 static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
@@ -136,8 +136,8 @@ void EquationEditor::drawStreamPanel() {
         return u;
     };
 
-    ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 8000);
-    ImGui::Combo("Resolution", &m_resIndex, kResLabels, 3);
+    ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 40000);
+    ImGui::Combo("Resolution", &m_resIndex, kResLabels, 4);
 
     ImGui::Separator();
     if (!m_streamOut.isStreaming()) {

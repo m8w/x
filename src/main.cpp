@@ -14,14 +14,18 @@
 
 #include <cstdio>
 #include <string>
-#include <thread>
-#include <atomic>
+extern "C" {
+#include <libavutil/log.h>
+}
 
 static void glfw_error_cb(int err, const char* desc) {
     fprintf(stderr, "GLFW error %d: %s\n", err, desc);
 }
 
 int main(int argc, char** argv) {
+    // Suppress FFmpeg verbose logs — only show real errors
+    av_log_set_level(AV_LOG_ERROR);
+
     glfwSetErrorCallback(glfw_error_cb);
     if (!glfwInit()) return 1;
 
@@ -49,7 +53,7 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 430");
+    ImGui_ImplOpenGL3_Init("#version 410");
 
     // Core objects
     FractalEngine  engine;

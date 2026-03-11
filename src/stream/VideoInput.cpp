@@ -43,26 +43,51 @@ bool VideoInput::initCodec() {
     }
     m_codecCtx = avcodec_alloc_context3(codec);
     avcodec_parameters_to_context(m_codecCtx, stream->codecpar);
+    // Allow multi-threaded decode (helps with ProRes, HEVC in .mov)
+    m_codecCtx->thread_count = 0;  // auto
+    m_codecCtx->thread_type  = FF_THREAD_FRAME;
     if (avcodec_open2(m_codecCtx, codec, nullptr) < 0) {
         fprintf(stderr, "VideoInput: avcodec_open2 failed\n");
         return false;
     }
     m_width  = m_codecCtx->width;
     m_height = m_codecCtx->height;
-    allocRGBFrame();
-    return true;
-}
 
-void VideoInput::allocRGBFrame() {
-    m_swsCtx = sws_getContext(
-        m_width, m_height, m_codecCtx->pix_fmt,
-        m_width, m_height, AV_PIX_FMT_RGB24,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-
+    // Pre-allocate the RGB output frame (size known from header)
     m_frameRGB->format = AV_PIX_FMT_RGB24;
     m_frameRGB->width  = m_width;
     m_frameRGB->height = m_height;
     av_frame_get_buffer(m_frameRGB, 0);
+
+    // swscale is created lazily on first frame so we use the real pixel format
+    return true;
+}
+
+// Build / rebuild the swscale context from the actual decoded frame's format.
+// .mov files (ProRes, HEVC, H264 with full-range flag) often report a different
+// pixel format in the codec header than what the decoder actually outputs.
+void VideoInput::ensureSwsCtx(AVPixelFormat srcFmt, int w, int h) {
+    if (m_swsCtx && srcFmt == m_lastPixFmt && w == m_width && h == m_height)
+        return;
+
+    if (m_swsCtx) sws_freeContext(m_swsCtx);
+
+    // If frame dimensions changed, reallocate output frame too
+    if (w != m_width || h != m_height) {
+        av_frame_unref(m_frameRGB);
+        m_width  = w;
+        m_height = h;
+        m_frameRGB->format = AV_PIX_FMT_RGB24;
+        m_frameRGB->width  = w;
+        m_frameRGB->height = h;
+        av_frame_get_buffer(m_frameRGB, 0);
+    }
+
+    m_swsCtx = sws_getContext(
+        w, h, srcFmt,
+        w, h, AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    m_lastPixFmt = srcFmt;
 }
 
 AVFrame* VideoInput::nextFrame() {
@@ -78,8 +103,14 @@ AVFrame* VideoInput::nextFrame() {
         av_packet_unref(m_pkt);
 
         if (avcodec_receive_frame(m_codecCtx, m_frame) == 0) {
+            // Use the actual decoded frame's pixel format — not the header's
+            ensureSwsCtx((AVPixelFormat)m_frame->format,
+                         m_frame->width, m_frame->height);
+            if (!m_swsCtx) continue;
+
+            av_frame_make_writable(m_frameRGB);
             sws_scale(m_swsCtx,
-                      m_frame->data, m_frame->linesize, 0, m_height,
+                      m_frame->data, m_frame->linesize, 0, m_frame->height,
                       m_frameRGB->data, m_frameRGB->linesize);
             return m_frameRGB;
         }
@@ -91,12 +122,13 @@ AVFrame* VideoInput::nextFrame() {
 }
 
 void VideoInput::releaseFrame(AVFrame* /*frame*/) {
-    // m_frameRGB is reused; nothing to free per-call.
+    // m_frameRGB is reused each call — nothing to free.
 }
 
 void VideoInput::close() {
-    if (m_swsCtx)   { sws_freeContext(m_swsCtx);        m_swsCtx = nullptr; }
+    if (m_swsCtx)   { sws_freeContext(m_swsCtx);         m_swsCtx = nullptr; }
     if (m_codecCtx) { avcodec_free_context(&m_codecCtx); }
-    if (m_fmtCtx)   { avformat_close_input(&m_fmtCtx);  }
-    m_streamIdx = -1;
+    if (m_fmtCtx)   { avformat_close_input(&m_fmtCtx);   }
+    m_streamIdx  = -1;
+    m_lastPixFmt = AV_PIX_FMT_NONE;
 }

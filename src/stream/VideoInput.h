@@ -28,17 +28,18 @@ public:
     const std::string& path() const { return m_path; }
 
 private:
-    AVFormatContext* m_fmtCtx  = nullptr;
-    AVCodecContext*  m_codecCtx= nullptr;
-    SwsContext*      m_swsCtx  = nullptr;
-    AVFrame*         m_frame   = nullptr;  // decoded YUV
-    AVFrame*         m_frameRGB= nullptr;  // converted RGB24
-    AVPacket*        m_pkt     = nullptr;
+    AVFormatContext* m_fmtCtx    = nullptr;
+    AVCodecContext*  m_codecCtx  = nullptr;
+    SwsContext*      m_swsCtx    = nullptr;
+    AVFrame*         m_frame     = nullptr;   // decoded (any format)
+    AVFrame*         m_frameRGB  = nullptr;   // converted RGB24
+    AVPacket*        m_pkt       = nullptr;
     int              m_streamIdx = -1;
-    int              m_width   = 0;
-    int              m_height  = 0;
+    int              m_width     = 0;
+    int              m_height    = 0;
+    AVPixelFormat    m_lastPixFmt= AV_PIX_FMT_NONE;
     std::string      m_path;
 
     bool initCodec();
-    void allocRGBFrame();
+    void ensureSwsCtx(AVPixelFormat srcFmt, int w, int h);
 };

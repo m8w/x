@@ -53,33 +53,84 @@ void EquationEditor::drawBlendPanel() {
     }
 }
 
-void EquationEditor::drawFractalPanel() {
-    ImGui::DragFloat2("Julia C (re,im)", &m_engine.juliaC.x,
-                      0.001f, -2.0f, 2.0f, "%.4f");
-    ImGui::DragFloat("Mandelbulb power", &m_engine.power,
-                     0.1f, 2.0f, 16.0f, "%.1f");
-    ImGui::SliderInt("Max iterations",   &m_engine.maxIter, 16, 512);
-    ImGui::DragFloat("Bailout radius",   &m_engine.bailout, 0.1f, 2.0f, 10.0f);
-    ImGui::Separator();
-    ImGui::DragFloat("Zoom",  &m_engine.zoom,   0.01f, 0.1f, 1000.0f, "%.3f",
-                     ImGuiSliderFlags_Logarithmic);
-    ImGui::DragFloat2("Offset (x,y)",    &m_engine.offset.x, 0.001f);
+static const char* kFormulas[] = {
+    "z\xc2\xb2 + c  (Mandelbrot)",      //  0
+    "sin(z) + c",                         //  1
+    "exp(z) + c",                         //  2
+    "cos(z) + c",                         //  3
+    "sinh(z) + c",                        //  4
+    "cosh(z) + c",                        //  5
+    "Burning Ship",                       //  6
+    "Tricorn",                            //  7
+    "Newton z\xc2\xb3\xe2\x88\x921",     //  8
+    "Phoenix",                            //  9
+    "z\xe2\x81\xbf + c  (power)",        // 10
+};
+static const char* k3DTypes[] = {
+    "Mandelbulb",
+    "Mandelbox",
+    "Quaternion Julia",
+};
 
+void EquationEditor::drawFractalPanel() {
+    // ── Iteration formula ─────────────────────────────────────────────────────
+    ImGui::TextDisabled("Iteration formula");
+    ImGui::Combo("Formula##sel", &m_engine.formula, kFormulas, 11);
+    ImGui::SliderFloat("Formula blend", &m_engine.formulaBlend, 0.0f, 1.0f,
+                       "z\xc2\xb2+c %.2f formula");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 = pure z\xc2\xb2+c   1 = pure formula   0.5 = crossfade");
+
+    ImGui::Separator();
+
+    // ── Geometry coupling ─────────────────────────────────────────────────────
+    ImGui::TextDisabled("Euclidean \xe2\x86\x94 fractal coupling");
+    ImGui::SliderFloat("Geo warp", &m_engine.geoWarp, 0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("SDF gradient bends the fractal orbit inside the iteration loop.\n"
+                          "0 = coloring only   1 = maximum algebraic coupling");
+
+    ImGui::Separator();
+
+    // ── Complex parameters ────────────────────────────────────────────────────
+    ImGui::DragFloat2("Julia / Phoenix C", &m_engine.juliaC.x,
+                      0.001f, -2.0f, 2.0f, "%.4f");
+    ImGui::DragFloat("Power (z^n / bulb)", &m_engine.power,
+                     0.1f, 2.0f, 16.0f, "%.1f");
+    ImGui::SliderInt("Max iterations",  &m_engine.maxIter, 16, 512);
+    ImGui::DragFloat("Bailout radius",  &m_engine.bailout, 0.1f, 2.0f, 10.0f);
+
+    ImGui::Separator();
+
+    // ── View ──────────────────────────────────────────────────────────────────
+    ImGui::DragFloat("Zoom", &m_engine.zoom, 0.01f, 0.1f, 1000.0f, "%.3f",
+                     ImGuiSliderFlags_Logarithmic);
+    ImGui::DragFloat2("Offset (x,y)", &m_engine.offset.x, 0.001f);
     if (ImGui::Button("Reset view")) {
         m_engine.zoom   = 1.0f;
         m_engine.offset = {0.0f, 0.0f};
     }
 
-    // Animate Julia C along a circle
-    static bool animJulia = false;
+    // ── Julia animation ───────────────────────────────────────────────────────
+    static bool  animJulia = false;
     static float animSpeed = 0.3f;
     ImGui::Checkbox("Animate Julia C", &animJulia);
     if (animJulia) {
         ImGui::SameLine();
-        ImGui::SliderFloat("##speed", &animSpeed, 0.01f, 2.0f);
+        ImGui::SliderFloat("##aspeed", &animSpeed, 0.01f, 2.0f);
         double t = ImGui::GetTime();
         m_engine.juliaC.x = (float)(0.7885 * cos(t * animSpeed));
         m_engine.juliaC.y = (float)(0.7885 * sin(t * animSpeed));
+    }
+
+    ImGui::Separator();
+
+    // ── 3-D fractal (mandelbulb.frag) ─────────────────────────────────────────
+    ImGui::TextDisabled("3-D fractal (when Mandelbulb blend > 0.5)");
+    ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 3);
+    if (m_engine.fractal3D == 1) {
+        ImGui::DragFloat("MB scale", &m_engine.mbScale, 0.01f, 0.5f, 4.0f);
+        ImGui::DragFloat("MB fold",  &m_engine.mbFold,  0.01f, 0.1f, 3.0f);
     }
 }
 

@@ -43,8 +43,30 @@ input[type=range]{width:100%;height:34px;accent-color:#55aaff;cursor:pointer}
 </div>
 
 <div class="card">
+  <h2>Formula</h2>
+  <div class="row"><label>Formula blend <span class="v" id="lv_formula_blend">-</span></label><input type=range id="formula_blend" min=0 max=1 step=0.01></div>
+  <div class="row"><label>Geo warp (coupling) <span class="v" id="lv_geo_warp">-</span></label><input type=range id="geo_warp" min=0 max=1 step=0.01></div>
+  <div class="row">
+    <label style="margin-bottom:8px">Formula</label>
+    <select id="formula" style="width:100%;background:#111;color:#eee;border:1px solid #333;padding:8px;border-radius:6px;font-size:14px">
+      <option value=0>z&#178; + c (Mandelbrot)</option>
+      <option value=1>sin(z) + c</option>
+      <option value=2>exp(z) + c</option>
+      <option value=3>cos(z) + c</option>
+      <option value=4>sinh(z) + c</option>
+      <option value=5>cosh(z) + c</option>
+      <option value=6>Burning Ship</option>
+      <option value=7>Tricorn</option>
+      <option value=8>Newton z&#179;&#8722;1</option>
+      <option value=9>Phoenix</option>
+      <option value=10>z&#8319; + c (power)</option>
+    </select>
+  </div>
+</div>
+
+<div class="card">
   <h2>Parameters</h2>
-  <div class="row"><label>Mandelbulb power <span class="v" id="lv_power">-</span></label><input type=range id="power" min=2 max=16 step=0.1></div>
+  <div class="row"><label>Power (bulb / z^n) <span class="v" id="lv_power">-</span></label><input type=range id="power" min=2 max=16 step=0.1></div>
   <div class="row"><label>Max iterations <span class="v" id="lv_max_iter">-</span></label><input type=range id="max_iter" min=16 max=512 step=1></div>
   <div class="row"><label>Bailout <span class="v" id="lv_bailout">-</span></label><input type=range id="bailout" min=2 max=10 step=0.1></div>
 </div>
@@ -58,8 +80,13 @@ input[type=range]{width:100%;height:34px;accent-color:#55aaff;cursor:pointer}
 
 <script>
 const ids=['blend_m','blend_j','blend_mb','blend_e','julia_re','julia_im',
-           'power','max_iter','bailout','zoom','offset_x','offset_y'];
+           'power','max_iter','bailout','zoom','offset_x','offset_y',
+           'formula_blend','geo_warp'];
 const dot=document.getElementById('dot');
+// Formula select (not a range, handle separately)
+document.getElementById('formula').addEventListener('change',function(){
+  send('formula',this.value);
+});
 
 function fmt(id,v){
   const f=parseFloat(v);
@@ -95,6 +122,7 @@ fetch('/state')
       const lv=document.getElementById('lv_'+id);
       if(lv) lv.textContent=fmt(id,s[id]);
     });
+    if(s.formula!==undefined) document.getElementById('formula').value=s.formula;
     dot.className='ok';
   })
   .catch(()=>{dot.className='err'});
@@ -133,9 +161,12 @@ void RemoteControl::applyParam(const std::string& key, const std::string& val) {
         else if (key == "power")     m_engine.power     = f;
         else if (key == "max_iter")  m_engine.maxIter   = (int)f;
         else if (key == "bailout")   m_engine.bailout   = f;
-        else if (key == "zoom")      m_engine.zoom      = f;
-        else if (key == "offset_x")  m_engine.offset.x  = f;
-        else if (key == "offset_y")  m_engine.offset.y  = f;
+        else if (key == "zoom")           m_engine.zoom         = f;
+        else if (key == "offset_x")       m_engine.offset.x     = f;
+        else if (key == "offset_y")       m_engine.offset.y     = f;
+        else if (key == "formula")        m_engine.formula      = (int)f;
+        else if (key == "formula_blend")  m_engine.formulaBlend = f;
+        else if (key == "geo_warp")       m_engine.geoWarp      = f;
     } catch (...) {}
 }
 
@@ -234,14 +265,16 @@ void RemoteControl::handleClient(int fd) {
         body = "OK";
 
     } else if (path == "/state") {
-        char json[512];
+        char json[768];
         snprintf(json, sizeof(json),
             "{\"blend_m\":%.3f,\"blend_j\":%.3f,\"blend_mb\":%.3f,\"blend_e\":%.3f,"
             "\"julia_re\":%.4f,\"julia_im\":%.4f,\"power\":%.2f,\"max_iter\":%d,"
-            "\"bailout\":%.2f,\"zoom\":%.4f,\"offset_x\":%.4f,\"offset_y\":%.4f}",
+            "\"bailout\":%.2f,\"zoom\":%.4f,\"offset_x\":%.4f,\"offset_y\":%.4f,"
+            "\"formula\":%d,\"formula_blend\":%.3f,\"geo_warp\":%.3f}",
             m_blend.mandelbrot, m_blend.julia, m_blend.mandelbulb, m_blend.euclidean,
             m_engine.juliaC.x, m_engine.juliaC.y, m_engine.power, m_engine.maxIter,
-            m_engine.bailout, m_engine.zoom, m_engine.offset.x, m_engine.offset.y);
+            m_engine.bailout, m_engine.zoom, m_engine.offset.x, m_engine.offset.y,
+            m_engine.formula, m_engine.formulaBlend, m_engine.geoWarp);
         body        = json;
         contentType = "application/json";
 

@@ -66,6 +66,14 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_geo_radius",      eng.geoRadius);
     prog.setFloat ("u_geo_rotation",    eng.geoRotation);
     prog.setBool  ("u_geo_tile",        eng.geoTile);
+    // Formula + SDF coupling (fractal.frag)
+    prog.setInt   ("u_formula",         eng.formula);
+    prog.setFloat ("u_formula_blend",   eng.formulaBlend);
+    prog.setFloat ("u_geo_warp",        eng.geoWarp);
+    // 3-D fractal type (mandelbulb.frag)
+    prog.setInt   ("u_fractal_3d",      eng.fractal3D);
+    prog.setFloat ("u_mb_scale",        eng.mbScale);
+    prog.setFloat ("u_mb_fold",         eng.mbFold);
     prog.setInt   ("u_video_tex",       0);  // texture unit 0
 }
 

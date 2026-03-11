@@ -1,5 +1,5 @@
 #include "VideoTexture.h"
-extern "C" { #include <libavutil/frame.h> }
+// AVFrame is already included via VideoTexture.h
 
 VideoTexture::VideoTexture() {}
 

@@ -1,6 +1,10 @@
 #include "StreamOutput.h"
 #include <cstdio>
 #include <cstring>
+#include <vector>
+extern "C" {
+#include <libavutil/opt.h>
+}
 
 StreamOutput::StreamOutput() {
     m_pkt = av_packet_alloc();

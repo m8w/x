@@ -1,6 +1,8 @@
 #pragma once
 #include "gl_includes.h"
-extern "C" { #include <libavutil/frame.h> }
+extern "C" {
+#include <libavutil/frame.h>
+}
 
 // Manages a single GL_TEXTURE_2D that is updated each frame with video data.
 class VideoTexture {

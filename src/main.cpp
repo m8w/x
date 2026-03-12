@@ -8,6 +8,7 @@
 #include "renderer/VideoTexture.h"
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
+#include "fractal/GlitchEngine.h"
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "ui/EquationEditor.h"
@@ -73,7 +74,8 @@ int main(int argc, char** argv) {
     MidiOutput     midiOut;
     MidiMapper     midiMapper;
     MidiGenerator  midiGen;
-    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
+    GlitchEngine   glitchEng;
+    EquationEditor ui(engine, blend, glitchEng, videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -118,10 +120,20 @@ int main(int argc, char** argv) {
         // Tick MIDI generator — drive fractal params AND send real MIDI to VST
         {
             double elapsed = glfwGetTime() - t0;
+
+            // Tick glitch engine first (modifies engine/blend, returns ghost notes)
+            auto glitchMsgs = glitchEng.tick(elapsed, engine, blend);
+            for (auto& msg : glitchMsgs) {
+                midiMapper.apply(msg, engine, blend);
+                midiOut.send(msg);
+            }
+
             auto genMsgs = midiGen.tick(elapsed);
             for (auto& msg : genMsgs) {
-                midiMapper.apply(msg, engine, blend);  // fractal params
-                midiOut.send(msg);                     // real MIDI to DAW/VST
+                // Apply MIDI glitch modifiers (velocity spike, pitch scramble)
+                auto gMsg = glitchEng.applyMidiGlitch(msg);
+                midiMapper.apply(gMsg, engine, blend);  // fractal params
+                midiOut.send(gMsg);                     // real MIDI to DAW/VST
             }
         }
 

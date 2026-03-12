@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 
 static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440", "3840x2160 (4K)"};
 static const int   kResW[]      = {1280, 1920, 2560, 3840};
@@ -11,10 +12,11 @@ static const int   kResH[]      = { 720, 1080, 1440, 2160};
 static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
+                                GlitchEngine& glitch,
                                 VideoInput& videoIn, StreamOutput& streamOut,
                                 MidiInput& midiIn, MidiOutput& midiOut,
                                 MidiMapper& midiMapper, MidiGenerator& midiGen)
-    : m_engine(engine), m_blend(blend),
+    : m_engine(engine), m_blend(blend), m_glitch(glitch),
       m_videoIn(videoIn), m_streamOut(streamOut),
       m_midiIn(midiIn), m_midiOut(midiOut),
       m_midiMapper(midiMapper), m_midiGen(midiGen) {}
@@ -41,6 +43,7 @@ void EquationEditor::draw() {
 
     // UI2 — MIDI Mapper (separate window)
     drawMidiWindow();
+    drawGlitchPanel();
 }
 
 void EquationEditor::drawBlendPanel() {
@@ -863,6 +866,142 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SameLine();
         if (ImGui::Button("PC→FormulaA"))  m_midiMapper.add({3,0,0,MidiParam::FormulaA,0.0f,10.0f,"PC→FrmA"});
     }
+
+    ImGui::End();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// UI3 — Glitch Engine  (separate floating window)
+// ════════════════════════════════════════════════════════════════════════════════
+void EquationEditor::drawGlitchPanel() {
+    ImGui::SetNextWindowPos ({1280, 10},  ImGuiCond_Once);
+    ImGui::SetNextWindowSize({310, 440},  ImGuiCond_Once);
+    ImGui::Begin("Glitch Engine — UI3");
+
+    auto& G = m_glitch;
+
+    // ── Master ────────────────────────────────────────────────────────────────
+    ImGui::Checkbox("Enable Glitch Engine", &G.enabled);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Fires random chaos events that affect both\n"
+                          "MIDI output and fractal visuals simultaneously.\n"
+                          "Each glitch lasts a short time then auto-recovers.");
+
+    if (!G.enabled) { ImGui::BeginDisabled(); }
+
+    // ── Live status ───────────────────────────────────────────────────────────
+    ImGui::Spacing();
+    if (G.inGlitch) {
+        ImGui::TextColored({1.0f, 0.3f, 0.1f, 1.0f}, "⚡ GLITCHING: %s", G.lastGlitchName);
+    } else {
+        ImGui::TextColored({0.4f, 0.4f, 0.4f, 1.0f}, "● Idle");
+    }
+
+    ImGui::Separator();
+
+    // ── Event timing ─────────────────────────────────────────────────────────
+    ImGui::TextDisabled("Event Rate");
+    ImGui::SliderFloat("Rate (glitches/sec)", &G.glitchRateHz, 0.05f, 5.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Average number of glitch events per second.\n"
+                          "0.1 = rare  0.5 = occasional  2.0 = frantic  5.0 = chaos");
+
+    ImGui::SliderFloat("Min duration (s)", &G.glitchDurMin, 0.01f, 0.5f, "%.2f");
+    ImGui::SliderFloat("Max duration (s)", &G.glitchDurMax,
+                       G.glitchDurMin, 1.0f, "%.2f");
+
+    // ── Intensity ─────────────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("Intensity");
+    ImGui::SliderFloat("Intensity", &G.intensity, 0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Controls how extreme each glitch is.\n"
+                          "0 = subtle nudges   1 = extreme chaos");
+
+    ImGui::Separator();
+
+    // ── Glitch type toggles ───────────────────────────────────────────────────
+    ImGui::TextDisabled("Fractal Glitches");
+    ImGui::Checkbox("Julia Jump",      &G.doJuliaJump);
+    ImGui::SameLine(120);
+    ImGui::Checkbox("Formula Flash",   &G.doFormulaFlash);
+    ImGui::Checkbox("Zoom Punch",      &G.doZoomPunch);
+    ImGui::SameLine(120);
+    ImGui::Checkbox("Blend Scatter",   &G.doBlendScatter);
+    ImGui::Checkbox("Power Spike",     &G.doPowerSpike);
+    ImGui::SameLine(120);
+    ImGui::Checkbox("Offset Shift",    &G.doOffsetShift);
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("MIDI Glitches");
+    ImGui::Checkbox("Vel Spike",       &G.doVelocitySpike);
+    ImGui::SameLine(120);
+    ImGui::Checkbox("Pitch Scramble",  &G.doPitchScramble);
+    ImGui::Checkbox("Ghost Note",      &G.doGhostNote);
+
+    // ── Ghost note range ──────────────────────────────────────────────────────
+    if (G.doGhostNote) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Ghost note range");
+        ImGui::SetNextItemWidth(60);
+        ImGui::InputInt("Min##gn", &G.noteMin);
+        G.noteMin = std::max(0, std::min(G.noteMin, G.noteMax - 1));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(60);
+        ImGui::InputInt("Max##gn", &G.noteMax);
+        G.noteMax = std::max(G.noteMin + 1, std::min(127, G.noteMax));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(50);
+        ImGui::InputInt("Ch##gn", &G.midiChannel);
+        G.midiChannel = std::max(1, std::min(16, G.midiChannel));
+    }
+
+    ImGui::Separator();
+
+    // ── Quick presets ─────────────────────────────────────────────────────────
+    ImGui::TextDisabled("Presets");
+    if (ImGui::SmallButton("Subtle")) {
+        G.glitchRateHz = 0.2f; G.intensity = 0.3f;
+        G.glitchDurMin = 0.05f; G.glitchDurMax = 0.15f;
+        G.doJuliaJump = true;  G.doFormulaFlash = false;
+        G.doZoomPunch = false; G.doBlendScatter = false;
+        G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doVelocitySpike = true; G.doPitchScramble = false; G.doGhostNote = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Moderate")) {
+        G.glitchRateHz = 0.5f; G.intensity = 0.5f;
+        G.glitchDurMin = 0.08f; G.glitchDurMax = 0.25f;
+        G.doJuliaJump = true;  G.doFormulaFlash = true;
+        G.doZoomPunch = false; G.doBlendScatter = true;
+        G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Extreme")) {
+        G.glitchRateHz = 2.0f; G.intensity = 0.9f;
+        G.glitchDurMin = 0.05f; G.glitchDurMax = 0.4f;
+        G.doJuliaJump = true;  G.doFormulaFlash = true;
+        G.doZoomPunch = true;  G.doBlendScatter = true;
+        G.doPowerSpike= true;  G.doOffsetShift  = true;
+        G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("MIDI only")) {
+        G.doJuliaJump = false; G.doFormulaFlash = false;
+        G.doZoomPunch = false; G.doBlendScatter = false;
+        G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Visual only")) {
+        G.doJuliaJump = true;  G.doFormulaFlash = true;
+        G.doZoomPunch = true;  G.doBlendScatter = true;
+        G.doPowerSpike= true;  G.doOffsetShift  = true;
+        G.doVelocitySpike = false; G.doPitchScramble = false; G.doGhostNote = false;
+    }
+
+    if (!G.enabled) { ImGui::EndDisabled(); }
 
     ImGui::End();
 }

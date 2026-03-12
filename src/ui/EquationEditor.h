@@ -1,6 +1,7 @@
 #pragma once
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
+#include "fractal/GlitchEngine.h"
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "midi/MidiInput.h"
@@ -12,6 +13,7 @@
 class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
+                   GlitchEngine& glitch,
                    VideoInput& videoIn, StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
                    MidiMapper& midiMapper, MidiGenerator& midiGen);
@@ -20,6 +22,7 @@ public:
 private:
     FractalEngine&   m_engine;
     BlendController& m_blend;
+    GlitchEngine&    m_glitch;
     VideoInput&      m_videoIn;
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
@@ -42,4 +45,5 @@ private:
     void drawStreamPanel();
     void drawAnimPanel();
     void drawMidiWindow();
+    void drawGlitchPanel();
 };

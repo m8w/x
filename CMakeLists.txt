@@ -24,6 +24,24 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale)
 
+# RtMidi — MIDI input.  Install: apt install librtmidi-dev  /  brew install rtmidi
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(RTMIDI QUIET rtmidi)
+if(NOT RTMIDI_FOUND)
+    # Fallback: look for RtMidi via CMake config (Homebrew on macOS)
+    find_package(RtMidi QUIET)
+    if(RtMidi_FOUND)
+        set(RTMIDI_INCLUDE_DIRS "")
+        set(RTMIDI_LIBRARIES RtMidi::rtmidi)
+        set(RTMIDI_FOUND TRUE)
+    else()
+        message(WARNING "RtMidi not found — MIDI input disabled. "
+                        "Install: apt install librtmidi-dev  /  brew install rtmidi")
+        set(RTMIDI_INCLUDE_DIRS "")
+        set(RTMIDI_LIBRARIES "")
+    endif()
+endif()
+
 # GLEW: not needed on macOS — use the built-in GL loader instead
 if(NOT APPLE)
     find_package(GLEW REQUIRED)
@@ -52,6 +70,8 @@ set(SOURCES
     src/ui/EquationEditor.cpp
     src/ui/FilePicker_linux.cpp  # no-op on macOS via #ifndef __APPLE__
     src/remote/RemoteControl.cpp
+    src/midi/MidiInput.cpp
+    src/midi/MidiMapper.cpp
 )
 
 # macOS: native NSOpenPanel file picker (Objective-C++)
@@ -67,6 +87,7 @@ target_include_directories(fractal_stream PRIVATE
     ${IMGUI_DIR}/backends
     ${GLM_DIR}
     ${FFMPEG_INCLUDE_DIRS}
+    ${RTMIDI_INCLUDE_DIRS}
 )
 
 target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
@@ -91,9 +112,12 @@ if(APPLE)
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreVideo"
+        "-framework CoreMIDI"
+        "-framework CoreAudio"
         "-framework UniformTypeIdentifiers"
         glfw
         ${FFMPEG_LIBRARIES}
+        ${RTMIDI_LIBRARIES}
     )
 else()
     target_link_libraries(fractal_stream PRIVATE
@@ -101,6 +125,7 @@ else()
         GLEW::GLEW
         glfw
         ${FFMPEG_LIBRARIES}
+        ${RTMIDI_LIBRARIES}
         pthread
     )
 endif()

@@ -1,0 +1,66 @@
+#pragma once
+#include "MidiInput.h"
+#include "fractal/FractalEngine.h"
+#include "fractal/BlendController.h"
+#include <vector>
+#include <string>
+
+// Every fractal/blend parameter that can be MIDI-controlled.
+enum class MidiParam {
+    BlendMandelbrot, BlendJulia, BlendMandelbulb, BlendEuclidean, BlendDiff,
+    JuliaCX, JuliaCY,
+    Power, Zoom, OffsetX, OffsetY,
+    FormulaA, FormulaB, FormulaBlend,
+    PixelWeight, LayerCount, LayerOffset,
+    GeoWarp, GeoRadius, GeoRotation,
+    COUNT
+};
+
+// Human-readable name for each param (parallel to MidiParam enum).
+const char* midiParamName(MidiParam p);
+
+struct MidiMapping {
+    // ── MIDI trigger ─────────────────────────────────────────────────────────
+    int msgType;    // 0=CC  1=NoteOn  2=NoteOff/toggle
+    int channel;    // 0=any  1-16=specific
+    int number;     // CC number  or  note number
+
+    // ── Target parameter ──────────────────────────────────────────────────────
+    MidiParam param;
+    float     minVal;
+    float     maxVal;
+
+    // ── Optional display name (filled by MIDI-Learn) ──────────────────────────
+    char label[32];
+};
+
+// ── MIDI-Learn state ─────────────────────────────────────────────────────────
+struct LearnState {
+    bool  active      = false;  // true while waiting for incoming message
+    bool  captured    = false;  // true after message received, awaiting confirm
+    MidiInput::Message captured_msg = {0,0,0};
+};
+
+class MidiMapper {
+public:
+    // Apply all mappings to a single incoming message
+    void apply(const MidiInput::Message& msg, FractalEngine& eng, BlendController& blend);
+
+    // Mapping list management
+    void add(const MidiMapping& m);
+    void remove(int idx);
+    const std::vector<MidiMapping>& mappings() const { return m_mappings; }
+    std::vector<MidiMapping>&       mappings()       { return m_mappings; }
+
+    // MIDI-Learn helpers
+    LearnState& learn() { return m_learn; }
+    // Feed incoming messages into learn capture
+    void feedLearn(const MidiInput::Message& msg);
+
+private:
+    std::vector<MidiMapping> m_mappings;
+    LearnState               m_learn;
+
+    static void applyToParam(MidiParam p, float val,
+                             FractalEngine& eng, BlendController& blend);
+};

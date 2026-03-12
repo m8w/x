@@ -3,12 +3,15 @@
 #include "fractal/BlendController.h"
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
+#include "midi/MidiInput.h"
+#include "midi/MidiMapper.h"
 #include <string>
 
 class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
-                   VideoInput& videoIn, StreamOutput& streamOut);
+                   VideoInput& videoIn, StreamOutput& streamOut,
+                   MidiInput& midiIn, MidiMapper& midiMapper);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
 private:
@@ -16,6 +19,8 @@ private:
     BlendController& m_blend;
     VideoInput&      m_videoIn;
     StreamOutput&    m_streamOut;
+    MidiInput&       m_midiIn;
+    MidiMapper&      m_midiMapper;
 
     // Stream panel state
     int  m_bitrateKbps = 4000;
@@ -32,4 +37,5 @@ private:
     void drawVideoPanel();
     void drawStreamPanel();
     void drawAnimPanel();
+    void drawMidiWindow();   // UI2 — separate floating ImGui window
 };

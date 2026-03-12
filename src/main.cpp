@@ -12,6 +12,8 @@
 #include "stream/StreamOutput.h"
 #include "ui/EquationEditor.h"
 #include "remote/RemoteControl.h"
+#include "midi/MidiInput.h"
+#include "midi/MidiMapper.h"
 
 #include <cstdio>
 #include <string>
@@ -65,7 +67,9 @@ int main(int argc, char** argv) {
     Renderer       renderer;
     VideoInput     videoIn;
     StreamOutput   streamOut;
-    EquationEditor ui(engine, blend, videoIn, streamOut);
+    MidiInput      midiIn;
+    MidiMapper     midiMapper;
+    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiMapper);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -95,6 +99,15 @@ int main(int argc, char** argv) {
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        // Poll MIDI — apply mappings and feed MIDI-Learn
+        if (midiIn.isOpen()) {
+            auto msgs = midiIn.poll();
+            for (auto& msg : msgs) {
+                midiMapper.apply(msg, engine, blend);
+                midiMapper.feedLearn(msg);
+            }
+        }
 
         // Decode next video frame if ready
         if (videoIn.isOpen()) {

@@ -193,11 +193,11 @@ float iterate(vec2 z_init, vec2 seed) {
         } else {
             float r2 = dot(z,z);
             if (r2 > u_bailout*u_bailout) {
-                float smooth = float(i)/float(u_max_iter)
-                             - log2(log2(max(r2,1.0001)))/float(u_max_iter);
+                float escape_t = float(i)/float(u_max_iter)
+                              - log2(log2(max(r2,1.0001)))/float(u_max_iter);
                 float trap_c = clamp(1.0-trap*(2.0+u_geo_warp*10.0), 0.0, 1.0);
                 // Escape time blends with orbit trap: geometry IS the coloring
-                return mix(smooth, trap_c, clamp(u_blend_euclidean*1.8, 0.0, 1.0));
+                return mix(escape_t, trap_c, clamp(u_blend_euclidean*1.8, 0.0, 1.0));
             }
         }
     }

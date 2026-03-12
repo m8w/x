@@ -16,10 +16,10 @@ EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
 
 void EquationEditor::draw() {
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
-    ImGui::SetNextWindowSize({340, 620}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({360, 980}, ImGuiCond_Once);
     ImGui::Begin("Fractal Stream Controls");
 
-    if (ImGui::CollapsingHeader("Blend", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Blend"))
         drawBlendPanel();
     if (ImGui::CollapsingHeader("Fractal Parameters", ImGuiTreeNodeFlags_DefaultOpen))
         drawFractalPanel();

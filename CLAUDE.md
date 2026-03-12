@@ -4,9 +4,11 @@
 
 Real-time fractal renderer that:
 - Decodes **local video files** as live input texture
-- Blends **Mandelbrot, Julia, Mandelbulb** with **Euclidean geometry** via a live equation editor
+- Blends **Mandelbrot, Julia, Mandelbulb, Mandelbox, Quaternion Julia** with **Euclidean geometry** via a live equation editor
+- Supports **11 iteration formulas** (classic z²+c, Burning Ship, Newton, Phoenix, trig/hyperbolic, arbitrary power) inspired by the Fractal Explorer / UltraFractal function set
+- Couples SDF geometry into the fractal orbit via **orbit-trap coloring** and **domain warp**
 - Maps the video stream onto the fractal surface using escape-time UV mapping
-- Encodes and pushes the rendered output to **Restream** via RTMP
+- Encodes and pushes the rendered output to **Restream** (and multiple simultaneous destinations) via RTMP/RTMPS
 
 ---
 
@@ -188,11 +190,17 @@ float DE_mandelbulb(vec3 pos) {
 | Mandelbulb weight | slider | 0–1 | 3D ray-march blend |
 | Euclidean weight | slider | 0–1 | SDF geometry blend |
 
+### Panel: Iteration Formula
+| Control | Type | Effect |
+|---------|------|--------|
+| Formula | combo (0–10) | selects iteration equation (see Formula Reference below) |
+| Formula blend | slider 0–1 | 0 = pure z²+c, 1 = pure chosen formula, mix in between |
+
 ### Panel: Fractal Parameters
 | Control | Type | Effect |
 |---------|------|--------|
 | Julia C (real, imag) | drag float2 | shift Julia set shape |
-| Mandelbulb power | drag float | 2=sphere, 8=classic, >8=spiky |
+| Power (n) | drag float | Mandelbulb power / z^n exponent |
 | Max iterations | int slider | detail level |
 | Bailout radius | drag float | escape threshold |
 | Zoom | scroll / drag | view scale |
@@ -206,50 +214,133 @@ float DE_mandelbulb(vec3 pos) {
 | Radius | drag float | shape size |
 | Rotation | drag float | shape angle |
 | Repeat / tile | checkbox | tiled SDF |
+| Orbit-trap warp | slider 0–1 | 0 = pure orbit-trap color, >0 = geometry bends the fractal orbit |
+
+### Panel: 3-D Fractal
+| Control | Type | Effect |
+|---------|------|--------|
+| 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia |
+| Mandelbox scale | drag float | IFS fold-and-scale factor (typ. 2.0) |
+| Mandelbox fold | drag float | box fold limit |
 
 ### Panel: Stream Output
 | Control | Type |
 |---------|------|
-| Restream RTMP URL | text input |
-| Stream key | password input |
-| Bitrate (kbps) | slider 1000–8000 |
-| Output resolution | combo 720p/1080p/1440p |
-| Start / Stop stream | button |
+| Destination list | add/remove rows | per-row RTMP URL + stream key (multi-stream) |
+| Bitrate (kbps) | slider 1000–40000 | up to 40 Mbps for 4K |
+| Output resolution | combo 720p/1080p/1440p/4K | |
+| Start / Stop stream | button | |
 
 ---
 
 ## Shader Uniform Reference
 
 ```glsl
-// Blend weights (normalised in-shader)
+// ── Blend weights (normalised in-shader) ────────────────────────────────────
 uniform float u_blend_mandelbrot;
 uniform float u_blend_julia;
 uniform float u_blend_mandelbulb;
 uniform float u_blend_euclidean;
 
-// Fractal params
+// ── Fractal iteration ────────────────────────────────────────────────────────
 uniform vec2  u_julia_c;          // Julia c constant
-uniform float u_power;            // Mandelbulb power
+uniform float u_power;            // Mandelbulb/z^n power
 uniform int   u_max_iter;
 uniform float u_bailout;
 uniform float u_zoom;
 uniform vec2  u_offset;
 uniform float u_time;             // seconds since start (animation)
 
-// Euclidean geometry
+// ── Formula selector (fractal.frag) ─────────────────────────────────────────
+uniform int   u_formula;          // 0–10, see Formula Reference
+uniform float u_formula_blend;    // 0=pure z²+c  1=pure formula  (linear mix)
+
+// ── Euclidean geometry / SDF ─────────────────────────────────────────────────
 uniform int   u_geo_shape;        // 0=circle 1=polygon 2=star 3=grid
 uniform int   u_geo_sides;
 uniform float u_geo_radius;
 uniform float u_geo_rotation;
 uniform bool  u_geo_tile;
+uniform float u_geo_warp;         // orbit-trap warp strength (0=coloring only)
 
-// Video
+// ── 3-D fractal (mandelbulb.frag) ────────────────────────────────────────────
+uniform int   u_fractal_3d;       // 0=Mandelbulb 1=Mandelbox 2=Quaternion Julia
+uniform float u_mb_scale;         // Mandelbox: IFS scale factor
+uniform float u_mb_fold;          // Mandelbox: box fold limit
+
+// ── Video ────────────────────────────────────────────────────────────────────
 uniform sampler2D u_video_tex;
 uniform vec2      u_video_size;
 
-// Window
+// ── Window ───────────────────────────────────────────────────────────────────
 uniform vec2  u_resolution;
 ```
+
+---
+
+## Formula Reference (`u_formula`)
+
+The iteration formula is selected with the `u_formula` uniform (integer 0–10).
+`u_formula_blend` (0–1) linearly interpolates between the classic z²+c orbit and
+the chosen formula, allowing smooth transitions in the UI.
+
+| ID | Name | Recurrence | Notes |
+|----|------|-----------|-------|
+| 0 | **Mandelbrot / Julia** | zₙ₊₁ = zₙ² + c | Classic escape-time; Mandelbrot when z₀=0, Julia when z₀=pixel |
+| 1 | **Sinus** | zₙ₊₁ = sin(zₙ) + c | Complex sine; produces flame-like symmetric filaments |
+| 2 | **Exponential** | zₙ₊₁ = exp(zₙ) + c | Spiral arms; never fully bounded—bailout drives coloring |
+| 3 | **Cosine** | zₙ₊₁ = cos(zₙ) + c | Twin of Sinus; different phase produces distinct textures |
+| 4 | **Sinh** | zₙ₊₁ = sinh(zₙ) + c | Hyperbolic sine; elongated lobes along real axis |
+| 5 | **Cosh** | zₙ₊₁ = cosh(zₙ) + c | Hyperbolic cosine; symmetric saddle shapes |
+| 6 | **Burning Ship** | zₙ₊₁ = (|Re zₙ| + i|Im zₙ|)² + c | Absolute-value fold before squaring; ship silhouette at full zoom |
+| 7 | **Tricorn / Mandelbar** | zₙ₊₁ = conj(zₙ)² + c | Conjugate before squaring; three-fold symmetry |
+| 8 | **Newton z³−1** | zₙ₊₁ = zₙ − (zₙ³−1)/(3zₙ²) | Newton's method; convergence to three cube roots of unity; coloring by nearest root |
+| 9 | **Phoenix** | zₙ₊₁ = zₙ² + Re(c) + Im(c)·zₙ₋₁ | Two-step memory recurrence; feather-like phoenix wings |
+| 10 | **Power** | zₙ₊₁ = zₙⁿ + c | Arbitrary real power via polar form; uses `u_power` |
+
+### Complex Number Library (GLSL)
+
+The shader implements a full complex-math library (Fractal Explorer 2 / UltraFractal
+function-set style) that all formulas build on:
+
+```glsl
+// Arithmetic
+cmul(a,b)   csqr(z)   ccube(z)   cinv(z)   cdiv(a,b)   cconj(z)
+
+// Exponential / power
+cexp(z)     clog(z)
+cpow_r(z,n)   // z^n via polar form  (real exponent)
+cpow_c(z,w)   // z^w = exp(w·log z)  (complex exponent)
+
+// Trigonometric (complex domain)
+csin(z)   ccos(z)   ctan(z)
+
+// Hyperbolic (complex domain)
+csinh(z)   ccosh(z)   ctanh(z)
+
+// Square root
+csqrt(z)
+```
+
+### SDF Orbit-Trap Coupling
+
+When `u_blend_euclidean > 0` the signed-distance field is evaluated **inside the
+iteration loop** at each `zₙ`:
+
+```
+trap = min(trap, |SDF(zₙ)|)          // orbit-trap coloring
+```
+
+When `u_geo_warp > 0`, the SDF gradient additionally *moves* zₙ toward the shape
+boundary on every step, algebraically coupling the Euclidean geometry into the
+fractal orbit:
+
+```
+zₙ -= normalize(∇SDF(zₙ)) · sign(SDF(zₙ)) · warp · 0.035
+```
+
+A domain-warp pass also pre-distorts the complex plane *before* iteration begins
+using the same gradient, doubling the visual coupling.
 
 ---
 

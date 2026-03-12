@@ -82,6 +82,10 @@ void MidiMapper::apply(const MidiInput::Message& msg,
             // NoteOff / NoteOn-with-velocity-0 → set to minVal
             raw = 0.0f;
             hit = true;
+        } else if (m.msgType == 3 && msgType == 0xC0 && chOk) {
+            // Program Change — program number scaled to [minVal, maxVal]
+            raw = msg.data1 / 127.0f;
+            hit = true;
         }
 
         if (hit) {
@@ -95,8 +99,8 @@ void MidiMapper::apply(const MidiInput::Message& msg,
 void MidiMapper::feedLearn(const MidiInput::Message& msg) {
     if (!m_learn.active) return;
     int msgType = (msg.status & 0xF0);
-    // Only capture CC or NoteOn
-    if (msgType != 0xB0 && msgType != 0x90) return;
+    // Capture CC, NoteOn, or Program Change
+    if (msgType != 0xB0 && msgType != 0x90 && msgType != 0xC0) return;
     m_learn.captured_msg = msg;
     m_learn.captured     = true;
     m_learn.active       = false;

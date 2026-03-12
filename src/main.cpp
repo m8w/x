@@ -14,6 +14,7 @@
 #include "remote/RemoteControl.h"
 #include "midi/MidiInput.h"
 #include "midi/MidiMapper.h"
+#include "midi/MidiGenerator.h"
 
 #include <cstdio>
 #include <string>
@@ -69,7 +70,8 @@ int main(int argc, char** argv) {
     StreamOutput   streamOut;
     MidiInput      midiIn;
     MidiMapper     midiMapper;
-    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiMapper);
+    MidiGenerator  midiGen;
+    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiMapper, midiGen);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -100,10 +102,20 @@ int main(int argc, char** argv) {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        // Poll MIDI — apply mappings and feed MIDI-Learn
+        // Poll real MIDI input
         if (midiIn.isOpen()) {
             auto msgs = midiIn.poll();
             for (auto& msg : msgs) {
+                midiMapper.apply(msg, engine, blend);
+                midiMapper.feedLearn(msg);
+            }
+        }
+
+        // Tick MIDI generator (produces synthetic messages fed into same mapper)
+        {
+            double elapsed = glfwGetTime() - t0;
+            auto genMsgs = midiGen.tick(elapsed);
+            for (auto& msg : genMsgs) {
                 midiMapper.apply(msg, engine, blend);
                 midiMapper.feedLearn(msg);
             }

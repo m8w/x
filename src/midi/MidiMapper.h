@@ -21,9 +21,9 @@ const char* midiParamName(MidiParam p);
 
 struct MidiMapping {
     // ── MIDI trigger ─────────────────────────────────────────────────────────
-    int msgType;    // 0=CC  1=NoteOn  2=NoteOff/toggle
+    int msgType;    // 0=CC  1=NoteOn  2=NoteOff/toggle  3=ProgramChange
     int channel;    // 0=any  1-16=specific
-    int number;     // CC number  or  note number
+    int number;     // CC number / note number / program number (ignored for PC if -1)
 
     // ── Target parameter ──────────────────────────────────────────────────────
     MidiParam param;

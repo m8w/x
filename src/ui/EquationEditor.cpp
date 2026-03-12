@@ -11,10 +11,11 @@ static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
                                 VideoInput& videoIn, StreamOutput& streamOut,
-                                MidiInput& midiIn, MidiMapper& midiMapper)
+                                MidiInput& midiIn, MidiMapper& midiMapper,
+                                MidiGenerator& midiGen)
     : m_engine(engine), m_blend(blend),
       m_videoIn(videoIn), m_streamOut(streamOut),
-      m_midiIn(midiIn), m_midiMapper(midiMapper) {}
+      m_midiIn(midiIn), m_midiMapper(midiMapper), m_midiGen(midiGen) {}
 
 void EquationEditor::draw() {
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
@@ -407,234 +408,358 @@ void EquationEditor::drawAnimPanel() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// UI2 — MIDI Mapper  (separate floating window)
+
 // ════════════════════════════════════════════════════════════════════════════════
+// UI2 — MIDI Mapper + Generator  (separate floating window)
+// ════════════════════════════════════════════════════════════════════════════════
+static const char* kNoteNames[] = {
+    "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"
+};
+static inline const char* midiNoteName(int n) {
+    static char buf[8];
+    snprintf(buf,sizeof(buf),"%s%d", kNoteNames[n%12], n/12-1);
+    return buf;
+}
+
 void EquationEditor::drawMidiWindow() {
     ImGui::SetNextWindowPos ({800, 10},  ImGuiCond_Once);
-    ImGui::SetNextWindowSize({440, 680}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({460, 820}, ImGuiCond_Once);
     ImGui::Begin("MIDI Mapper — UI2");
 
     // ── Port selector ─────────────────────────────────────────────────────────
-    ImGui::TextDisabled("MIDI Port");
-    int nPorts = m_midiIn.portCount();
-    static int selectedPort = 0;
+    if (ImGui::CollapsingHeader("MIDI Port", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int nPorts = m_midiIn.portCount();
+        static int selectedPort = 0;
 
-    if (nPorts == 0) {
-        ImGui::TextColored({1,0.4f,0.4f,1}, "No MIDI ports found");
-    } else {
-        // Build port name list for combo
-        static char portBuf[512];
-        portBuf[0] = '\0';
-        for (int i = 0; i < nPorts; i++) {
-            auto name = m_midiIn.portName(i);
-            strncat(portBuf, name.c_str(), sizeof(portBuf)-strlen(portBuf)-2);
-            portBuf[strlen(portBuf)+1] = '\0';
-            portBuf[strlen(portBuf)]   = '\0'; // double-null for ImGui combo
-        }
-        ImGui::SetNextItemWidth(240);
-        ImGui::Combo("Port##midi", &selectedPort, portBuf);
-        ImGui::SameLine();
-
-        if (!m_midiIn.isOpen()) {
-            if (ImGui::Button("Connect")) m_midiIn.open(selectedPort);
+        if (nPorts == 0) {
+            ImGui::TextColored({1,0.4f,0.4f,1}, "No MIDI ports found");
         } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f,0.1f,0.1f,1));
-            if (ImGui::Button("Disconnect")) m_midiIn.close();
-            ImGui::PopStyleColor();
+            static char portBuf[1024]; portBuf[0] = '\0';
+            for (int i = 0; i < nPorts; i++) {
+                auto nm = m_midiIn.portName(i);
+                size_t pos = strlen(portBuf);
+                strncpy(portBuf+pos, nm.c_str(), sizeof(portBuf)-pos-2);
+                portBuf[strlen(portBuf)+1] = '\0';
+            }
+            ImGui::SetNextItemWidth(240);
+            ImGui::Combo("Port##midi", &selectedPort, portBuf);
+            ImGui::SameLine();
+            if (!m_midiIn.isOpen()) {
+                if (ImGui::Button("Connect")) m_midiIn.open(selectedPort);
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f,0.1f,0.1f,1));
+                if (ImGui::Button("Disconnect")) m_midiIn.close();
+                ImGui::PopStyleColor();
+            }
         }
-    }
-
-    // ── Connection status + activity indicator ────────────────────────────────
-    if (m_midiIn.isOpen()) {
-        auto last = m_midiIn.lastMessage();
-        int  type = (last.status & 0xF0);
-        int  ch   = (last.status & 0x0F) + 1;
-        const char* typeName = (type == 0xB0) ? "CC"
-                             : (type == 0x90) ? "NoteOn"
-                             : (type == 0x80) ? "NoteOff" : "—";
-        ImGui::TextColored({0.2f,1,0.2f,1}, "● Connected: %s",
-                           m_midiIn.portName(m_midiIn.openedPort()).c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("Last: %s ch%d #%d val%d",
-                            typeName, ch, last.data1, last.data2);
-    } else {
-        ImGui::TextColored({0.5f,0.5f,0.5f,1}, "○ Not connected");
+        if (m_midiIn.isOpen()) {
+            auto last = m_midiIn.lastMessage();
+            int  type = (last.status & 0xF0), ch = (last.status & 0x0F)+1;
+            const char* tn = type==0xB0?"CC":type==0x90?"NoteOn":type==0x80?"NoteOff":type==0xC0?"PC":"—";
+            ImGui::TextColored({0.2f,1,0.2f,1},"● %s",
+                               m_midiIn.portName(m_midiIn.openedPort()).c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("Last: %s ch%d #%d v%d", tn,ch,last.data1,last.data2);
+        } else {
+            ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ Not connected");
+        }
     }
 
     ImGui::Separator();
 
-    // ── MIDI-Learn + new mapping form ─────────────────────────────────────────
-    ImGui::TextDisabled("Add mapping");
+    // ════════════════════════════════════════════════════════════════════════════
+    // GENERATOR (ported from VST MIDI Randomizer HTML app)
+    // ════════════════════════════════════════════════════════════════════════════
+    if (ImGui::CollapsingHeader("Generator", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& G = m_midiGen;
 
-    auto& learn = m_midiMapper.learn();
+        ImGui::Checkbox("Generator enabled", &G.enabled);
+        if (!G.enabled) { ImGui::BeginDisabled(); }
 
-    // New-mapping state (persists across frames)
-    static MidiMapping newMap = {0, 0, 0, MidiParam::FormulaBlend, 0.0f, 1.0f, ""};
-    static int newParamIdx = (int)MidiParam::FormulaBlend;
-    static const char* kMsgTypes[] = {"CC", "NoteOn", "NoteOff/toggle"};
-
-    if (!learn.active && !learn.captured) {
-        if (ImGui::Button("  MIDI Learn  ")) {
-            learn.active    = true;
-            learn.captured  = false;
+        // ── Transport ──────────────────────────────────────────────────────────
+        ImGui::Spacing();
+        if (!G.playing) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f,0.5f,0.2f,1));
+            if (ImGui::Button("  ▶  Play  ")) {
+                G.start(ImGui::GetTime());
+            }
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f,0.1f,0.1f,1));
+            if (ImGui::Button("  ■  Stop  ")) {
+                std::vector<MidiInput::Message> offs;
+                G.stop(offs);
+                for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend);
+            }
+            ImGui::PopStyleColor();
         }
+        ImGui::SameLine();
+        if (ImGui::Button("♪ One Note")) {
+            // Fire a single note and NoteOff via MidiMapper
+            auto msgs = G.fireOneNote();
+            for (auto& m : msgs) m_midiMapper.apply(m, m_engine, m_blend);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("⚠ Panic")) {
+            // NoteOff all active notes via MidiMapper
+            std::vector<MidiInput::Message> offs;
+            G.stop(offs);
+            for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend);
+        }
+
+        // ── BPM ───────────────────────────────────────────────────────────────
+        ImGui::SetNextItemWidth(180);
+        ImGui::SliderFloat("BPM", &G.bpm, 20.0f, 280.0f, "%.0f");
+        ImGui::SameLine();
+        if (G.playing) {
+            ImGui::TextColored({1,0.7f,0.1f,1},"● PLAYING  step %d", G.liveStep);
+        }
+
+        // ── Live display (like the HTML "Live Output" card) ───────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Live");
+        ImGui::SameLine(60);
+        if (G.liveNote >= 0) {
+            ImGui::TextColored({1,0.7f,0.1f,1}, "Note %-4s (%3d)",
+                               midiNoteName(G.liveNote), G.liveNote);
+        } else {
+            ImGui::TextDisabled("Note —");
+        }
+        ImGui::SameLine();
+        ImGui::TextColored({0.7f,0.5f,1,1}, "Vel %3d", G.liveVel);
+        ImGui::SameLine();
+        if (G.liveProg >= 0)
+            ImGui::TextColored({0.2f,0.9f,0.7f,1}, "PC %2d", G.liveProg);
+        else
+            ImGui::TextDisabled("PC —");
+
+        ImGui::Separator();
+
+        // ── Note & Scale ──────────────────────────────────────────────────────
+        ImGui::TextDisabled("Note & Scale");
+
+        ImGui::SetNextItemWidth(55); ImGui::InputInt("Min note##G", &G.noteMin);
+        G.noteMin = std::max(0,  std::min(G.noteMin, G.noteMax-1));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(55); ImGui::InputInt("Max##G", &G.noteMax);
+        G.noteMax = std::max(G.noteMin+1, std::min(127, G.noteMax));
+        ImGui::SameLine();
+        // Show note names
+        ImGui::TextDisabled("%s – %s", midiNoteName(G.noteMin), midiNoteName(G.noteMax));
+
+        // Root key
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::BeginCombo("Key##G", genRootName(G.rootKey))) {
+            for (int k = 0; k < 12; k++) {
+                if (ImGui::Selectable(genRootName(k), G.rootKey==k))
+                    G.rootKey = k;
+                if (G.rootKey==k) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        // Scale mode
+        ImGui::SetNextItemWidth(160);
+        if (ImGui::BeginCombo("Scale##G", genScaleName(G.scale))) {
+            for (int s = 0; s < (int)GenScale::COUNT; s++) {
+                auto sm = static_cast<GenScale>(s);
+                if (ImGui::Selectable(genScaleName(sm), G.scale==sm))
+                    G.scale = sm;
+                if (G.scale==sm) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        // Velocity range
+        ImGui::SetNextItemWidth(180);
+        ImGui::SliderInt("Vel min##G", &G.velMin, 1, G.velMax-1);
+        ImGui::SetNextItemWidth(180);
+        ImGui::SliderInt("Vel max##G", &G.velMax, G.velMin+1, 127);
+
+        ImGui::Separator();
+
+        // ── Timing ────────────────────────────────────────────────────────────
+        ImGui::TextDisabled("Timing");
+        static const char* kRateLabels[] =
+            {"1/32","1/16","1/8","1/4","1/2","Whole","Random"};
+
+        ImGui::SetNextItemWidth(100);
+        ImGui::Combo("Step rate##G", &G.stepRateIdx, kRateLabels, 7);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100);
+        ImGui::Combo("Note len##G",  &G.noteLenIdx,  kRateLabels, 7);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(60);
+        ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6);
+
+        ImGui::SetNextItemWidth(200);
+        ImGui::SliderFloat("Rests##G", &G.restProb, 0.0f, 0.75f, "%.0f%%",
+                           ImGuiSliderFlags_None);
+        // show as percent
+        {
+            char tmp[16]; snprintf(tmp,sizeof(tmp),"%.0f%%", G.restProb*100);
+            ImGui::SameLine(); ImGui::TextDisabled("%s rests", tmp);
+        }
+
+        ImGui::Checkbox("Humanize##G", &G.humanize);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Click, then move a knob or press a key on your MIDI device");
-    } else if (learn.active) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,1,0,1));
-        ImGui::Text("Waiting for MIDI input...");
-        ImGui::PopStyleColor();
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Cancel")) learn.active = false;
-    } else if (learn.captured) {
-        // Auto-fill from captured message
-        int capturedType = (learn.captured_msg.status & 0xF0);
-        newMap.msgType = (capturedType == 0xB0) ? 0 : 1;
-        newMap.channel = (learn.captured_msg.status & 0x0F) + 1;
-        newMap.number  = learn.captured_msg.data1;
-        ImGui::TextColored({0.4f,1,0.4f,1}, "\xe2\x9c\x94 Captured:  %s  ch%d  #%d",
-                           kMsgTypes[newMap.msgType], newMap.channel, newMap.number);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear")) learn.captured = false;
-    }
+            ImGui::SetTooltip("Adds ±7%% timing scatter to feel less robotic");
 
-    // Manual override fields
-    ImGui::SetNextItemWidth(90);  ImGui::Combo("Type##nm",    &newMap.msgType, kMsgTypes, 3);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(50);  ImGui::InputInt("Ch##nm",   &newMap.channel);
-    newMap.channel = newMap.channel < 0 ? 0 : (newMap.channel > 16 ? 16 : newMap.channel);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(50);  ImGui::InputInt("#/Note##nm", &newMap.number);
-    newMap.number  = newMap.number  < 0 ? 0 : (newMap.number  > 127 ? 127 : newMap.number);
+        ImGui::Separator();
 
-    // Parameter combo — built from the MidiParam enum
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::BeginCombo("Param##nm",
-            midiParamName(static_cast<MidiParam>(newParamIdx)))) {
-        for (int i = 0; i < (int)MidiParam::COUNT; i++) {
-            bool sel = (newParamIdx == i);
-            if (ImGui::Selectable(midiParamName(static_cast<MidiParam>(i)), sel))
-                newParamIdx = i;
-            if (sel) ImGui::SetItemDefaultFocus();
+        // ── Auto program change ───────────────────────────────────────────────
+        ImGui::TextDisabled("Auto Program Change  →  maps to formula / any PC-mapped param");
+        ImGui::Checkbox("Enable PC##G", &G.pgEnabled);
+        if (G.pgEnabled) {
+            ImGui::SetNextItemWidth(80);
+            ImGui::InputInt("Every N steps##G", &G.pgEvery);
+            G.pgEvery = std::max(1, G.pgEvery);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60); ImGui::InputInt("PC min##G", &G.pgMin);
+            G.pgMin = std::max(0,   std::min(G.pgMin, G.pgMax-1));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60); ImGui::InputInt("PC max##G", &G.pgMax);
+            G.pgMax = std::max(G.pgMin+1, std::min(127, G.pgMax));
+            ImGui::TextDisabled("PC %d–%d  (map PC→FormulaA in table below to drive formula changes)",
+                                G.pgMin, G.pgMax);
         }
-        ImGui::EndCombo();
-    }
-    newMap.param = static_cast<MidiParam>(newParamIdx);
 
-    // Range
-    ImGui::SetNextItemWidth(80);  ImGui::DragFloat("Min##nm", &newMap.minVal, 0.01f);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(80);  ImGui::DragFloat("Max##nm", &newMap.maxVal, 0.01f);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(90);  ImGui::InputText("Label##nm", newMap.label, sizeof(newMap.label));
-    ImGui::SameLine();
-    if (ImGui::Button("Add##nm")) {
-        if (newMap.label[0] == '\0')
-            snprintf(newMap.label, sizeof(newMap.label), "%s #%d",
-                     kMsgTypes[newMap.msgType], newMap.number);
-        m_midiMapper.add(newMap);
-        learn.captured = false;
-        // Reset form
-        memset(newMap.label, 0, sizeof(newMap.label));
+        if (!G.enabled) { ImGui::EndDisabled(); }
     }
 
     ImGui::Separator();
 
-    // ── Mapping table ─────────────────────────────────────────────────────────
-    ImGui::TextDisabled("Active mappings  (%d)", (int)m_midiMapper.mappings().size());
+    // ════════════════════════════════════════════════════════════════════════════
+    // MIDI LEARN + MAPPING TABLE
+    // ════════════════════════════════════════════════════════════════════════════
+    if (ImGui::CollapsingHeader("Mappings", ImGuiTreeNodeFlags_DefaultOpen)) {
 
-    if (ImGui::BeginTable("##maptbl", 7,
-            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-            ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
-            ImVec2(0, 320))) {
+        auto& learn = m_midiMapper.learn();
+        static MidiMapping newMap = {0, 0, 0, MidiParam::FormulaBlend, 0.0f, 1.0f, ""};
+        static int newParamIdx = (int)MidiParam::FormulaBlend;
+        static const char* kMsgTypes[] = {"CC", "NoteOn", "NoteOff", "ProgramChange"};
 
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Label",  ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Type",   ImGuiTableColumnFlags_WidthFixed, 52);
-        ImGui::TableSetupColumn("Ch",     ImGuiTableColumnFlags_WidthFixed, 26);
-        ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_WidthFixed, 30);
-        ImGui::TableSetupColumn("Min",    ImGuiTableColumnFlags_WidthFixed, 48);
-        ImGui::TableSetupColumn("Max",    ImGuiTableColumnFlags_WidthFixed, 48);
-        ImGui::TableSetupColumn("##del",  ImGuiTableColumnFlags_WidthFixed, 20);
-        ImGui::TableHeadersRow();
-
-        static const char* kMsgShort[] = {"CC", "NoteOn", "NoteOff"};
-        int removeIdx = -1;
-        auto& maps = m_midiMapper.mappings();
-
-        for (int i = 0; i < (int)maps.size(); i++) {
-            auto& m = maps[i];
-            ImGui::TableNextRow();
-
-            // Label / parameter name
-            ImGui::TableSetColumnIndex(0);
-            char rowlabel[64];
-            snprintf(rowlabel, sizeof(rowlabel), "%s\n%s",
-                     m.label[0] ? m.label : midiParamName(m.param),
-                     midiParamName(m.param));
-            // Editable label
-            char editLabel[32];
-            memcpy(editLabel, m.label, sizeof(editLabel));
-            ImGui::SetNextItemWidth(-1);
-            char eid[16]; snprintf(eid, sizeof(eid), "##l%d", i);
-            if (ImGui::InputText(eid, editLabel, sizeof(editLabel)))
-                memcpy(m.label, editLabel, sizeof(editLabel));
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(kMsgShort[m.msgType]);
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%s", m.channel == 0 ? "*" : std::to_string(m.channel).c_str());
-            ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%d", m.number);
-            ImGui::TableSetColumnIndex(4);
-            // Editable min/max inline
-            ImGui::SetNextItemWidth(44);
-            char mid2[16]; snprintf(mid2, sizeof(mid2), "##mn%d", i);
-            ImGui::DragFloat(mid2, &m.minVal, 0.01f);
-            ImGui::TableSetColumnIndex(5);
-            ImGui::SetNextItemWidth(44);
-            char mid3[16]; snprintf(mid3, sizeof(mid3), "##mx%d", i);
-            ImGui::DragFloat(mid3, &m.maxVal, 0.01f);
-            ImGui::TableSetColumnIndex(6);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,0.3f,0.3f,1));
-            char did[16]; snprintf(did, sizeof(did), "×##d%d", i);
-            if (ImGui::SmallButton(did)) removeIdx = i;
+        // ── MIDI Learn ────────────────────────────────────────────────────────
+        if (!learn.active && !learn.captured) {
+            if (ImGui::Button("  MIDI Learn  "))
+                learn.active = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Click then wiggle a knob / press a key / change a program");
+        } else if (learn.active) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,1,0,1));
+            ImGui::Text("Waiting for MIDI…");
             ImGui::PopStyleColor();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cancel")) learn.active = false;
+        } else if (learn.captured) {
+            int ct = (learn.captured_msg.status & 0xF0);
+            newMap.msgType = (ct==0xB0)?0:(ct==0xC0)?3:1;
+            newMap.channel = (learn.captured_msg.status & 0x0F)+1;
+            newMap.number  = learn.captured_msg.data1;
+            ImGui::TextColored({0.4f,1,0.4f,1},"\xe2\x9c\x94 %s ch%d #%d",
+                               kMsgTypes[newMap.msgType], newMap.channel, newMap.number);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear")) learn.captured = false;
         }
-        if (removeIdx >= 0) m_midiMapper.remove(removeIdx);
 
-        ImGui::EndTable();
-    }
+        // ── Add-mapping form ──────────────────────────────────────────────────
+        ImGui::SetNextItemWidth(100); ImGui::Combo("Type##nm",     &newMap.msgType, kMsgTypes, 4);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);  ImGui::InputInt("Ch##nm",    &newMap.channel);
+        newMap.channel = std::max(0, std::min(16, newMap.channel));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);  ImGui::InputInt("#/PC##nm",  &newMap.number);
+        newMap.number  = std::max(0, std::min(127, newMap.number));
+        ImGui::SetNextItemWidth(200);
+        if (ImGui::BeginCombo("Param##nm", midiParamName(static_cast<MidiParam>(newParamIdx)))) {
+            for (int i = 0; i < (int)MidiParam::COUNT; i++) {
+                bool sel = (newParamIdx == i);
+                if (ImGui::Selectable(midiParamName(static_cast<MidiParam>(i)), sel))
+                    newParamIdx = i;
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        newMap.param = static_cast<MidiParam>(newParamIdx);
+        ImGui::SetNextItemWidth(70);  ImGui::DragFloat("Min##nm", &newMap.minVal, 0.01f);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(70);  ImGui::DragFloat("Max##nm", &newMap.maxVal, 0.01f);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);  ImGui::InputText("Label##nm", newMap.label, sizeof(newMap.label));
+        ImGui::SameLine();
+        if (ImGui::Button("Add##nm")) {
+            if (!newMap.label[0])
+                snprintf(newMap.label, sizeof(newMap.label), "%s#%d",
+                         kMsgTypes[newMap.msgType], newMap.number);
+            m_midiMapper.add(newMap);
+            learn.captured = false;
+            memset(newMap.label, 0, sizeof(newMap.label));
+        }
 
-    // ── Preset mappings ───────────────────────────────────────────────────────
-    ImGui::Separator();
-    ImGui::TextDisabled("Quick presets");
-    if (ImGui::Button("CC1→Julia C.x")) {
-        MidiMapping m{0,0,1,MidiParam::JuliaCX,-1.5f,1.5f,"Mod→Julia C.x"};
-        m_midiMapper.add(m);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("CC2→Julia C.y")) {
-        MidiMapping m{0,0,2,MidiParam::JuliaCY,-1.5f,1.5f,"Mod→Julia C.y"};
-        m_midiMapper.add(m);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("CC7→Zoom")) {
-        MidiMapping m{0,0,7,MidiParam::Zoom,0.2f,8.0f,"Vol→Zoom"};
-        m_midiMapper.add(m);
-    }
-    if (ImGui::Button("CC74→Power")) {
-        MidiMapping m{0,0,74,MidiParam::Power,2.0f,12.0f,"Bright→Power"};
-        m_midiMapper.add(m);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("CC71→F.Blend")) {
-        MidiMapping m{0,0,71,MidiParam::FormulaBlend,0.0f,1.0f,"Res→FBlend"};
-        m_midiMapper.add(m);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("CC11→Diff")) {
-        MidiMapping m{0,0,11,MidiParam::BlendDiff,0.0f,1.0f,"Expr→Diff"};
-        m_midiMapper.add(m);
+        ImGui::Separator();
+
+        // ── Mapping table ─────────────────────────────────────────────────────
+        ImGui::TextDisabled("Active mappings (%d)", (int)m_midiMapper.mappings().size());
+        if (ImGui::BeginTable("##maptbl", 7,
+                ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|
+                ImGuiTableFlags_ScrollY|ImGuiTableFlags_SizingFixedFit,
+                ImVec2(0,200))) {
+            ImGui::TableSetupScrollFreeze(0,1);
+            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Type",  ImGuiTableColumnFlags_WidthFixed, 60);
+            ImGui::TableSetupColumn("Ch",    ImGuiTableColumnFlags_WidthFixed, 26);
+            ImGui::TableSetupColumn("#",     ImGuiTableColumnFlags_WidthFixed, 30);
+            ImGui::TableSetupColumn("Min",   ImGuiTableColumnFlags_WidthFixed, 48);
+            ImGui::TableSetupColumn("Max",   ImGuiTableColumnFlags_WidthFixed, 48);
+            ImGui::TableSetupColumn("×",     ImGuiTableColumnFlags_WidthFixed, 18);
+            ImGui::TableHeadersRow();
+
+            static const char* kMsgShort[] = {"CC","NoteOn","NoteOff","PC"};
+            int removeIdx = -1;
+            auto& maps = m_midiMapper.mappings();
+            for (int i = 0; i < (int)maps.size(); i++) {
+                auto& m = maps[i];
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                char eid[16]; snprintf(eid,sizeof(eid),"##l%d",i);
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputText(eid, m.label, sizeof(m.label));
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextUnformatted(kMsgShort[std::min(m.msgType,3)]);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%s", m.channel==0?"*":std::to_string(m.channel).c_str());
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%d", m.number);
+                ImGui::TableSetColumnIndex(4);
+                ImGui::SetNextItemWidth(44);
+                char mid2[16]; snprintf(mid2,sizeof(mid2),"##mn%d",i);
+                ImGui::DragFloat(mid2, &m.minVal, 0.01f);
+                ImGui::TableSetColumnIndex(5);
+                ImGui::SetNextItemWidth(44);
+                char mid3[16]; snprintf(mid3,sizeof(mid3),"##mx%d",i);
+                ImGui::DragFloat(mid3, &m.maxVal, 0.01f);
+                ImGui::TableSetColumnIndex(6);
+                ImGui::PushStyleColor(ImGuiCol_Text,ImVec4(1,0.3f,0.3f,1));
+                char did[16]; snprintf(did,sizeof(did),"×##d%d",i);
+                if (ImGui::SmallButton(did)) removeIdx = i;
+                ImGui::PopStyleColor();
+            }
+            if (removeIdx >= 0) m_midiMapper.remove(removeIdx);
+            ImGui::EndTable();
+        }
+
+        // ── Quick presets ─────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Quick presets");
+        if (ImGui::Button("CC1→Julia.x"))  m_midiMapper.add({0,0,1,MidiParam::JuliaCX,-1.5f,1.5f,"Mod→Julia.x"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC2→Julia.y"))  m_midiMapper.add({0,0,2,MidiParam::JuliaCY,-1.5f,1.5f,"Mod→Julia.y"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC7→Zoom"))     m_midiMapper.add({0,0,7,MidiParam::Zoom,0.2f,8.0f,"Vol→Zoom"});
+        if (ImGui::Button("CC74→Power"))   m_midiMapper.add({0,0,74,MidiParam::Power,2.0f,12.0f,"Bright→Power"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC71→FBlend"))  m_midiMapper.add({0,0,71,MidiParam::FormulaBlend,0.0f,1.0f,"Res→FBlend"});
+        ImGui::SameLine();
+        if (ImGui::Button("PC→FormulaA"))  m_midiMapper.add({3,0,0,MidiParam::FormulaA,0.0f,10.0f,"PC→FrmA"});
     }
 
     ImGui::End();

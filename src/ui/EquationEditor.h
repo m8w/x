@@ -5,13 +5,15 @@
 #include "stream/StreamOutput.h"
 #include "midi/MidiInput.h"
 #include "midi/MidiMapper.h"
+#include "midi/MidiGenerator.h"
 #include <string>
 
 class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
                    VideoInput& videoIn, StreamOutput& streamOut,
-                   MidiInput& midiIn, MidiMapper& midiMapper);
+                   MidiInput& midiIn, MidiMapper& midiMapper,
+                   MidiGenerator& midiGen);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
 private:
@@ -21,6 +23,7 @@ private:
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
     MidiMapper&      m_midiMapper;
+    MidiGenerator&   m_midiGen;
 
     // Stream panel state
     int  m_bitrateKbps = 4000;

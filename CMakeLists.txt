@@ -72,6 +72,7 @@ set(SOURCES
     src/remote/RemoteControl.cpp
     src/midi/MidiInput.cpp
     src/midi/MidiMapper.cpp
+    src/midi/MidiGenerator.cpp
 )
 
 # macOS: native NSOpenPanel file picker (Objective-C++)

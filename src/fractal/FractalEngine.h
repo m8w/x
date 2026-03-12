@@ -13,10 +13,10 @@ struct FractalEngine {
     int       maxIter     = 128;
     float     bailout     = 4.0f;
 
-    // ── Formula selector (fractal.frag u_formula) ─────────────────────────────
+    // ── Formula A + B cross-blend (fractal.frag u_formula / u_formula_b) ──────
     //  0  z2 + c                (Mandelbrot / Julia classic)
-    //  1  sin(z) + c            (Sinus fractal)
-    //  2  exp(z) + c            (Exponential spirals)
+    //  1  sin(z) + c
+    //  2  exp(z) + c
     //  3  cos(z) + c
     //  4  sinh(z) + c
     //  5  cosh(z) + c
@@ -24,9 +24,21 @@ struct FractalEngine {
     //  7  Tricorn               conj(z)^2 + c
     //  8  Newton z3-1           convergence coloring
     //  9  Phoenix               z^2 + Re(c) + Im(c)*z_{n-1}
-    // 10  z^n + c               arbitrary real power (uses power field)
-    int   formula         = 0;
-    float formulaBlend    = 1.0f;  // 0=pure z2+c  1=pure formula
+    // 10  z^n + c               arbitrary real power
+    int   formula         = 0;     // formula A
+    int   formulaB        = 2;     // formula B  (blend slider crossfades A→B)
+    float formulaBlend    = 0.0f;  // 0=pure A  1=pure B
+
+    // ── Pixel coordinate injection ────────────────────────────────────────────
+    // Adds screen-space p to the iteration seed, making each pixel's position
+    // a live variable inside the equation.
+    float pixelWeight     = 0.0f;  // 0=off  1=full injection
+
+    // ── Multi-layer repetition ─────────────────────────────────────────────────
+    // Runs the same iteration N times with spatially offset starting points
+    // and averages the results — creates layered / woven visual depth.
+    int   layerCount      = 1;     // 1–4 copies
+    float layerOffset     = 0.2f;  // spatial gap between layers
 
     // ── SDF geometry coupling ─────────────────────────────────────────────────
     float geoWarp         = 0.25f; // 0=no warp  1=max warp

@@ -23,6 +23,8 @@ void EquationEditor::draw() {
         drawBlendPanel();
     if (ImGui::CollapsingHeader("Fractal Parameters", ImGuiTreeNodeFlags_DefaultOpen))
         drawFractalPanel();
+    if (ImGui::CollapsingHeader("Animation"))
+        drawAnimPanel();
     if (ImGui::CollapsingHeader("Euclidean Geometry"))
         drawGeometryPanel();
     if (ImGui::CollapsingHeader("Video Input", ImGuiTreeNodeFlags_DefaultOpen))
@@ -34,13 +36,16 @@ void EquationEditor::draw() {
 }
 
 void EquationEditor::drawBlendPanel() {
-    ImGui::SliderFloat("Mandelbrot",  &m_blend.mandelbrot, 0.0f, 1.0f);
-    ImGui::SliderFloat("Julia",       &m_blend.julia,      0.0f, 1.0f);
-    ImGui::SliderFloat("Mandelbulb",  &m_blend.mandelbulb, 0.0f, 1.0f);
-    ImGui::SliderFloat("Euclidean",   &m_blend.euclidean,  0.0f, 1.0f);
+    ImGui::SliderFloat("Mandelbrot",   &m_blend.mandelbrot, 0.0f, 1.0f);
+    ImGui::SliderFloat("Julia",        &m_blend.julia,      0.0f, 1.0f);
+    ImGui::SliderFloat("Mandelbulb",   &m_blend.mandelbulb, 0.0f, 1.0f);
+    ImGui::SliderFloat("Euclidean",    &m_blend.euclidean,  0.0f, 1.0f);
+    ImGui::SliderFloat("Differential", &m_blend.diff,       0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("de Jong attractor ODE field — parameters driven by Julia C and Power");
 
     float total = m_blend.mandelbrot + m_blend.julia +
-                  m_blend.mandelbulb + m_blend.euclidean;
+                  m_blend.mandelbulb + m_blend.euclidean + m_blend.diff;
     ImGui::Separator();
     ImGui::Text("Total blend: %.2f", total);
     if (ImGui::Button("Normalize")) {
@@ -49,6 +54,7 @@ void EquationEditor::drawBlendPanel() {
             m_blend.julia      /= total;
             m_blend.mandelbulb /= total;
             m_blend.euclidean  /= total;
+            m_blend.diff       /= total;
         }
     }
 }
@@ -73,13 +79,33 @@ static const char* k3DTypes[] = {
 };
 
 void EquationEditor::drawFractalPanel() {
-    // ── Iteration formula ─────────────────────────────────────────────────────
-    ImGui::TextDisabled("Iteration formula");
-    ImGui::Combo("Formula##sel", &m_engine.formula, kFormulas, 11);
-    ImGui::SliderFloat("Formula blend", &m_engine.formulaBlend, 0.0f, 1.0f,
-                       "z\xc2\xb2+c %.2f formula");
+    // ── Iteration formula A × B cross-blend ──────────────────────────────────
+    ImGui::TextDisabled("Formula A  \xe2\x86\x94  Formula B");
+    ImGui::Combo("Formula A##sel", &m_engine.formula,  kFormulas, 11);
+    ImGui::Combo("Formula B##sel", &m_engine.formulaB, kFormulas, 11);
+    ImGui::SliderFloat("A \xe2\x86\x94 B blend", &m_engine.formulaBlend, 0.0f, 1.0f);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("0 = pure z\xc2\xb2+c   1 = pure formula   0.5 = crossfade");
+        ImGui::SetTooltip("0 = pure Formula A   1 = pure Formula B   0.5 = crossfade");
+
+    ImGui::Separator();
+
+    // ── Pixel coordinate injection ────────────────────────────────────────────
+    ImGui::TextDisabled("Pixel coord as equation variable");
+    ImGui::SliderFloat("Pixel inject", &m_engine.pixelWeight, 0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Adds the screen-space pixel position into the iteration seed.\n"
+                          "Each pixel's location becomes a live variable in the equation.");
+
+    ImGui::Separator();
+
+    // ── Multi-layer repetition ────────────────────────────────────────────────
+    ImGui::TextDisabled("Layer repetition");
+    ImGui::SliderInt("Layers (1-4)", &m_engine.layerCount, 1, 4);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Runs the equation N times with spatially offset seeds\n"
+                          "and averages the results — creates woven depth.");
+    if (m_engine.layerCount > 1)
+        ImGui::SliderFloat("Layer offset", &m_engine.layerOffset, 0.01f, 1.0f);
 
     ImGui::Separator();
 
@@ -278,5 +304,99 @@ void EquationEditor::drawStreamPanel() {
         ImGui::SameLine();
         ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE to %d destination(s)",
                            m_streamOut.destCount());
+    }
+}
+
+// ── Animation Panel ───────────────────────────────────────────────────────────
+// All oscillations use static state so base values are preserved across frames.
+void EquationEditor::drawAnimPanel() {
+    double t = ImGui::GetTime();
+
+    // ── Zoom oscillation ──────────────────────────────────────────────────────
+    static bool  animZoom      = false;
+    static float zoomBase      = 1.0f;
+    static float zoomAmp       = 0.4f;
+    static float zoomSpeed     = 0.4f;
+
+    if (ImGui::Checkbox("Animate Zoom", &animZoom)) {
+        if (animZoom) zoomBase = m_engine.zoom;   // capture current on enable
+    }
+    if (animZoom) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);  ImGui::DragFloat("##zbase", &zoomBase, 0.01f, 0.05f, 500.0f, "base %.2f");
+        ImGui::SliderFloat("Zoom amp",   &zoomAmp,   0.0f, 2.0f);
+        ImGui::SliderFloat("Zoom speed", &zoomSpeed, 0.01f, 4.0f);
+        m_engine.zoom = zoomBase * (1.0f + zoomAmp * (float)sin(t * zoomSpeed));
+    }
+
+    ImGui::Separator();
+
+    // ── Power oscillation ─────────────────────────────────────────────────────
+    static bool  animPower     = false;
+    static float powerBase     = 8.0f;
+    static float powerAmp      = 2.0f;
+    static float powerSpeed    = 0.25f;
+
+    if (ImGui::Checkbox("Animate Power", &animPower)) {
+        if (animPower) powerBase = m_engine.power;
+    }
+    if (animPower) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);  ImGui::DragFloat("##pbase", &powerBase, 0.1f, 2.0f, 16.0f, "base %.1f");
+        ImGui::SliderFloat("Power amp",   &powerAmp,   0.0f, 6.0f);
+        ImGui::SliderFloat("Power speed", &powerSpeed, 0.01f, 2.0f);
+        m_engine.power = powerBase + powerAmp * (float)sin(t * powerSpeed);
+        m_engine.power = m_engine.power < 2.0f ? 2.0f : m_engine.power;
+    }
+
+    ImGui::Separator();
+
+    // ── Formula A↔B blend oscillation ────────────────────────────────────────
+    static bool  animFBlend    = false;
+    static float fBlendAmp     = 1.0f;
+    static float fBlendSpeed   = 0.15f;
+
+    ImGui::Checkbox("Animate Formula blend", &animFBlend);
+    if (animFBlend) {
+        ImGui::SliderFloat("Blend amp",   &fBlendAmp,   0.0f, 1.0f);
+        ImGui::SliderFloat("Blend speed", &fBlendSpeed, 0.01f, 2.0f);
+        m_engine.formulaBlend = 0.5f + fBlendAmp * 0.5f * (float)sin(t * fBlendSpeed);
+    }
+
+    ImGui::Separator();
+
+    // ── Offset drift ─────────────────────────────────────────────────────────
+    static bool  animDrift     = false;
+    static float driftSpeed    = 0.02f;
+    static float driftAngle    = 0.0f;   // radians
+    static float driftOriginX  = 0.0f;
+    static float driftOriginY  = 0.0f;
+
+    if (ImGui::Checkbox("Animate Offset drift", &animDrift)) {
+        if (animDrift) {
+            driftOriginX = m_engine.offset.x;
+            driftOriginY = m_engine.offset.y;
+        }
+    }
+    if (animDrift) {
+        ImGui::SliderFloat("Drift speed", &driftSpeed, 0.001f, 0.2f);
+        ImGui::SliderFloat("Drift angle", &driftAngle, 0.0f, 6.28318f);
+        float radius = (float)t * driftSpeed;
+        m_engine.offset.x = driftOriginX + radius * (float)cos(driftAngle + t * driftSpeed * 0.3);
+        m_engine.offset.y = driftOriginY + radius * (float)sin(driftAngle + t * driftSpeed * 0.3);
+    }
+
+    ImGui::Separator();
+
+    // ── Pixel weight oscillation ──────────────────────────────────────────────
+    static bool  animPixel     = false;
+    static float pixelAmp      = 0.5f;
+    static float pixelSpeed    = 0.3f;
+
+    ImGui::Checkbox("Animate Pixel inject", &animPixel);
+    if (animPixel) {
+        ImGui::SliderFloat("Pixel amp",   &pixelAmp,   0.0f, 1.0f);
+        ImGui::SliderFloat("Pixel speed", &pixelSpeed, 0.01f, 2.0f);
+        m_engine.pixelWeight = pixelAmp * 0.5f * (1.0f + (float)sin(t * pixelSpeed));
     }
 }

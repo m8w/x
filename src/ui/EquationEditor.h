@@ -31,4 +31,5 @@ private:
     void drawGeometryPanel();
     void drawVideoPanel();
     void drawStreamPanel();
+    void drawAnimPanel();
 };

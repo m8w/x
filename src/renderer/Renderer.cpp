@@ -46,7 +46,7 @@ void Renderer::ensureFBO(int w, int h) {
 void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                                const FractalEngine& eng,
                                const BlendController& blend) {
-    float bw[4];
+    float bw[5];
     blend.weights(bw);
 
     prog.setFloat2("u_resolution",      (float)w, (float)h);
@@ -55,6 +55,7 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_blend_julia",     bw[1]);
     prog.setFloat ("u_blend_mandelbulb",bw[2]);
     prog.setFloat ("u_blend_euclidean", bw[3]);
+    prog.setFloat ("u_blend_diff",      bw[4]);
     prog.setFloat2("u_julia_c",         eng.juliaC.x, eng.juliaC.y);
     prog.setFloat ("u_power",           eng.power);
     prog.setInt   ("u_max_iter",        eng.maxIter);
@@ -66,9 +67,13 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_geo_radius",      eng.geoRadius);
     prog.setFloat ("u_geo_rotation",    eng.geoRotation);
     prog.setBool  ("u_geo_tile",        eng.geoTile);
-    // Formula + SDF coupling (fractal.frag)
+    // Formula A + B cross-blend, pixel injection, layers, SDF coupling
     prog.setInt   ("u_formula",         eng.formula);
+    prog.setInt   ("u_formula_b",       eng.formulaB);
     prog.setFloat ("u_formula_blend",   eng.formulaBlend);
+    prog.setFloat ("u_pixel_weight",    eng.pixelWeight);
+    prog.setInt   ("u_layer_count",     eng.layerCount);
+    prog.setFloat ("u_layer_offset",    eng.layerOffset);
     prog.setFloat ("u_geo_warp",        eng.geoWarp);
     // 3-D fractal type (mandelbulb.frag)
     prog.setInt   ("u_fractal_3d",      eng.fractal3D);

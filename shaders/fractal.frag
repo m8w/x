@@ -27,6 +27,8 @@ uniform int   u_geo_sides;
 uniform float u_geo_radius;
 uniform float u_geo_rotation;
 uniform bool  u_geo_tile;
+uniform int   u_geo_mirror;        // 0=none 1=X 2=Y 3=XY
+uniform int   u_geo_kaleid;        // 0=off  N=number of kaleidoscope segments (2–16)
 uniform int   u_layer_count;       // 1–4: spatial layer repetition
 uniform float u_layer_offset;      // gap between layers
 uniform sampler2D u_video_tex;
@@ -221,6 +223,32 @@ float iterate(vec2 z_init, vec2 seed) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// MIRROR / KALEIDOSCOPE  — fold the complex plane before iteration
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Mirror: fold one or both axes so the fractal is symmetrised
+vec2 apply_mirror(vec2 p) {
+    if (u_geo_mirror == 1) p.x = abs(p.x);          // X mirror
+    if (u_geo_mirror == 2) p.y = abs(p.y);          // Y mirror
+    if (u_geo_mirror == 3) { p.x = abs(p.x); p.y = abs(p.y); }  // XY
+    return p;
+}
+
+// Kaleidoscope: repeat N wedges around the origin.
+// Works by snapping the angle to the first (2π/N) sector then mirroring
+// within it — identical to the classic kscope trick used in demoscene shaders.
+vec2 apply_kaleid(vec2 p) {
+    if (u_geo_kaleid < 2) return p;
+    float n   = float(u_geo_kaleid);
+    float ang = atan(p.y, p.x);
+    float r   = length(p);
+    float seg = 6.28318530718 / n;          // 2π / N
+    ang = mod(ang, seg);                    // snap to first wedge
+    ang = min(ang, seg - ang);             // mirror within wedge
+    return r * vec2(cos(ang), sin(ang));
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // COLOUR PALETTE  (IQ cosine palette)
 // ════════════════════════════════════════════════════════════════════════════════
 vec3 palette(float t) {
@@ -233,6 +261,10 @@ vec3 palette(float t) {
 void main() {
     vec2 aspect = vec2(u_resolution.x/u_resolution.y, 1.0);
     vec2 p = (v_uv-0.5)*aspect*2.0/u_zoom + u_offset;
+
+    // Mirror / kaleidoscope folds (applied first, in world space)
+    p = apply_mirror(p);
+    p = apply_kaleid(p);
 
     // Domain warp: pre-distort the plane with the SDF gradient before iteration
     if (u_blend_euclidean > 0.001 && u_geo_warp > 0.001) {

@@ -67,6 +67,8 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_geo_radius",      eng.geoRadius);
     prog.setFloat ("u_geo_rotation",    eng.geoRotation);
     prog.setBool  ("u_geo_tile",        eng.geoTile);
+    prog.setInt   ("u_geo_mirror",      eng.geoMirror);
+    prog.setInt   ("u_geo_kaleid",      eng.geoKaleid);
     // Formula A + B cross-blend, pixel injection, layers, SDF coupling
     prog.setInt   ("u_formula",         eng.formula);
     prog.setInt   ("u_formula_b",       eng.formulaB);

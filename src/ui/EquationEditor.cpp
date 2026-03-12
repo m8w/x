@@ -175,6 +175,45 @@ void EquationEditor::drawGeometryPanel() {
     ImGui::DragFloat("Radius",   &m_engine.geoRadius,   0.01f, 0.05f, 2.0f);
     ImGui::DragFloat("Rotation", &m_engine.geoRotation, 0.01f);
     ImGui::Checkbox("Tile / repeat", &m_engine.geoTile);
+
+    ImGui::Separator();
+
+    // ── Mirror ────────────────────────────────────────────────────────────────
+    static const char* kMirrorLabels[] = {"None", "Mirror X", "Mirror Y", "Mirror XY"};
+    ImGui::Combo("Mirror", &m_engine.geoMirror, kMirrorLabels, 4);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Folds the complex plane on one or both axes before iteration.\n"
+                          "Produces 2-fold or 4-fold reflective symmetry across the fractal.");
+
+    // ── Kaleidoscope ──────────────────────────────────────────────────────────
+    ImGui::Separator();
+    bool kaleidOn = m_engine.geoKaleid >= 2;
+    if (ImGui::Checkbox("Kaleidoscope", &kaleidOn)) {
+        m_engine.geoKaleid = kaleidOn ? 6 : 0;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Folds the plane into N angular wedges.\n"
+                          "Creates radial symmetry — like spinning a fractal in a mirror tunnel.");
+    if (kaleidOn) {
+        ImGui::SliderInt("Segments", &m_engine.geoKaleid, 2, 16);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Number of repeating wedges.\n"
+                              "2=bilateral  3=tri  6=hex  12=clock  16=snowflake");
+        // Quick-pick presets
+        ImGui::TextDisabled("Presets:");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("3"))  m_engine.geoKaleid = 3;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("4"))  m_engine.geoKaleid = 4;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("6"))  m_engine.geoKaleid = 6;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("8"))  m_engine.geoKaleid = 8;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("12")) m_engine.geoKaleid = 12;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("16")) m_engine.geoKaleid = 16;
+    }
 }
 
 void EquationEditor::drawVideoPanel() {

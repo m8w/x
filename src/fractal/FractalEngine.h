@@ -50,6 +50,10 @@ struct FractalEngine {
     float geoRotation     = 0.0f;
     bool  geoTile         = false;
 
+    // ── Mirror / kaleidoscope ─────────────────────────────────────────────────
+    int   geoMirror       = 0;    // 0=none 1=X 2=Y 3=XY
+    int   geoKaleid       = 0;    // 0=off  N=segment count (2–16)
+
     // ── 3-D fractal type (mandelbulb.frag u_fractal_3d) ───────────────────────
     //  0  Mandelbulb   (spherical power-n)
     //  1  Mandelbox    (fold + scale IFS)

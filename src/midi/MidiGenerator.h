@@ -54,6 +54,10 @@ public:
     int   pgMin       = 0;
     int   pgMax       = 10;       // 0–10 = formula indices
 
+    // ── MIDI Thru ─────────────────────────────────────────────────────────────
+    // When true, real hardware MIDI input is forwarded to the MIDI output port
+    bool  midiThru    = false;
+
     // ── Live state (read by UI each frame) ────────────────────────────────────
     int   liveNote    = -1;
     int   liveVel     = 0;

@@ -15,6 +15,7 @@
 #include "midi/MidiInput.h"
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
+#include "midi/MidiOutput.h"
 
 #include <cstdio>
 #include <string>
@@ -69,9 +70,10 @@ int main(int argc, char** argv) {
     VideoInput     videoIn;
     StreamOutput   streamOut;
     MidiInput      midiIn;
+    MidiOutput     midiOut;
     MidiMapper     midiMapper;
     MidiGenerator  midiGen;
-    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiMapper, midiGen);
+    EquationEditor ui(engine, blend, videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -102,23 +104,32 @@ int main(int argc, char** argv) {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        // Poll real MIDI input
+        // Poll real MIDI input; optional MIDI-Thru to output port
         if (midiIn.isOpen()) {
             auto msgs = midiIn.poll();
             for (auto& msg : msgs) {
                 midiMapper.apply(msg, engine, blend);
                 midiMapper.feedLearn(msg);
+                if (midiGen.midiThru && midiOut.isOpen())
+                    midiOut.send(msg);  // MIDI Thru
             }
         }
 
-        // Tick MIDI generator (produces synthetic messages fed into same mapper)
+        // Tick MIDI generator — drive fractal params AND send real MIDI to VST
         {
             double elapsed = glfwGetTime() - t0;
             auto genMsgs = midiGen.tick(elapsed);
             for (auto& msg : genMsgs) {
-                midiMapper.apply(msg, engine, blend);
-                midiMapper.feedLearn(msg);
+                midiMapper.apply(msg, engine, blend);  // fractal params
+                midiOut.send(msg);                     // real MIDI to DAW/VST
             }
+        }
+
+        // MIDI-Thru: route hardware input to output (if thru enabled in UI)
+        // (thruEnabled flag lives in MidiGenerator for simplicity)
+        if (midiIn.isOpen() && midiOut.isOpen() && midiGen.midiThru) {
+            // already polled above — re-use is not possible; thru is handled
+            // in the input poll block below when midiGen.midiThru is set
         }
 
         // Decode next video frame if ready

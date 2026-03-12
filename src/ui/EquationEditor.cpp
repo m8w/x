@@ -1,4 +1,5 @@
 #include "EquationEditor.h"
+#include "midi/MidiOutput.h"
 #include "FilePicker.h"
 #include <imgui.h>
 #include <cstdio>
@@ -11,11 +12,12 @@ static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
                                 VideoInput& videoIn, StreamOutput& streamOut,
-                                MidiInput& midiIn, MidiMapper& midiMapper,
-                                MidiGenerator& midiGen)
+                                MidiInput& midiIn, MidiOutput& midiOut,
+                                MidiMapper& midiMapper, MidiGenerator& midiGen)
     : m_engine(engine), m_blend(blend),
       m_videoIn(videoIn), m_streamOut(streamOut),
-      m_midiIn(midiIn), m_midiMapper(midiMapper), m_midiGen(midiGen) {}
+      m_midiIn(midiIn), m_midiOut(midiOut),
+      m_midiMapper(midiMapper), m_midiGen(midiGen) {}
 
 void EquationEditor::draw() {
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
@@ -427,42 +429,98 @@ void EquationEditor::drawMidiWindow() {
     ImGui::Begin("MIDI Mapper — UI2");
 
     // ── Port selector ─────────────────────────────────────────────────────────
-    if (ImGui::CollapsingHeader("MIDI Port", ImGuiTreeNodeFlags_DefaultOpen)) {
-        int nPorts = m_midiIn.portCount();
-        static int selectedPort = 0;
+    if (ImGui::CollapsingHeader("MIDI Routing", ImGuiTreeNodeFlags_DefaultOpen)) {
 
-        if (nPorts == 0) {
-            ImGui::TextColored({1,0.4f,0.4f,1}, "No MIDI ports found");
-        } else {
-            static char portBuf[1024]; portBuf[0] = '\0';
-            for (int i = 0; i < nPorts; i++) {
-                auto nm = m_midiIn.portName(i);
-                size_t pos = strlen(portBuf);
-                strncpy(portBuf+pos, nm.c_str(), sizeof(portBuf)-pos-2);
-                portBuf[strlen(portBuf)+1] = '\0';
+        // Helper lambda to build a null-null ImGui combo buffer from a port list
+        // (declared once, used for both in and out)
+        auto buildPortBuf = [](auto& midiObj, char* buf, int bufsz) {
+            buf[0] = '\0';
+            int n = midiObj.portCount();
+            for (int i = 0; i < n; i++) {
+                auto nm = midiObj.portName(i);
+                size_t pos = strlen(buf);
+                if (pos + nm.size() + 2 < (size_t)bufsz) {
+                    memcpy(buf+pos, nm.c_str(), nm.size()+1);
+                    buf[pos+nm.size()+1] = '\0';
+                }
             }
-            ImGui::SetNextItemWidth(240);
-            ImGui::Combo("Port##midi", &selectedPort, portBuf);
+        };
+
+        // ── MIDI INPUT ────────────────────────────────────────────────────────
+        ImGui::TextDisabled("INPUT  (hardware controller → fractal params)");
+        {
+            static int selIn = 0;
+            static char inBuf[1024];
+            buildPortBuf(m_midiIn, inBuf, sizeof(inBuf));
+            ImGui::SetNextItemWidth(230);
+            ImGui::Combo("In port##midi", &selIn, inBuf);
             ImGui::SameLine();
             if (!m_midiIn.isOpen()) {
-                if (ImGui::Button("Connect")) m_midiIn.open(selectedPort);
+                if (ImGui::Button("Connect##in") && m_midiIn.portCount() > 0)
+                    m_midiIn.open(selIn);
             } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f,0.1f,0.1f,1));
-                if (ImGui::Button("Disconnect")) m_midiIn.close();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f,0.1f,0.1f,1));
+                if (ImGui::Button("Disconnect##in")) m_midiIn.close();
                 ImGui::PopStyleColor();
             }
+            if (m_midiIn.isOpen()) {
+                auto last = m_midiIn.lastMessage();
+                int  type = (last.status & 0xF0), ch = (last.status & 0x0F)+1;
+                const char* tn = type==0xB0?"CC":type==0x90?"NoteOn":
+                                 type==0x80?"NoteOff":type==0xC0?"PC":"—";
+                ImGui::TextColored({0.3f,1,0.3f,1}, "● IN: %s",
+                                   m_midiIn.portName(m_midiIn.openedPort()).c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s ch%d #%d v%d", tn,ch,last.data1,last.data2);
+            } else {
+                ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ IN not connected");
+            }
         }
-        if (m_midiIn.isOpen()) {
-            auto last = m_midiIn.lastMessage();
-            int  type = (last.status & 0xF0), ch = (last.status & 0x0F)+1;
-            const char* tn = type==0xB0?"CC":type==0x90?"NoteOn":type==0x80?"NoteOff":type==0xC0?"PC":"—";
-            ImGui::TextColored({0.2f,1,0.2f,1},"● %s",
-                               m_midiIn.portName(m_midiIn.openedPort()).c_str());
+
+        ImGui::Spacing();
+
+        // ── MIDI OUTPUT ───────────────────────────────────────────────────────
+        ImGui::TextDisabled("OUTPUT  (generator notes → DAW / VST for recording)");
+        ImGui::TextDisabled("Mac: IAC Driver Bus 1   Win: loopMIDI   Linux: ALSA virtual");
+        {
+            static int selOut = 0;
+            static char outBuf[1024];
+            buildPortBuf(m_midiOut, outBuf, sizeof(outBuf));
+            ImGui::SetNextItemWidth(230);
+            ImGui::Combo("Out port##midi", &selOut, outBuf);
             ImGui::SameLine();
-            ImGui::TextDisabled("Last: %s ch%d #%d v%d", tn,ch,last.data1,last.data2);
-        } else {
-            ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ Not connected");
+            if (!m_midiOut.isOpen()) {
+                if (ImGui::Button("Connect##out") && m_midiOut.portCount() > 0)
+                    m_midiOut.open(selOut);
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f,0.1f,0.1f,1));
+                if (ImGui::Button("Disconnect##out")) m_midiOut.close();
+                ImGui::PopStyleColor();
+            }
+            if (m_midiOut.isOpen()) {
+                ImGui::TextColored({0.2f,0.8f,1,1}, "● OUT: %s",
+                                   m_midiOut.portName(m_midiOut.openedPort()).c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("generator notes routing here");
+            } else {
+                ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ OUT not connected  (generator notes will not reach DAW)");
+            }
+
+            if (m_midiOut.isOpen()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Panic##out")) m_midiOut.panic();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Send All-Notes-Off on all 16 channels");
+            }
         }
+
+        ImGui::Spacing();
+
+        // ── MIDI THRU ─────────────────────────────────────────────────────────
+        ImGui::Checkbox("MIDI Thru  (hardware input → output port)", &m_midiGen.midiThru);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Forwards incoming hardware MIDI straight to the output port\n"
+                              "so a physical controller can also play the VST.");
     }
 
     ImGui::Separator();
@@ -495,16 +553,21 @@ void EquationEditor::drawMidiWindow() {
         }
         ImGui::SameLine();
         if (ImGui::Button("♪ One Note")) {
-            // Fire a single note and NoteOff via MidiMapper
             auto msgs = G.fireOneNote();
-            for (auto& m : msgs) m_midiMapper.apply(m, m_engine, m_blend);
+            for (auto& m : msgs) {
+                m_midiMapper.apply(m, m_engine, m_blend);
+                m_midiOut.send(m);
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("⚠ Panic")) {
-            // NoteOff all active notes via MidiMapper
             std::vector<MidiInput::Message> offs;
             G.stop(offs);
-            for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend);
+            for (auto& m : offs) {
+                m_midiMapper.apply(m, m_engine, m_blend);
+                m_midiOut.send(m);   // NoteOffs to real MIDI port
+            }
+            m_midiOut.panic();   // belt-and-suspenders: CC123 all channels
         }
 
         // ── BPM ───────────────────────────────────────────────────────────────

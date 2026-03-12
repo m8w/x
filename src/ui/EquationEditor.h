@@ -4,6 +4,7 @@
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "midi/MidiInput.h"
+#include "midi/MidiOutput.h"
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include <string>
@@ -12,8 +13,8 @@ class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
                    VideoInput& videoIn, StreamOutput& streamOut,
-                   MidiInput& midiIn, MidiMapper& midiMapper,
-                   MidiGenerator& midiGen);
+                   MidiInput& midiIn, MidiOutput& midiOut,
+                   MidiMapper& midiMapper, MidiGenerator& midiGen);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
 private:
@@ -22,15 +23,15 @@ private:
     VideoInput&      m_videoIn;
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
+    MidiOutput&      m_midiOut;
     MidiMapper&      m_midiMapper;
     MidiGenerator&   m_midiGen;
 
     // Stream panel state
     int  m_bitrateKbps = 4000;
-    int  m_resIndex    = 1;   // default 1080p
+    int  m_resIndex    = 1;
     char m_videoPath[512] = "";
 
-    // Add-destination form
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";
 
@@ -40,5 +41,5 @@ private:
     void drawVideoPanel();
     void drawStreamPanel();
     void drawAnimPanel();
-    void drawMidiWindow();   // UI2 — separate floating ImGui window
+    void drawMidiWindow();
 };

@@ -18,12 +18,15 @@ StreamOutput::~StreamOutput() {
 }
 
 void StreamOutput::addDestination(const std::string& name, const std::string& url) {
-    m_sinks.push_back({name, url});
+    auto s = std::make_unique<DestSink>();
+    s->name = name;
+    s->url  = url;
+    m_sinks.push_back(std::move(s));
 }
 
 void StreamOutput::removeDestination(int idx) {
     if (idx < 0 || idx >= (int)m_sinks.size()) return;
-    if (m_streaming) closeSink(m_sinks[idx]);
+    if (m_streaming) closeSink(*m_sinks[idx]);
     m_sinks.erase(m_sinks.begin() + idx);
 }
 
@@ -64,9 +67,6 @@ bool StreamOutput::openSink(DestSink& s) {
     s.avStream = avformat_new_stream(s.fmtCtx, nullptr);
     avcodec_parameters_from_context(s.avStream->codecpar, m_codecCtx);
     s.avStream->time_base = m_codecCtx->time_base;
-
-    if (m_codecCtx->flags & AV_CODEC_FLAG_GLOBAL_HEADER)
-        s.fmtCtx->oformat->flags |= AVFMT_GLOBALHEADER;
 
     if (!(s.fmtCtx->oformat->flags & AVFMT_NOFILE)) {
         // Use avio_open2 so we can pass options; needed for rtmps:// (TLS)
@@ -156,8 +156,8 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
 
     // ── open each enabled sink ────────────────────────────────────────────────
     int opened = 0;
-    for (auto& s : m_sinks)
-        if (s.enabled && openSink(s)) opened++;
+    for (auto& sp : m_sinks)
+        if (sp->enabled && openSink(*sp)) opened++;
 
     if (opened == 0) {
         fprintf(stderr, "StreamOutput: no destinations connected — add at least one\n");
@@ -186,19 +186,19 @@ void StreamOutput::stop() {
     // flush encoder
     avcodec_send_frame(m_codecCtx, nullptr);
     while (avcodec_receive_packet(m_codecCtx, m_pkt) == 0) {
-        for (auto& s : m_sinks) {
-            if (!s.connected) continue;
+        for (auto& sp : m_sinks) {
+            if (!sp->connected) continue;
             AVPacket* clone = av_packet_clone(m_pkt);
-            av_packet_rescale_ts(clone, m_codecCtx->time_base, s.avStream->time_base);
-            clone->stream_index = s.avStream->index;
-            std::lock_guard<std::mutex> lk(s.mtx);
-            s.queue.push(clone);
-            s.cv.notify_one();
+            av_packet_rescale_ts(clone, m_codecCtx->time_base, sp->avStream->time_base);
+            clone->stream_index = sp->avStream->index;
+            std::lock_guard<std::mutex> lk(sp->mtx);
+            sp->queue.push(clone);
+            sp->cv.notify_one();
         }
         av_packet_unref(m_pkt);
     }
 
-    for (auto& s : m_sinks) closeSink(s);
+    for (auto& sp : m_sinks) closeSink(*sp);
 
     if (m_swsCtx)   { sws_freeContext(m_swsCtx);      m_swsCtx  = nullptr; }
     if (m_frame)    { av_frame_free(&m_frame);                               }
@@ -229,14 +229,14 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
 void StreamOutput::encodeAndDistribute(AVFrame* frame) {
     if (avcodec_send_frame(m_codecCtx, frame) < 0) return;
     while (avcodec_receive_packet(m_codecCtx, m_pkt) == 0) {
-        for (auto& s : m_sinks) {
-            if (!s.connected) continue;
+        for (auto& sp : m_sinks) {
+            if (!sp->connected) continue;
             AVPacket* clone = av_packet_clone(m_pkt);
-            av_packet_rescale_ts(clone, m_codecCtx->time_base, s.avStream->time_base);
-            clone->stream_index = s.avStream->index;
-            std::lock_guard<std::mutex> lk(s.mtx);
-            s.queue.push(clone);
-            s.cv.notify_one();
+            av_packet_rescale_ts(clone, m_codecCtx->time_base, sp->avStream->time_base);
+            clone->stream_index = sp->avStream->index;
+            std::lock_guard<std::mutex> lk(sp->mtx);
+            sp->queue.push(clone);
+            sp->cv.notify_one();
         }
         av_packet_unref(m_pkt);
     }

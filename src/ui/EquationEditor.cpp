@@ -62,7 +62,7 @@ static const char* kFormulas[] = {
     "cosh(z) + c",                        //  5
     "Burning Ship",                       //  6
     "Tricorn",                            //  7
-    "Newton z\xc2\xb3\xe2\x88\x921",     //  8
+    "Newton z\xc2\xb3\xe2\x88\x92" "1",   //  8
     "Phoenix",                            //  9
     "z\xe2\x81\xbf + c  (power)",        // 10
 };

@@ -12,6 +12,7 @@ extern "C" {
 #include <condition_variable>
 #include <atomic>
 #include <cstdint>
+#include <memory>
 
 // One RTMP destination (YouTube, Twitch, etc.)
 struct DestSink {
@@ -43,8 +44,8 @@ public:
     void addDestination(const std::string& name, const std::string& url);
     void removeDestination(int idx);
     int  destCount() const { return (int)m_sinks.size(); }
-    DestSink&       dest(int i)       { return m_sinks[i]; }
-    const DestSink& dest(int i) const { return m_sinks[i]; }
+    DestSink&       dest(int i)       { return *m_sinks[i]; }
+    const DestSink& dest(int i) const { return *m_sinks[i]; }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     bool start(int width, int height, int bitrate_kbps = 4000, int fps = 30);
@@ -59,7 +60,7 @@ public:
     int fps          = 30;
 
 private:
-    std::vector<DestSink> m_sinks;
+    std::vector<std::unique_ptr<DestSink>> m_sinks;
 
     // Shared encoder — encode once, clone packet per sink
     AVCodecContext* m_codecCtx  = nullptr;

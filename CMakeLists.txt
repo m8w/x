@@ -1,21 +1,26 @@
 cmake_minimum_required(VERSION 3.18)
-project(fractal_stream VERSION 0.1 LANGUAGES CXX OBJCXX)
+
+# OBJCXX is only available on macOS (for FilePicker.mm)
+if(APPLE)
+    project(fractal_stream VERSION 0.1 LANGUAGES CXX OBJCXX)
+else()
+    project(fractal_stream VERSION 0.1 LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Apple Silicon / Homebrew paths ────────────────────────────────────────────
 if(APPLE)
-    # Homebrew on Apple Silicon lives at /opt/homebrew
     list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
     set(CMAKE_OSX_ARCHITECTURES arm64)
-    # Silence OpenGL deprecation warnings (Apple deprecated GL but it still works)
     add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
 
-# ── Third-party submodules ────────────────────────────────────────────────────
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
-set(GLM_DIR   ${CMAKE_SOURCE_DIR}/third_party/glm)
+# ── Third-party (submodules + bundled) ───────────────────────────────────────
+set(IMGUI_DIR  ${CMAKE_SOURCE_DIR}/third_party/imgui)
+set(GLM_DIR    ${CMAKE_SOURCE_DIR}/third_party/glm)
+set(RTMIDI_DIR ${CMAKE_SOURCE_DIR}/third_party/rtmidi)
 
 # ── System packages ───────────────────────────────────────────────────────────
 find_package(OpenGL REQUIRED)
@@ -24,30 +29,44 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale)
 
-# RtMidi — MIDI input.  Install: apt install librtmidi-dev  /  brew install rtmidi
-find_package(PkgConfig REQUIRED)
+# ── RtMidi: prefer system package, fall back to bundled third_party/rtmidi ───
 pkg_check_modules(RTMIDI QUIET rtmidi)
 if(NOT RTMIDI_FOUND)
-    # Fallback: look for RtMidi via CMake config (Homebrew on macOS)
     find_package(RtMidi QUIET)
     if(RtMidi_FOUND)
-        set(RTMIDI_INCLUDE_DIRS "")
         set(RTMIDI_LIBRARIES RtMidi::rtmidi)
         set(RTMIDI_FOUND TRUE)
-    else()
-        message(WARNING "RtMidi not found — MIDI input disabled. "
-                        "Install: apt install librtmidi-dev  /  brew install rtmidi")
-        set(RTMIDI_INCLUDE_DIRS "")
-        set(RTMIDI_LIBRARIES "")
     endif()
 endif()
 
-# GLEW: not needed on macOS — use the built-in GL loader instead
+if(RTMIDI_FOUND)
+    message(STATUS "RtMidi: using system library")
+    set(RTMIDI_EXTRA_SOURCES "")
+    set(RTMIDI_EXTRA_INCLUDES ${RTMIDI_INCLUDE_DIRS})
+    set(RTMIDI_LINK_LIBS ${RTMIDI_LIBRARIES})
+else()
+    message(STATUS "RtMidi: using bundled third_party/rtmidi")
+    set(RTMIDI_EXTRA_SOURCES ${RTMIDI_DIR}/RtMidi.cpp)
+    set(RTMIDI_EXTRA_INCLUDES ${RTMIDI_DIR})
+    if(APPLE)
+        set(RTMIDI_LINK_LIBS "")   # CoreMIDI added below in framework block
+    else()
+        set(RTMIDI_LINK_LIBS asound)   # ALSA on Linux
+    endif()
+    # Tell RtMidi which backend to compile
+    if(APPLE)
+        add_compile_definitions(__MACOSX_CORE__)
+    else()
+        add_compile_definitions(__LINUX_ALSA__)
+    endif()
+endif()
+
+# ── GLEW (Linux only) ─────────────────────────────────────────────────────────
 if(NOT APPLE)
     find_package(GLEW REQUIRED)
 endif()
 
-# ── ImGui sources (compiled directly) ────────────────────────────────────────
+# ── ImGui sources ─────────────────────────────────────────────────────────────
 set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
@@ -68,7 +87,7 @@ set(SOURCES
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
     src/ui/EquationEditor.cpp
-    src/ui/FilePicker_linux.cpp  # no-op on macOS via #ifndef __APPLE__
+    src/ui/FilePicker_linux.cpp
     src/remote/RemoteControl.cpp
     src/midi/MidiInput.cpp
     src/midi/MidiMapper.cpp
@@ -76,12 +95,11 @@ set(SOURCES
     src/midi/MidiOutput.cpp
 )
 
-# macOS: native NSOpenPanel file picker (Objective-C++)
 if(APPLE)
     list(APPEND SOURCES src/ui/FilePicker.mm)
 endif()
 
-add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES})
+add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})
 
 target_include_directories(fractal_stream PRIVATE
     src
@@ -89,13 +107,11 @@ target_include_directories(fractal_stream PRIVATE
     ${IMGUI_DIR}/backends
     ${GLM_DIR}
     ${FFMPEG_INCLUDE_DIRS}
-    ${RTMIDI_INCLUDE_DIRS}
+    ${RTMIDI_EXTRA_INCLUDES}
 )
 
 target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
 
-# On macOS: no loader flag — ImGui uses its bundled imgui_impl_opengl3_loader.h
-# On Linux: tell ImGui to use GLEW
 if(APPLE)
     target_compile_definitions(fractal_stream PRIVATE
         SHADERS_DIR="${CMAKE_SOURCE_DIR}/shaders"
@@ -116,10 +132,11 @@ if(APPLE)
         "-framework CoreVideo"
         "-framework CoreMIDI"
         "-framework CoreAudio"
+        "-framework CoreFoundation"
         "-framework UniformTypeIdentifiers"
         glfw
         ${FFMPEG_LIBRARIES}
-        ${RTMIDI_LIBRARIES}
+        ${RTMIDI_LINK_LIBS}
     )
 else()
     target_link_libraries(fractal_stream PRIVATE
@@ -127,7 +144,7 @@ else()
         GLEW::GLEW
         glfw
         ${FFMPEG_LIBRARIES}
-        ${RTMIDI_LIBRARIES}
+        ${RTMIDI_LINK_LIBS}
         pthread
     )
 endif()

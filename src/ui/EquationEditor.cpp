@@ -38,6 +38,8 @@ void EquationEditor::draw() {
         drawVideoPanel();
     if (ImGui::CollapsingHeader("Color Synthesizer"))
         drawColorSynthPanel();
+    if (ImGui::CollapsingHeader("Chaos Effects"))
+        drawChaosPanel();
     if (ImGui::CollapsingHeader("Distortion / Metaballs"))
         drawDistortionPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
@@ -1440,4 +1442,69 @@ void EquationEditor::drawDistortionPanel() {
         ImGui::SetTooltip("Chromatic edge ring brightness");
 
     if (dis) ImGui::EndDisabled();
+}
+
+// ── Chaos Effects ─────────────────────────────────────────────────────────────
+//
+// Pre-iteration domain warps inspired by chaos theory.  Applied to the complex
+// plane before fractal iteration so the chaotic geometry is baked into the
+// fractal structure itself.
+//
+//  Off         — straight fractal rendering (no warp)
+//  Turbulence  — two-level fBm noise warp; smooth, continuously-folding flow
+//  Logistic    — logistic map r·x·(1-x) iterated in polar coords; at r→4 the
+//                orbit enters full chaos and drives a rotation warp
+//  Hénon       — Hénon strange attractor (a=1.4, b=0.3) displacement
+//  Shred       — multi-frequency scanline horizontal drift; tape-degradation look
+
+void EquationEditor::drawChaosPanel() {
+    auto& E = m_engine;
+
+    static const char* kModeLabels[] = {
+        "Off", "Turbulence", "Logistic", "Henon", "Shred"
+    };
+    ImGui::Combo("Mode", &E.chaosMode, kModeLabels, 5);
+
+    if (E.chaosMode == 0) {
+        ImGui::TextDisabled("Select a mode to enable chaos domain warp.");
+        return;
+    }
+
+    // Mode descriptions
+    ImGui::Spacing();
+    switch (E.chaosMode) {
+    case 1: ImGui::TextDisabled("fBm turbulence — smooth chaotic flow fields"); break;
+    case 2: ImGui::TextDisabled("Logistic map — period-doubling bifurcation into chaos"); break;
+    case 3: ImGui::TextDisabled("Henon attractor — strange attractor displacement"); break;
+    case 4: ImGui::TextDisabled("Shred — scanline drift / signal-loss distortion"); break;
+    }
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::SliderFloat("Strength", &E.chaosStrength, 0.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Overall warp amplitude");
+
+    ImGui::SliderFloat("Scale",    &E.chaosScale,    0.5f, 8.0f,  "%.2f");
+    if (ImGui::IsItemHovered()) {
+        switch (E.chaosMode) {
+        case 1: ImGui::SetTooltip("Noise spatial frequency"); break;
+        case 2: ImGui::SetTooltip("Polar coordinate scale for logistic seed"); break;
+        case 3: ImGui::SetTooltip("Henon map input scale"); break;
+        case 4: ImGui::SetTooltip("Scanline density"); break;
+        }
+    }
+
+    ImGui::SliderFloat("Speed",    &E.chaosSpeed,    0.0f, 3.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Time modulation rate");
+
+    // Live indicator: show whether we're in a visually chaotic regime
+    if (E.chaosMode == 2) {
+        float r = 3.57f + E.chaosStrength * 0.43f;
+        bool chaotic = (r > 3.57f);
+        ImGui::Spacing();
+        ImGui::TextDisabled("Logistic r = %.3f  (%s)", r,
+                            chaotic ? "chaotic regime" : "periodic (increase Strength)");
+    }
 }

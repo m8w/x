@@ -34,6 +34,12 @@ uniform int   u_layer_count;       // 1–4: spatial layer repetition
 uniform float u_layer_offset;      // gap between layers
 uniform sampler2D u_video_tex;
 
+// ── Chaos Effects ─────────────────────────────────────────────────────────────
+uniform int   u_chaos_mode;     // 0=off  1=turbulence  2=logistic  3=henon  4=shred
+uniform float u_chaos_strength; // overall warp amplitude (0–1)
+uniform float u_chaos_scale;    // spatial frequency / map scale (0.5–8)
+uniform float u_chaos_speed;    // time modulation rate (0–3)
+
 // ── Color Synthesizer ─────────────────────────────────────────────────────────
 uniform bool  u_cs_enabled;
 uniform vec3  u_cs_hsl;         // primary HSL (hue 0-1 wrapping, sat 0-1, lum 0-1)
@@ -374,6 +380,90 @@ vec3 synthPalette(float t, vec3 hsl) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// CHAOS DOMAIN WARPS
+// Applied as a pre-iteration UV warp — distorts the complex plane before any
+// fractal evaluation so the chaotic geometry is baked into the fractal structure
+// rather than applied as a post-process.
+//
+// Mode 1 — Turbulence: two-level fBm domain warp (Quilez-style).
+//           Produces smooth, continuously-flowing chaotic streams.
+// Mode 2 — Logistic:  logistic map r·x·(1-x) iterated 8× in polar coordinates.
+//           As r→4 the orbit bifurcates to full chaos; drives a rotation warp.
+// Mode 3 — Hénon:    6 iterations of the Hénon attractor (a=1.4, b=0.3)
+//           applied as a displacement from the attractor trajectory.
+// Mode 4 — Shred:    time-varying scanline horizontal drift.
+//           Multi-frequency sine sum gives irregular tape-shred / signal-loss.
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Smooth value noise (no texture lookup — deterministic hash)
+float _h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.545); }
+float _n(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f*f*(3.0 - 2.0*f);
+    return mix(mix(_h(i), _h(i+vec2(1,0)), f.x),
+               mix(_h(i+vec2(0,1)), _h(i+vec2(1,1)), f.x), f.y);
+}
+
+vec2 apply_chaos(vec2 p, float t) {
+    if (u_chaos_mode == 0) return p;
+
+    float st = t * u_chaos_speed;
+    float sc = u_chaos_scale;
+    float sw = u_chaos_strength;
+
+    // ── Mode 1: Turbulence — two-level fBm warp ───────────────────────────────
+    if (u_chaos_mode == 1) {
+        // First warp layer
+        vec2 q = vec2(_n(p*sc + st*0.11        ) - 0.5,
+                      _n(p*sc + vec2(3.7, 5.1) + st*0.09) - 0.5);
+        // Second layer warped by the first (increases folding complexity)
+        q = vec2(_n(p*sc + q + st*0.06        ) - 0.5,
+                 _n(p*sc + q + vec2(1.7, 9.2) + st*0.07) - 0.5);
+        return p + q * sw * 0.6;
+    }
+
+    // ── Mode 2: Logistic — polar rotation driven by logistic orbit ───────────
+    if (u_chaos_mode == 2) {
+        // r sweeps 3.57 (onset of chaos) → 4.0 (full chaos) with strength
+        float r = 3.57 + sw * 0.43;
+        // Two independent logistic seeds derived from polar coords
+        float lx = fract(length(p) * sc * 0.5 + 0.13);
+        float ly = fract(atan(p.y, p.x) / 6.28318 + 0.5 + st * 0.04);
+        for (int i = 0; i < 8; i++) {
+            lx = r * lx * (1.0 - lx);
+            ly = r * ly * (1.0 - ly);
+        }
+        // Map combined orbit to a rotation angle
+        float angle = (lx + ly - 1.0) * 3.14159 * sw;
+        float cr = cos(angle), sr = sin(angle);
+        return vec2(cr*p.x - sr*p.y, sr*p.x + cr*p.y);
+    }
+
+    // ── Mode 3: Hénon — 2-D chaotic attractor warp ───────────────────────────
+    if (u_chaos_mode == 3) {
+        const float a = 1.4, b = 0.3;
+        vec2 h = p * sc;
+        // 6 iterations — enough to move the point into the attractor basin
+        for (int i = 0; i < 6; i++) {
+            h = vec2(1.0 - a*h.x*h.x + h.y, b*h.x);
+        }
+        // Clamp attractor displacement to prevent extreme values at boundaries
+        return p + clamp(h, -3.0, 3.0) * sw * 0.04;
+    }
+
+    // ── Mode 4: Shred — multi-freq scanline horizontal drift ─────────────────
+    if (u_chaos_mode == 4) {
+        float row = p.y * sc * 8.0;
+        float d = sin(st * 3.7  + row * 15.0) * 0.50
+                + sin(st * 7.1  + row *  5.3) * 0.25
+                + sin(st * 1.3  + row * 31.0) * 0.25;
+        return p + vec2(d * sw * 0.25, 0.0);
+    }
+
+    return p;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ════════════════════════════════════════════════════════════════════════════════
 void main() {
@@ -389,6 +479,9 @@ void main() {
         float d = sdf_eval(p);
         p -= normalize(sdf_grad(p)) * sign(d) * u_geo_warp * u_geo_radius * 0.25;
     }
+
+    // Chaos domain warp: applied after SDF warp, before fractal iteration
+    p = apply_chaos(p, u_time);
 
     // Pixel coordinate injection: adds world-space position to iteration seed,
     // making screen location a live variable inside the equation.

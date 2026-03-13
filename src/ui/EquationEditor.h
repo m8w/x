@@ -50,4 +50,5 @@ private:
     void drawGlitchPanel();
     void drawColorSynthPanel();
     void drawDistortionPanel();
+    void drawChaosPanel();
 };

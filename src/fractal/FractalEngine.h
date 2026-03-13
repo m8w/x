@@ -72,6 +72,19 @@ struct FractalEngine {
     float mbScale         = 2.0f;
     float mbFold          = 1.0f;
 
+    // ── Chaos domain warp (fractal.frag) ─────────────────────────────────────
+    // Applied as a pre-iteration UV warp so chaos geometry is baked into
+    // the fractal structure rather than added as a post-process.
+    //   0  off
+    //   1  Turbulence — two-level fBm smooth chaotic flow
+    //   2  Logistic   — logistic-map orbit drives a rotation warp (r→4 = chaos)
+    //   3  Hénon      — Hénon attractor (a=1.4, b=0.3) displacement
+    //   4  Shred      — multi-freq scanline horizontal drift
+    int   chaosMode     = 0;
+    float chaosStrength = 0.5f;   // warp amplitude  (0–1)
+    float chaosScale    = 2.0f;   // spatial frequency (0.5–8)
+    float chaosSpeed    = 1.0f;   // time modulation rate (0–3)
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.

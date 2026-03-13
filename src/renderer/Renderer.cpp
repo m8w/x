@@ -84,6 +84,11 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setInt   ("u_fractal_3d",      eng.fractal3D);
     prog.setFloat ("u_mb_scale",        eng.mbScale);
     prog.setFloat ("u_mb_fold",         eng.mbFold);
+    // Chaos domain warp
+    prog.setInt   ("u_chaos_mode",      eng.chaosMode);
+    prog.setFloat ("u_chaos_strength",  eng.chaosStrength);
+    prog.setFloat ("u_chaos_scale",     eng.chaosScale);
+    prog.setFloat ("u_chaos_speed",     eng.chaosSpeed);
     prog.setInt   ("u_video_tex",       0);  // texture unit 0
 
     // ── Color Synthesizer ─────────────────────────────────────────────────────

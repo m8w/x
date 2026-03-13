@@ -3,6 +3,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libavutil/hwcontext.h>
 }
 #include <string>
 
@@ -31,9 +32,12 @@ private:
     AVFormatContext* m_fmtCtx    = nullptr;
     AVCodecContext*  m_codecCtx  = nullptr;
     SwsContext*      m_swsCtx    = nullptr;
-    AVFrame*         m_frame     = nullptr;   // decoded (any format)
+    AVFrame*         m_frame     = nullptr;   // decoded (HW or SW)
+    AVFrame*         m_frameSW   = nullptr;   // CPU copy when using HW decode
     AVFrame*         m_frameRGB  = nullptr;   // converted RGB24
     AVPacket*        m_pkt       = nullptr;
+    AVBufferRef*     m_hwDevCtx  = nullptr;   // VideoToolbox device (macOS only)
+    bool             m_useHW     = false;
     int              m_streamIdx = -1;
     int              m_width     = 0;
     int              m_height    = 0;

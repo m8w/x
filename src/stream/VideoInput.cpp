@@ -1,8 +1,12 @@
 #include "VideoInput.h"
 #include <cstdio>
+#ifdef __APPLE__
+#include <libavutil/hwcontext_videotoolbox.h>
+#endif
 
 VideoInput::VideoInput() {
     m_frame    = av_frame_alloc();
+    m_frameSW  = av_frame_alloc();
     m_frameRGB = av_frame_alloc();
     m_pkt      = av_packet_alloc();
 }
@@ -10,6 +14,7 @@ VideoInput::VideoInput() {
 VideoInput::~VideoInput() {
     close();
     av_frame_free(&m_frame);
+    av_frame_free(&m_frameSW);
     av_frame_free(&m_frameRGB);
     av_packet_free(&m_pkt);
 }
@@ -43,9 +48,28 @@ bool VideoInput::initCodec() {
     }
     m_codecCtx = avcodec_alloc_context3(codec);
     avcodec_parameters_to_context(m_codecCtx, stream->codecpar);
-    // Allow multi-threaded decode (helps with ProRes, HEVC in .mov)
-    m_codecCtx->thread_count = 0;  // auto
-    m_codecCtx->thread_type  = FF_THREAD_FRAME;
+
+#ifdef __APPLE__
+    // Try VideoToolbox hardware accelerated decode.
+    // Supports H.264, HEVC, ProRes, VP9, AV1 on Apple Silicon.
+    // Falls back to software decode silently on failure.
+    m_useHW = false;
+    if (av_hwdevice_ctx_create(&m_hwDevCtx,
+                               AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+                               nullptr, nullptr, 0) == 0) {
+        m_codecCtx->hw_device_ctx = av_buffer_ref(m_hwDevCtx);
+        m_useHW = true;
+        fprintf(stderr, "VideoInput: VideoToolbox HW decode enabled\n");
+    } else {
+        fprintf(stderr, "VideoInput: VideoToolbox unavailable, using SW decode\n");
+    }
+#endif
+
+    // Multi-threaded SW decode (used when HW is off or as fallback)
+    if (!m_useHW) {
+        m_codecCtx->thread_count = 0;  // auto
+        m_codecCtx->thread_type  = FF_THREAD_FRAME;
+    }
     if (avcodec_open2(m_codecCtx, codec, nullptr) < 0) {
         fprintf(stderr, "VideoInput: avcodec_open2 failed\n");
         return false;
@@ -103,14 +127,29 @@ AVFrame* VideoInput::nextFrame() {
         av_packet_unref(m_pkt);
 
         if (avcodec_receive_frame(m_codecCtx, m_frame) == 0) {
+            // When VideoToolbox is active the frame lives in GPU memory
+            // (AV_PIX_FMT_VIDEOTOOLBOX).  Transfer it to a CPU frame first.
+            AVFrame* srcFrame = m_frame;
+#ifdef __APPLE__
+            if (m_useHW && m_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+                av_frame_unref(m_frameSW);
+                if (av_hwframe_transfer_data(m_frameSW, m_frame, 0) < 0) {
+                    fprintf(stderr, "VideoInput: HW→CPU frame transfer failed\n");
+                    continue;
+                }
+                m_frameSW->width  = m_frame->width;
+                m_frameSW->height = m_frame->height;
+                srcFrame = m_frameSW;
+            }
+#endif
             // Use the actual decoded frame's pixel format — not the header's
-            ensureSwsCtx((AVPixelFormat)m_frame->format,
-                         m_frame->width, m_frame->height);
+            ensureSwsCtx((AVPixelFormat)srcFrame->format,
+                         srcFrame->width, srcFrame->height);
             if (!m_swsCtx) continue;
 
             av_frame_make_writable(m_frameRGB);
             sws_scale(m_swsCtx,
-                      m_frame->data, m_frame->linesize, 0, m_frame->height,
+                      srcFrame->data, srcFrame->linesize, 0, srcFrame->height,
                       m_frameRGB->data, m_frameRGB->linesize);
             return m_frameRGB;
         }
@@ -126,9 +165,12 @@ void VideoInput::releaseFrame(AVFrame* /*frame*/) {
 }
 
 void VideoInput::close() {
-    if (m_swsCtx)   { sws_freeContext(m_swsCtx);         m_swsCtx = nullptr; }
-    if (m_codecCtx) { avcodec_free_context(&m_codecCtx); }
-    if (m_fmtCtx)   { avformat_close_input(&m_fmtCtx);   }
+    if (m_swsCtx)    { sws_freeContext(m_swsCtx);         m_swsCtx   = nullptr; }
+    if (m_codecCtx)  { avcodec_free_context(&m_codecCtx); }
+    if (m_fmtCtx)    { avformat_close_input(&m_fmtCtx);   }
+    if (m_hwDevCtx)  { av_buffer_unref(&m_hwDevCtx);      m_hwDevCtx = nullptr; }
+    m_useHW      = false;
     m_streamIdx  = -1;
     m_lastPixFmt = AV_PIX_FMT_NONE;
+    av_frame_unref(m_frameSW);
 }

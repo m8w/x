@@ -132,6 +132,8 @@ if(APPLE)
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreVideo"
+        "-framework CoreMedia"
+        "-framework VideoToolbox"
         "-framework CoreMIDI"
         "-framework CoreAudio"
         "-framework CoreFoundation"

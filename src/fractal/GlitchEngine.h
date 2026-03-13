@@ -80,10 +80,24 @@ private:
         float     mandelbrot, julia, mandelbulb, euclidean, diff;
     };
 
+    // What the glitch SET each param to. Compared against the live value at
+    // recovery time: if they still match, the user did not touch the param
+    // during the glitch and we restore the pre-glitch value; if they differ,
+    // the user took manual control and we leave the current value alone.
+    struct PostGlitchVals {
+        glm::vec2 juliaC;
+        float     power;
+        float     zoom;
+        glm::vec2 offset;
+        int       formula;
+        float     mandelbrot;  // representative blend weight for BlendScatter
+    };
+
     double      m_nextGlitch  = 0.0;
     double      m_glitchEnd   = 0.0;
     GlitchType  m_activeType  = GlitchType::COUNT;
-    SavedState  m_saved;
+    SavedState      m_saved;
+    PostGlitchVals  m_post{};
     bool        m_seeded      = false;
     std::mt19937 m_rng;
 

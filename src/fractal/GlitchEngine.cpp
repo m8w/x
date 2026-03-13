@@ -79,41 +79,47 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
 
     case GlitchType::JuliaJump:
         lastGlitchName = "Julia Jump";
-        eng.juliaC.x = randF(-1.5f * s, 1.5f * s);
-        eng.juliaC.y = randF(-1.5f * s, 1.5f * s);
+        eng.juliaC.x  = randF(-1.5f * s, 1.5f * s);
+        eng.juliaC.y  = randF(-1.5f * s, 1.5f * s);
+        m_post.juliaC = eng.juliaC;
         break;
 
     case GlitchType::FormulaFlash:
         lastGlitchName = "Formula Flash";
-        eng.formula = randI(0, 10);
+        eng.formula    = randI(0, 10);
+        m_post.formula = eng.formula;
         break;
 
     case GlitchType::ZoomPunch: {
         lastGlitchName = "Zoom Punch";
         float zoomDir = (randI(0, 1) == 0) ? (1.0f + 2.0f * s) : (1.0f / (1.0f + 2.0f * s));
         eng.zoom *= zoomDir;
-        eng.zoom = std::max(0.05f, std::min(eng.zoom, 200.0f));
+        eng.zoom    = std::max(0.05f, std::min(eng.zoom, 200.0f));
+        m_post.zoom = eng.zoom;
         break;
     }
 
     case GlitchType::BlendScatter:
         lastGlitchName = "Blend Scatter";
-        blend.mandelbrot = randF(0.0f, s);
-        blend.julia      = randF(0.0f, s);
-        blend.mandelbulb = randF(0.0f, s * 0.5f);
-        blend.euclidean  = randF(0.0f, s * 0.7f);
-        blend.diff       = randF(0.0f, s * 0.3f);
+        blend.mandelbrot      = randF(0.0f, s);
+        blend.julia           = randF(0.0f, s);
+        blend.mandelbulb      = randF(0.0f, s * 0.5f);
+        blend.euclidean       = randF(0.0f, s * 0.7f);
+        blend.diff            = randF(0.0f, s * 0.3f);
+        m_post.mandelbrot     = blend.mandelbrot;
         break;
 
     case GlitchType::PowerSpike:
         lastGlitchName = "Power Spike";
-        eng.power = 2.0f + randF(0.0f, 14.0f * s);
+        eng.power   = 2.0f + randF(0.0f, 14.0f * s);
+        m_post.power = eng.power;
         break;
 
     case GlitchType::OffsetShift:
         lastGlitchName = "Offset Shift";
-        eng.offset.x += randF(-0.3f * s, 0.3f * s);
-        eng.offset.y += randF(-0.3f * s, 0.3f * s);
+        eng.offset.x  += randF(-0.3f * s, 0.3f * s);
+        eng.offset.y  += randF(-0.3f * s, 0.3f * s);
+        m_post.offset  = eng.offset;
         break;
 
     case GlitchType::VelocitySpike:
@@ -141,28 +147,36 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
 // ── Recover from a glitch ─────────────────────────────────────────────────────
 
 void GlitchEngine::recoverGlitch(FractalEngine& eng, BlendController& blend) {
+    // Guard every restore: if the current value no longer matches what the
+    // glitch set it to, the user changed the param manually during the glitch
+    // window and we respect that — leave the live value as-is.
     switch (m_activeType) {
     case GlitchType::JuliaJump:
-        eng.juliaC = m_saved.juliaC;
+        if (eng.juliaC == m_post.juliaC) eng.juliaC = m_saved.juliaC;
         break;
     case GlitchType::FormulaFlash:
-        eng.formula = m_saved.formula;
+        if (eng.formula == m_post.formula) eng.formula = m_saved.formula;
         break;
     case GlitchType::ZoomPunch:
-        eng.zoom = m_saved.zoom;
+        if (eng.zoom == m_post.zoom) eng.zoom = m_saved.zoom;
         break;
     case GlitchType::BlendScatter:
-        blend.mandelbrot = m_saved.mandelbrot;
-        blend.julia      = m_saved.julia;
-        blend.mandelbulb = m_saved.mandelbulb;
-        blend.euclidean  = m_saved.euclidean;
-        blend.diff       = m_saved.diff;
+        // Use mandelbrot as the sentinel — if the user changed any blend
+        // weight during the glitch we skip the full restore to avoid
+        // partial overwrites.
+        if (blend.mandelbrot == m_post.mandelbrot) {
+            blend.mandelbrot = m_saved.mandelbrot;
+            blend.julia      = m_saved.julia;
+            blend.mandelbulb = m_saved.mandelbulb;
+            blend.euclidean  = m_saved.euclidean;
+            blend.diff       = m_saved.diff;
+        }
         break;
     case GlitchType::PowerSpike:
-        eng.power = m_saved.power;
+        if (eng.power == m_post.power) eng.power = m_saved.power;
         break;
     case GlitchType::OffsetShift:
-        eng.offset = m_saved.offset;
+        if (eng.offset == m_post.offset) eng.offset = m_saved.offset;
         break;
     case GlitchType::VelocitySpike:
         m_velSpike = false;

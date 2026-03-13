@@ -24,8 +24,9 @@ public:
     const uint8_t* fboPixels(int width, int height);
 
 private:
-    ShaderProgram m_shaderBlend;     // fractal.vert + fractal.frag
-    ShaderProgram m_shaderBulb;      // fractal.vert + mandelbulb.frag
+    ShaderProgram m_shaderBlend;      // fractal.vert + fractal.frag
+    ShaderProgram m_shaderBulb;       // fractal.vert + mandelbulb.frag
+    ShaderProgram m_shaderDistort;    // fractal.vert + distortion.frag
     GLuint        m_vao       = 0;
     GLuint        m_fbo       = 0;
     GLuint        m_fboTex    = 0;

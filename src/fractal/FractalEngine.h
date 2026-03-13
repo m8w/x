@@ -71,4 +71,14 @@ struct FractalEngine {
     int   fractal3D       = 0;
     float mbScale         = 2.0f;
     float mbFold          = 1.0f;
+
+    // ── Distortion mode (distortion.frag) ────────────────────────────────────
+    // When true, the Renderer switches to the iridescent metaball shader and
+    // bypasses the fractal blend pipeline entirely.
+    bool  distortionMode = false;
+    float distortSpeed   = 1.0f;   // animation rate multiplier (0.1–3)
+    int   distortBlobs   = 6;      // active metaball count (3–10)
+    float distortGlow    = 1.0f;   // outer aura intensity (0–2)
+    float distortIrid    = 2.0f;   // rainbow cycle frequency (0.5–4)
+    float distortOutline = 0.6f;   // edge ring brightness (0–1)
 };

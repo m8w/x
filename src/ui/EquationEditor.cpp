@@ -38,6 +38,8 @@ void EquationEditor::draw() {
         drawVideoPanel();
     if (ImGui::CollapsingHeader("Color Synthesizer"))
         drawColorSynthPanel();
+    if (ImGui::CollapsingHeader("Distortion / Metaballs"))
+        drawDistortionPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
         drawStreamPanel();
 
@@ -1393,4 +1395,49 @@ void EquationEditor::drawColorSynthPanel() {
     }
 
     if (!C.enabled) { ImGui::EndDisabled(); }
+}
+
+// ── Distortion / Metaballs ────────────────────────────────────────────────────
+//
+// Controls for the iridescent metaball shader (distortion.frag).
+// Enabling Distortion Mode bypasses the fractal pipeline and renders the
+// animated blob field instead.  All other panels remain active so the stream
+// settings, MIDI, and glitch effects still apply.
+
+void EquationEditor::drawDistortionPanel() {
+    auto& E = m_engine;
+
+    ImGui::Checkbox("Enable Distortion Mode", &E.distortionMode);
+    if (E.distortionMode) {
+        ImGui::Separator();
+        ImGui::TextDisabled("Fractal blend is paused while Distortion Mode is on.");
+        ImGui::Spacing();
+    }
+
+    bool dis = !E.distortionMode;
+    if (dis) ImGui::BeginDisabled();
+
+    ImGui::SliderFloat("Speed",       &E.distortSpeed,   0.1f, 3.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Animation rate multiplier");
+
+    int blobs = E.distortBlobs;
+    if (ImGui::SliderInt("Blobs", &blobs, 3, 10))
+        E.distortBlobs = blobs;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Number of metaballs");
+
+    ImGui::SliderFloat("Glow",        &E.distortGlow,    0.0f, 2.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Outer aura intensity");
+
+    ImGui::SliderFloat("Iridescence", &E.distortIrid,    0.5f, 4.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rainbow cycle frequency");
+
+    ImGui::SliderFloat("Outline",     &E.distortOutline, 0.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Chromatic edge ring brightness");
+
+    if (dis) ImGui::EndDisabled();
 }

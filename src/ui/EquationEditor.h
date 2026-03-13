@@ -49,4 +49,5 @@ private:
     void drawMidiWindow();
     void drawGlitchPanel();
     void drawColorSynthPanel();
+    void drawDistortionPanel();
 };

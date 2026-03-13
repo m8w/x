@@ -15,8 +15,9 @@ Renderer::~Renderer() {
 
 void Renderer::init() {
     std::string sd = SHADERS_DIR;
-    m_shaderBlend.loadFromFiles(sd + "/fractal.vert", sd + "/fractal.frag");
-    m_shaderBulb.loadFromFiles (sd + "/fractal.vert", sd + "/mandelbulb.frag");
+    m_shaderBlend.loadFromFiles  (sd + "/fractal.vert", sd + "/fractal.frag");
+    m_shaderBulb.loadFromFiles   (sd + "/fractal.vert", sd + "/mandelbulb.frag");
+    m_shaderDistort.loadFromFiles(sd + "/fractal.vert", sd + "/distortion.frag");
 
     // Empty VAO — vertex positions are generated in the vertex shader
     glGenVertexArrays(1, &m_vao);
@@ -102,18 +103,33 @@ void Renderer::render(int width, int height, float time,
                        const ColorSynth& colorSynth) {
     ensureFBO(width, height);
 
-    // Choose shader: use Mandelbulb shader when its weight dominates
-    float bw[4]; blend.weights(bw);
-    ShaderProgram& prog = (bw[2] > 0.5f) ? m_shaderBulb : m_shaderBlend;
+    // Choose shader
+    float bw[5]; blend.weights(bw);
+    ShaderProgram* prog;
+    if (engine.distortionMode) {
+        prog = &m_shaderDistort;
+    } else {
+        prog = (bw[2] > 0.5f) ? &m_shaderBulb : &m_shaderBlend;
+    }
 
     // Render into FBO
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     glViewport(0, 0, width, height);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    prog.use();
-    uploadUniforms(prog, width, height, time, engine, blend, colorSynth);
-    videoTex.bind(0);
+    prog->use();
+    if (engine.distortionMode) {
+        prog->setFloat2("u_resolution",   (float)width, (float)height);
+        prog->setFloat ("u_time",         time);
+        prog->setFloat ("u_dist_speed",   engine.distortSpeed);
+        prog->setInt   ("u_dist_blobs",   engine.distortBlobs);
+        prog->setFloat ("u_dist_glow",    engine.distortGlow);
+        prog->setFloat ("u_dist_irid",    engine.distortIrid);
+        prog->setFloat ("u_dist_outline", engine.distortOutline);
+    } else {
+        uploadUniforms(*prog, width, height, time, engine, blend, colorSynth);
+        videoTex.bind(0);
+    }
 
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

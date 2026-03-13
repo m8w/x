@@ -2,7 +2,6 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavutil/hwcontext.h>
 #include <libswscale/swscale.h>
 }
 #include <string>
@@ -72,11 +71,6 @@ private:
     bool            m_streaming = false;
     int             m_width     = 0;
     int             m_height    = 0;
-
-    // m_hwDeviceCtx is non-null only when using VAAPI
-    AVBufferRef* m_hwDeviceCtx = nullptr;
-    AVFrame*     m_hwFrame     = nullptr;  // VAAPI hw-side upload frame
-    bool         m_vaapi       = false;
 
     bool tryOpenEncoder(const char* name, bool vaapi, int width, int height);
     bool openSink(DestSink& s);

@@ -19,6 +19,7 @@ const char* midiParamName(MidiParam p) {
         case MidiParam::FormulaA:        return "Formula A (index)";
         case MidiParam::FormulaB:        return "Formula B (index)";
         case MidiParam::FormulaBlend:    return "Formula A\xe2\x86\x94 B blend";
+        case MidiParam::FormulaParam:    return "Formula extra param";
         case MidiParam::PixelWeight:     return "Pixel inject";
         case MidiParam::LayerCount:      return "Layer count";
         case MidiParam::LayerOffset:     return "Layer offset";
@@ -58,6 +59,7 @@ void MidiMapper::applyToParam(MidiParam p, float val,
         case MidiParam::FormulaA:        eng.formula       = (int)val; break;
         case MidiParam::FormulaB:        eng.formulaB      = (int)val; break;
         case MidiParam::FormulaBlend:    eng.formulaBlend  = val; break;
+        case MidiParam::FormulaParam:    eng.formulaParam  = val; break;
         case MidiParam::PixelWeight:     eng.pixelWeight   = val; break;
         case MidiParam::LayerCount:      eng.layerCount    = std::max(1,(int)val); break;
         case MidiParam::LayerOffset:     eng.layerOffset   = val; break;

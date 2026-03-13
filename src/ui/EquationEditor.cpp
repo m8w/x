@@ -73,18 +73,32 @@ void EquationEditor::drawBlendPanel() {
 }
 
 static const char* kFormulas[] = {
-    "z\xc2\xb2 + c  (Mandelbrot)",      //  0
-    "sin(z) + c",                         //  1
-    "exp(z) + c",                         //  2
-    "cos(z) + c",                         //  3
-    "sinh(z) + c",                        //  4
-    "cosh(z) + c",                        //  5
-    "Burning Ship",                       //  6
-    "Tricorn",                            //  7
-    "Newton z\xc2\xb3\xe2\x88\x92" "1",   //  8
-    "Phoenix",                            //  9
-    "z\xe2\x81\xbf + c  (power)",        // 10
+    // ── Classic 11 ───────────────────────────────────────────────────────────
+    "z\xc2\xb2 + c  (Mandelbrot)",               //  0
+    "sin(z) + c",                                  //  1
+    "exp(z) + c",                                  //  2
+    "cos(z) + c",                                  //  3
+    "sinh(z) + c",                                 //  4
+    "cosh(z) + c",                                 //  5
+    "Burning Ship",                                //  6
+    "Tricorn",                                     //  7
+    "Newton z\xc2\xb3\xe2\x88\x92" "1",           //  8
+    "Phoenix",                                     //  9
+    "z\xe2\x81\xbf + c  (power)",                 // 10
+    // ── New formulas ─────────────────────────────────────────────────────────
+    "tan(z) + c",                                  // 11
+    "z\xc2\xb7""exp(z) + c",                      // 12  z·exp(z)+c
+    "Celtic  (|Re(z\xc2\xb2)|,Im(z\xc2\xb2))+c", // 13
+    "Magnet I",                                    // 14
+    "z\xe1\xb5\x87 + c  (self-power)",             // 15  zᶻ+c
+    "Manowar  z\xc2\xb2+z\xe2\x82\x99\xe2\x82\x8b\xe2\x82\x81+c", // 16
+    "Perp Burning Ship",                           // 17
+    "Time-spiral  [\xe2\x88\x82param]",            // 18  animated by formulaParam
+    "z\xc2\xb3 + z + c",                           // 19
+    "cosh(conj(z)) + c",                           // 20
+    "Polar\xe2\x86\x92""Cart warp  [\xe2\x88\x82param]", // 21  formulaParam=twist
 };
+static constexpr int kNumFormulas = 22;
 static const char* k3DTypes[] = {
     "Mandelbulb",
     "Mandelbox",
@@ -94,11 +108,92 @@ static const char* k3DTypes[] = {
 void EquationEditor::drawFractalPanel() {
     // ── Iteration formula A × B cross-blend ──────────────────────────────────
     ImGui::TextDisabled("Formula A  \xe2\x86\x94  Formula B");
-    ImGui::Combo("Formula A##sel", &m_engine.formula,  kFormulas, 11);
-    ImGui::Combo("Formula B##sel", &m_engine.formulaB, kFormulas, 11);
+    ImGui::Combo("Formula A##sel", &m_engine.formula,  kFormulas, kNumFormulas);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+        "11=tan  12=z\xc2\xb7""exp(z)  13=Celtic  14=Magnet I  15=z\xe1\xb5\x87\n"
+        "16=Manowar  17=PerpShip  18=Time-spiral  19=z\xc2\xb3+z  20=cosh(conj)  21=PolarWarp");
+    ImGui::Combo("Formula B##sel", &m_engine.formulaB, kFormulas, kNumFormulas);
     ImGui::SliderFloat("A \xe2\x86\x94 B blend", &m_engine.formulaBlend, 0.0f, 1.0f);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("0 = pure Formula A   1 = pure Formula B   0.5 = crossfade");
+
+    // ── Formula extra parameter (used by Time-spiral and Polar warp) ──────────
+    ImGui::Separator();
+    ImGui::TextDisabled("Formula extra param  (Time-spiral speed / Polar warp twist)");
+    ImGui::SliderFloat("Param", &m_engine.formulaParam, -6.283f, 6.283f, "%.3f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+        "Formula 18 (Time-spiral): rotation speed in rad/s — higher = faster spiral.\n"
+        "Formula 21 (Polar warp): angle multiplier — 1=normal, 2=doubled twist, -1=reverse.\n"
+        "Other formulas: available as u_formula_param but currently unused.");
+
+    // ── Auto-animate formula param ────────────────────────────────────────────
+    {
+        static bool  animParam = false;
+        static float paramSpeed = 0.5f;
+        static float paramAmp   = 3.14159f;
+        ImGui::Checkbox("Auto-animate param", &animParam);
+        if (animParam) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100);
+            ImGui::SliderFloat("##paramsp", &paramSpeed, 0.01f, 4.0f, "spd %.2f");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100);
+            ImGui::SliderFloat("##paramamp", &paramAmp, 0.1f, 6.283f, "amp %.2f");
+            m_engine.formulaParam = paramAmp * (float)sin(ImGui::GetTime() * paramSpeed);
+        }
+    }
+
+    // ── Formula Presets ───────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("── Formula Presets ────────────────────────────────────");
+
+    struct FPre {
+        const char* name;
+        int a, b; float blend;
+        float cx, cy, power, param;
+        const char* tip;
+    };
+    static const FPre kFPre[] = {
+        {"Classic",    0,  0, 0.0f,  0.000f, 0.000f, 2.0f, 1.0f,
+         "Pure Mandelbrot — the original escape-time fractal"},
+        {"Electric",   1,  2, 0.35f,-0.700f, 0.270f, 2.0f, 1.0f,
+         "sin(z) fading into exp(z) — lightning-bolt filaments"},
+        {"Phoenix",    9,  0, 0.0f,  0.560f,-0.500f, 2.0f, 1.0f,
+         "Phoenix recurrence — feather-wing symmetry"},
+        {"Ghosts",     8,  7, 0.4f, -0.123f, 0.745f, 2.0f, 1.0f,
+         "Newton z\xc2\xb3-1 bleeding into Tricorn — ghost-convergence shells"},
+        {"Fire Ship",  6, 11, 0.5f, -0.750f, 0.100f, 2.0f, 1.0f,
+         "Burning Ship + Tangent blend — fiery spike corona"},
+        {"Magnet Storm",14,15,0.3f, -0.500f, 0.000f, 2.0f, 1.0f,
+         "Magnet I attractor morphing into z\xe1\xb5\x87 self-power"},
+        {"Vortex",    12, 18, 0.5f, -0.400f, 0.200f, 2.0f, 1.5f,
+         "z\xc2\xb7""exp(z) spirals + Time-spiral rotation — galaxy arms"},
+        {"Celtic Cross",13,7, 0.5f,  0.000f, 0.650f, 2.0f, 1.0f,
+         "Celtic fold blending with Tricorn — knotwork symmetry"},
+        {"Manowar+Ship",16,6, 0.4f, -0.800f, 0.156f, 2.0f, 1.0f,
+         "Manowar memory + Burning Ship folds — chaotic coastlines"},
+        {"Polar Drift", 21,0, 0.3f, -0.700f, 0.270f, 2.0f, 1.3f,
+         "Polar warp blending with Mandelbrot — twisted orbit paths"},
+        {"Cubic Galaxy",19,12,0.45f,-0.620f, 0.440f, 3.0f, 1.0f,
+         "Cubic+linear + z\xc2\xb7""exp(z) — three-arm spiral with halos"},
+        {"Cosh Mirror", 20, 3, 0.5f,  0.285f, 0.010f, 2.0f, 1.0f,
+         "cosh(conj(z)) + cos(z) blend — bilateral mirror symmetry"},
+    };
+    static constexpr int kNFPre = 12;
+
+    for (int p = 0; p < kNFPre; p++) {
+        if (p > 0 && p % 4 != 0) ImGui::SameLine();
+        if (ImGui::SmallButton(kFPre[p].name)) {
+            const auto& pr = kFPre[p];
+            m_engine.formula       = pr.a;
+            m_engine.formulaB      = pr.b;
+            m_engine.formulaBlend  = pr.blend;
+            m_engine.juliaC        = {pr.cx, pr.cy};
+            m_engine.power         = pr.power;
+            m_engine.formulaParam  = pr.param;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kFPre[p].tip);
+    }
 
     ImGui::Separator();
 

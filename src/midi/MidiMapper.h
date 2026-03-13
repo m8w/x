@@ -11,7 +11,7 @@ enum class MidiParam {
     BlendMandelbrot, BlendJulia, BlendMandelbulb, BlendEuclidean, BlendDiff,
     JuliaCX, JuliaCY,
     Power, Zoom, OffsetX, OffsetY,
-    FormulaA, FormulaB, FormulaBlend,
+    FormulaA, FormulaB, FormulaBlend, FormulaParam,
     PixelWeight, LayerCount, LayerOffset,
     GeoWarp, GeoRadius, GeoRotation,
     // ── Mirror / Kaleidoscope ─────────────────────────────────────────────────

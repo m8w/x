@@ -74,6 +74,7 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setInt   ("u_formula",         eng.formula);
     prog.setInt   ("u_formula_b",       eng.formulaB);
     prog.setFloat ("u_formula_blend",   eng.formulaBlend);
+    prog.setFloat ("u_formula_param",   eng.formulaParam);
     prog.setFloat ("u_pixel_weight",    eng.pixelWeight);
     prog.setInt   ("u_layer_count",     eng.layerCount);
     prog.setFloat ("u_layer_offset",    eng.layerOffset);

@@ -17,9 +17,10 @@ uniform int   u_max_iter;
 uniform float u_bailout;
 uniform float u_zoom;
 uniform vec2  u_offset;
-uniform int   u_formula;           // formula A
+uniform int   u_formula;           // formula A  (0–21)
 uniform int   u_formula_b;         // formula B  (blend crossfades A→B)
 uniform float u_formula_blend;     // 0=pure A  1=pure B
+uniform float u_formula_param;     // free extra parameter (rotation speed, warp strength…)
 uniform float u_pixel_weight;      // injects screen position into seed
 uniform float u_geo_warp;
 uniform int   u_geo_shape;
@@ -109,27 +110,105 @@ vec2 sdf_grad(vec2 p) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// FORMULA EVALUATOR
+// POLAR ↔ CARTESIAN  HELPERS
+//   These let formulas reason in magnitude/angle space and convert back.
+//   polar2cart(r, theta) → (r·cos θ, r·sin θ)
+//   cart2polar(z)        → (|z|, atan2(z.y, z.x))
+// ════════════════════════════════════════════════════════════════════════════════
+vec2 polar2cart(float r, float theta) {
+    return r * vec2(cos(theta), sin(theta));
+}
+vec2 cart2polar(vec2 z) {
+    return vec2(length(z), atan(z.y, z.x));
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// FORMULA EVALUATOR  (IDs 0 – 21)
 // Applies one iteration step for the given formula ID.
-// Newton (f==8) returns the Newton-step result; convergence is checked in iterate().
+// Newton variants (f==8, f==19) return a Newton-step; convergence is checked
+// by the caller (iterate()) via the root-distance trap.
+//
+// u_formula_param — free extra parameter used by:
+//   f=18  Time-spiral : rotation speed (rad/s)  default 1.0
+//   f=21  Polar warp  : polar-to-Cartesian warp blend  0=flat  1=full
 // ════════════════════════════════════════════════════════════════════════════════
 vec2 eval_formula(int f, vec2 z, vec2 z_prev, vec2 seed) {
+    // ── Original 11 (IDs 0–10) ────────────────────────────────────────────────
     if (f == 0) return csqr(z) + seed;
     if (f == 1) return csin(z) + seed;
     if (f == 2) return cexp(z) + seed;
     if (f == 3) return ccos(z) + seed;
     if (f == 4) return csinh(z) + seed;
     if (f == 5) return ccosh(z) + seed;
-    if (f == 6) return csqr(vec2(abs(z.x), abs(z.y))) + seed;
-    if (f == 7) return csqr(cconj(z)) + seed;
-    if (f == 8) {
+    if (f == 6) return csqr(vec2(abs(z.x), abs(z.y))) + seed;  // Burning Ship
+    if (f == 7) return csqr(cconj(z)) + seed;                  // Tricorn
+    if (f == 8) {                                               // Newton z³−1
         vec2 den = 3.0 * csqr(z);
         if (cabs2(den) < 1e-12) return z;
         return z - cdiv(ccube(z) - vec2(1.0, 0.0), den);
     }
-    if (f == 9) return csqr(z) + vec2(seed.x, 0.0) + seed.y * z_prev;
-    if (f == 10) return cpow_r(z, u_power) + seed;
-    return csqr(z) + seed;
+    if (f == 9) return csqr(z) + vec2(seed.x, 0.0) + seed.y * z_prev; // Phoenix
+    if (f == 10) return cpow_r(z, u_power) + seed;             // z^n + c
+
+    // ── New formulas (IDs 11–21) ──────────────────────────────────────────────
+
+    // 11 — Tangent: complex poles create flame-like filigree
+    if (f == 11) return ctan(z) + seed;
+
+    // 12 — z·exp(z): exponential-polynomial, produces spiral galaxy arms
+    if (f == 12) return cmul(z, cexp(z)) + seed;
+
+    // 13 — Celtic: fold only Re(z²) after squaring (distinct from Burning Ship)
+    if (f == 13) {
+        vec2 z2 = csqr(z);
+        return vec2(abs(z2.x), z2.y) + seed;
+    }
+
+    // 14 — Magnet I: ((z²+c−1)/(2z+c−2))²   classic magnetic attractor
+    if (f == 14) {
+        vec2 num = csqr(z) + seed - vec2(1.0, 0.0);
+        vec2 den = 2.0*z + seed - vec2(2.0, 0.0);
+        if (cabs2(den) < 1e-10) return z;
+        return csqr(cdiv(num, den));
+    }
+
+    // 15 — z^z + c: complex self-power (z raised to itself)
+    if (f == 15) {
+        if (length(z) < 1e-5) return seed;
+        return cpow_c(z, z) + seed;
+    }
+
+    // 16 — Manowar: z² + z_{n-1} + c  (direct two-step memory)
+    if (f == 16) return csqr(z) + z_prev + seed;
+
+    // 17 — Perpendicular Burning Ship: fold imaginary axis only
+    if (f == 17) return csqr(vec2(z.x, abs(z.y))) + seed;
+
+    // 18 — Time-spiral: rotate z² by u_formula_param·u_time radians each step
+    if (f == 18) {
+        float ang = u_formula_param * u_time;
+        return cmul(csqr(z), polar2cart(1.0, ang)) + seed;
+    }
+
+    // 19 — Cubic + linear: z³ + z + c  (richer basin structure than z³+c)
+    if (f == 19) return ccube(z) + z + seed;
+
+    // 20 — Cosh-conjugate: cosh(conj(z)) + c  (conjugate-reflection symmetry)
+    if (f == 20) return ccosh(cconj(z)) + seed;
+
+    // 21 — Polar↔Cartesian warp:
+    //   Convert z to polar, scale angle by u_formula_param, convert back,
+    //   then square and add c.  At param=1 this is ordinary z²+c; as param
+    //   deviates the angular step twists the orbit path.
+    if (f == 21) {
+        vec2 pol = cart2polar(z);           // (r, θ)
+        float r  = pol.x;
+        float th = pol.y * u_formula_param; // twist angle by param
+        vec2 zw  = polar2cart(r, th);       // back to Cartesian
+        return csqr(zw) + seed;
+    }
+
+    return csqr(z) + seed;  // fallback
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

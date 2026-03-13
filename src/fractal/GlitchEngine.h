@@ -77,6 +77,8 @@ private:
         float     zoom;
         glm::vec2 offset;
         int       formula;
+        int       formulaB;
+        float     formulaBlend;
         float     mandelbrot, julia, mandelbulb, euclidean, diff;
     };
 
@@ -90,6 +92,7 @@ private:
         float     zoom;
         glm::vec2 offset;
         int       formula;
+        int       formulaB;
         float     mandelbrot;  // representative blend weight for BlendScatter
     };
 

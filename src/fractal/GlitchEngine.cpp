@@ -58,16 +58,18 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
     inGlitch = true;
 
     // Save current state
-    m_saved.juliaC     = eng.juliaC;
-    m_saved.power      = eng.power;
-    m_saved.zoom       = eng.zoom;
-    m_saved.offset     = eng.offset;
-    m_saved.formula    = eng.formula;
-    m_saved.mandelbrot = blend.mandelbrot;
-    m_saved.julia      = blend.julia;
-    m_saved.mandelbulb = blend.mandelbulb;
-    m_saved.euclidean  = blend.euclidean;
-    m_saved.diff       = blend.diff;
+    m_saved.juliaC       = eng.juliaC;
+    m_saved.power        = eng.power;
+    m_saved.zoom         = eng.zoom;
+    m_saved.offset       = eng.offset;
+    m_saved.formula      = eng.formula;
+    m_saved.formulaB     = eng.formulaB;
+    m_saved.formulaBlend = eng.formulaBlend;
+    m_saved.mandelbrot   = blend.mandelbrot;
+    m_saved.julia        = blend.julia;
+    m_saved.mandelbulb   = blend.mandelbulb;
+    m_saved.euclidean    = blend.euclidean;
+    m_saved.diff         = blend.diff;
 
     // Reset MIDI glitch flags
     m_velSpike   = false;
@@ -86,8 +88,10 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
 
     case GlitchType::FormulaFlash:
         lastGlitchName = "Formula Flash";
-        eng.formula    = randI(0, 10);
-        m_post.formula = eng.formula;
+        eng.formula     = randI(0, 21);
+        eng.formulaB    = randI(0, 21);
+        m_post.formula  = eng.formula;
+        m_post.formulaB = eng.formulaB;
         break;
 
     case GlitchType::ZoomPunch: {
@@ -155,7 +159,8 @@ void GlitchEngine::recoverGlitch(FractalEngine& eng, BlendController& blend) {
         if (eng.juliaC == m_post.juliaC) eng.juliaC = m_saved.juliaC;
         break;
     case GlitchType::FormulaFlash:
-        if (eng.formula == m_post.formula) eng.formula = m_saved.formula;
+        if (eng.formula  == m_post.formula)  eng.formula  = m_saved.formula;
+        if (eng.formulaB == m_post.formulaB) eng.formulaB = m_saved.formulaB;
         break;
     case GlitchType::ZoomPunch:
         if (eng.zoom == m_post.zoom) eng.zoom = m_saved.zoom;

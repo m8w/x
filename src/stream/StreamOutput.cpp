@@ -4,7 +4,6 @@
 #include <vector>
 extern "C" {
 #include <libavutil/opt.h>
-#include <libavutil/hwcontext.h>
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -113,79 +112,49 @@ void StreamOutput::closeSink(DestSink& s) {
     s.connected = false;
 }
 
-// ── encoder selection ─────────────────────────────────────────────────────────
+// ── encoder ───────────────────────────────────────────────────────────────────
 //
-// Priority order — none of these encoders carry a GPL license:
-//   h264_nvenc        NVIDIA GPU     Linux + Windows
-//   h264_amf          AMD GPU        Windows
-//   h264_vaapi        Intel/AMD GPU  Linux (needs hwdevice context)
-//   h264_videotoolbox Apple GPU/ANE  macOS
-//   libx264           CPU software   GPL — commercial builds should not ship this
+// NVIDIA NVENC — hardware H.264 encoder available on any NVIDIA GPU (Kepler+).
+// Runs entirely on the Encode Engine, leaving CUDA cores and the CPU free.
+// No GPL dependency. Pixel format: NV12 (NVENC's preferred chroma layout).
 //
-// VAAPI requires an extra upload step (CPU NV12 → VAAPI hw frame).
-// All other encoders accept CPU-side YUV420P directly.
+// Streaming-optimised options:
+//   preset = p4          balanced speed/quality (p1=fastest … p7=best)
+//   tune   = ll          low-latency mode — encoder doesn't buffer B-frames
+//   rc     = cbr         constant bitrate — keeps RTMP buffer stable
 
-bool StreamOutput::tryOpenEncoder(const char* name, bool vaapi, int w, int h) {
-    const AVCodec* codec = avcodec_find_encoder_by_name(name);
-    if (!codec) return false;
-
-    AVCodecContext* ctx = avcodec_alloc_context3(codec);
-    ctx->codec_id     = AV_CODEC_ID_H264;
-    ctx->width        = w;
-    ctx->height       = h;
-    ctx->bit_rate     = bitrate_kbps * 1000;
-    ctx->time_base    = {1, fps};
-    ctx->framerate    = {fps, 1};
-    ctx->gop_size     = fps * 2;
-    ctx->max_b_frames = 0;
-    ctx->flags       |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-    if (vaapi) {
-        if (av_hwdevice_ctx_create(&m_hwDeviceCtx, AV_HWDEVICE_TYPE_VAAPI,
-                                   nullptr, nullptr, 0) < 0) {
-            avcodec_free_context(&ctx);
-            return false;
-        }
-        AVBufferRef* framesRef = av_hwframe_ctx_alloc(m_hwDeviceCtx);
-        auto* fc = (AVHWFramesContext*)framesRef->data;
-        fc->format    = AV_PIX_FMT_VAAPI;
-        fc->sw_format = AV_PIX_FMT_NV12;
-        fc->width     = w;
-        fc->height    = h;
-        fc->initial_pool_size = 20;
-        if (av_hwframe_ctx_init(framesRef) < 0) {
-            av_buffer_unref(&framesRef);
-            av_buffer_unref(&m_hwDeviceCtx);
-            avcodec_free_context(&ctx);
-            return false;
-        }
-        ctx->pix_fmt       = AV_PIX_FMT_VAAPI;
-        ctx->hw_frames_ctx = av_buffer_ref(framesRef);
-        av_buffer_unref(&framesRef);
-        m_vaapi = true;
-    } else {
-        ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-        if (strcmp(name, "h264_nvenc") == 0) {
-            av_opt_set(ctx->priv_data, "preset", "p4",  0);
-            av_opt_set(ctx->priv_data, "tune",   "ll",  0);
-            av_opt_set(ctx->priv_data, "rc",     "cbr", 0);
-        } else if (strcmp(name, "h264_amf") == 0) {
-            av_opt_set(ctx->priv_data, "usage", "ultralowlatency", 0);
-            av_opt_set(ctx->priv_data, "rc",    "cbr",             0);
-        } else if (strcmp(name, "libx264") == 0) {
-            av_opt_set(ctx->priv_data, "preset", "veryfast",    0);
-            av_opt_set(ctx->priv_data, "tune",   "zerolatency", 0);
-        }
-        // h264_videotoolbox: default options are fine for streaming
-    }
-
-    if (avcodec_open2(ctx, codec, nullptr) < 0) {
-        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_vaapi = false; }
-        avcodec_free_context(&ctx);
+bool StreamOutput::tryOpenEncoder(const char* /*unused*/, bool /*unused*/,
+                                  int width, int height) {
+    const AVCodec* codec = avcodec_find_encoder_by_name("h264_nvenc");
+    if (!codec) {
+        fprintf(stderr, "StreamOutput: h264_nvenc not found — "
+                "is an NVIDIA GPU present with a recent driver?\n");
         return false;
     }
 
-    m_codecCtx = ctx;
+    m_codecCtx = avcodec_alloc_context3(codec);
+    m_codecCtx->codec_id     = AV_CODEC_ID_H264;
+    m_codecCtx->width        = width;
+    m_codecCtx->height       = height;
+    m_codecCtx->bit_rate     = bitrate_kbps * 1000;
+    m_codecCtx->time_base    = {1, fps};
+    m_codecCtx->framerate    = {fps, 1};
+    m_codecCtx->gop_size     = fps * 2;
+    m_codecCtx->max_b_frames = 0;
+    m_codecCtx->pix_fmt      = AV_PIX_FMT_NV12;   // NVENC native chroma
+    m_codecCtx->flags       |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    av_opt_set(m_codecCtx->priv_data, "preset", "p4",  0);
+    av_opt_set(m_codecCtx->priv_data, "tune",   "ll",  0);
+    av_opt_set(m_codecCtx->priv_data, "rc",     "cbr", 0);
+
+    if (avcodec_open2(m_codecCtx, codec, nullptr) < 0) {
+        fprintf(stderr, "StreamOutput: avcodec_open2 failed for h264_nvenc\n");
+        avcodec_free_context(&m_codecCtx);
+        return false;
+    }
+
+    fprintf(stderr, "StreamOutput: encoder = h264_nvenc (NVIDIA NVENC)\n");
     return true;
 }
 
@@ -198,32 +167,9 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
     m_width      = width;
     m_height     = height;
 
-    // Try hardware encoders before falling back to libx264.
-    static const struct { const char* name; bool vaapi; } kEncoders[] = {
-        { "h264_nvenc",        false },   // NVIDIA  (Linux + Windows)
-        { "h264_amf",          false },   // AMD     (Windows)
-        { "h264_vaapi",        true  },   // VAAPI   (Linux Intel/AMD)
-        { "h264_videotoolbox", false },   // Apple   (macOS)
-        { "libx264",           false },   // GPL CPU fallback — avoid in commercial builds
-    };
-
-    bool opened = false;
-    for (auto& enc : kEncoders) {
-        if (tryOpenEncoder(enc.name, enc.vaapi, width, height)) {
-            fprintf(stderr, "StreamOutput: encoder = %s\n", enc.name);
-            if (strcmp(enc.name, "libx264") == 0)
-                fprintf(stderr, "StreamOutput: WARNING — libx264 is GPL-licensed. "
-                        "A commercial build must use a hardware encoder.\n");
-            opened = true;
-            break;
-        }
-    }
-    if (!opened) {
-        fprintf(stderr, "StreamOutput: no H.264 encoder found\n");
+    if (!tryOpenEncoder(nullptr, false, width, height))
         return false;
-    }
 
-    // Open each enabled destination sink
     int connected = 0;
     for (auto& sp : m_sinks)
         if (sp->enabled && openSink(*sp)) connected++;
@@ -231,26 +177,18 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
     if (connected == 0) {
         fprintf(stderr, "StreamOutput: no destinations connected — add at least one\n");
         avcodec_free_context(&m_codecCtx);
-        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_vaapi = false; }
         return false;
     }
 
-    // Software-side frame: NV12 for VAAPI upload path, YUV420P otherwise
-    AVPixelFormat swFmt = m_vaapi ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+    // NV12 — NVENC reads this directly without an internal conversion step
     m_frame = av_frame_alloc();
-    m_frame->format = swFmt;
+    m_frame->format = AV_PIX_FMT_NV12;
     m_frame->width  = width;
     m_frame->height = height;
     av_frame_get_buffer(m_frame, 0);
 
-    // Hardware-side frame for VAAPI upload
-    if (m_vaapi) {
-        m_hwFrame = av_frame_alloc();
-        av_hwframe_get_buffer(m_codecCtx->hw_frames_ctx, m_hwFrame, 0);
-    }
-
     m_swsCtx = sws_getContext(width, height, AV_PIX_FMT_RGB24,
-                               width, height, swFmt,
+                               width, height, AV_PIX_FMT_NV12,
                                SWS_BILINEAR, nullptr, nullptr, nullptr);
     m_pts       = 0;
     m_streaming = true;
@@ -276,12 +214,9 @@ void StreamOutput::stop() {
 
     for (auto& sp : m_sinks) closeSink(*sp);
 
-    if (m_swsCtx)       { sws_freeContext(m_swsCtx);      m_swsCtx   = nullptr; }
-    if (m_hwFrame)      { av_frame_free(&m_hwFrame);                              }
-    if (m_frame)        { av_frame_free(&m_frame);                                }
-    if (m_hwDeviceCtx)  { av_buffer_unref(&m_hwDeviceCtx);                        }
-    if (m_codecCtx)     { avcodec_free_context(&m_codecCtx);                      }
-    m_vaapi     = false;
+    if (m_swsCtx)   { sws_freeContext(m_swsCtx); m_swsCtx  = nullptr; }
+    if (m_frame)    { av_frame_free(&m_frame);                          }
+    if (m_codecCtx) { avcodec_free_context(&m_codecCtx);                }
     m_streaming = false;
 }
 
@@ -290,7 +225,6 @@ void StreamOutput::stop() {
 void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
     if (!m_streaming) return;
 
-    // glReadPixels returns bottom-up rows — flip vertically
     const int stride = width * 3;
     std::vector<uint8_t> flipped(stride * height);
     for (int row = 0; row < height; row++)
@@ -300,16 +234,8 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
     const uint8_t* src[1]    = { flipped.data() };
     int            srcStr[1] = { stride };
     sws_scale(m_swsCtx, src, srcStr, 0, height, m_frame->data, m_frame->linesize);
-
-    if (m_vaapi) {
-        // Upload CPU NV12 frame to GPU VAAPI frame, then encode
-        av_hwframe_transfer_data(m_hwFrame, m_frame, 0);
-        m_hwFrame->pts = m_pts++;
-        encodeAndDistribute(m_hwFrame);
-    } else {
-        m_frame->pts = m_pts++;
-        encodeAndDistribute(m_frame);
-    }
+    m_frame->pts = m_pts++;
+    encodeAndDistribute(m_frame);
 }
 
 void StreamOutput::encodeAndDistribute(AVFrame* frame) {

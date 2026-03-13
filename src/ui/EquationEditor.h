@@ -2,6 +2,7 @@
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
 #include "fractal/GlitchEngine.h"
+#include "fractal/ColorSynth.h"
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "midi/MidiInput.h"
@@ -13,7 +14,7 @@
 class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
-                   GlitchEngine& glitch,
+                   GlitchEngine& glitch, ColorSynth& colorSynth,
                    VideoInput& videoIn, StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
                    MidiMapper& midiMapper, MidiGenerator& midiGen);
@@ -23,6 +24,7 @@ private:
     FractalEngine&   m_engine;
     BlendController& m_blend;
     GlitchEngine&    m_glitch;
+    ColorSynth&      m_colorSynth;
     VideoInput&      m_videoIn;
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
@@ -46,4 +48,5 @@ private:
     void drawAnimPanel();
     void drawMidiWindow();
     void drawGlitchPanel();
+    void drawColorSynthPanel();
 };

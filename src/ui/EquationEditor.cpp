@@ -12,11 +12,11 @@ static const int   kResH[]      = { 720, 1080, 1440, 2160};
 static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
-                                GlitchEngine& glitch,
+                                GlitchEngine& glitch, ColorSynth& colorSynth,
                                 VideoInput& videoIn, StreamOutput& streamOut,
                                 MidiInput& midiIn, MidiOutput& midiOut,
                                 MidiMapper& midiMapper, MidiGenerator& midiGen)
-    : m_engine(engine), m_blend(blend), m_glitch(glitch),
+    : m_engine(engine), m_blend(blend), m_glitch(glitch), m_colorSynth(colorSynth),
       m_videoIn(videoIn), m_streamOut(streamOut),
       m_midiIn(midiIn), m_midiOut(midiOut),
       m_midiMapper(midiMapper), m_midiGen(midiGen) {}
@@ -36,6 +36,8 @@ void EquationEditor::draw() {
         drawGeometryPanel();
     if (ImGui::CollapsingHeader("Video Input", ImGuiTreeNodeFlags_DefaultOpen))
         drawVideoPanel();
+    if (ImGui::CollapsingHeader("Color Synthesizer"))
+        drawColorSynthPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
         drawStreamPanel();
 
@@ -203,7 +205,7 @@ void EquationEditor::drawGeometryPanel() {
             ImGui::SetTooltip("Number of repeating wedges.\n"
                               "2=bilateral  3=tri  6=hex  12=clock  16=snowflake");
         // Quick-pick presets
-        ImGui::TextDisabled("Presets:");
+        ImGui::TextDisabled("Segments:");
         ImGui::SameLine();
         if (ImGui::SmallButton("3"))  m_engine.geoKaleid = 3;
         ImGui::SameLine();
@@ -217,6 +219,106 @@ void EquationEditor::drawGeometryPanel() {
         ImGui::SameLine();
         if (ImGui::SmallButton("16")) m_engine.geoKaleid = 16;
     }
+
+    // ── Scene presets (shape + mirror + kaleidoscope combos) ──────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("── Scene Presets ─────────────────────────────");
+
+    // Snowflake
+    if (ImGui::SmallButton("Snowflake")) {
+        m_engine.geoShape    = 2;   // star
+        m_engine.geoSides    = 6;
+        m_engine.geoRadius   = 0.35f;
+        m_engine.geoMirror   = 3;   // XY
+        m_engine.geoKaleid   = 6;
+        m_engine.geoWarp     = 0.3f;
+        m_engine.geoTile     = false;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("6-arm snowflake: star + XY mirror + hex kaleidoscope");
+    ImGui::SameLine();
+
+    // Tunnel
+    if (ImGui::SmallButton("Tunnel")) {
+        m_engine.geoShape    = 0;   // circle
+        m_engine.geoRadius   = 0.5f;
+        m_engine.geoMirror   = 0;
+        m_engine.geoKaleid   = 8;
+        m_engine.geoWarp     = 0.6f;
+        m_engine.geoTile     = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tiled circles + 8-segment kaleid: wormhole effect");
+    ImGui::SameLine();
+
+    // Mandala
+    if (ImGui::SmallButton("Mandala")) {
+        m_engine.geoShape    = 1;   // polygon
+        m_engine.geoSides    = 8;
+        m_engine.geoRadius   = 0.4f;
+        m_engine.geoMirror   = 3;
+        m_engine.geoKaleid   = 12;
+        m_engine.geoWarp     = 0.2f;
+        m_engine.geoTile     = false;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Octagon + XY mirror + 12-segment kaleid");
+    ImGui::SameLine();
+
+    // Lattice
+    if (ImGui::SmallButton("Lattice")) {
+        m_engine.geoShape    = 3;   // grid
+        m_engine.geoRadius   = 0.25f;
+        m_engine.geoMirror   = 3;
+        m_engine.geoKaleid   = 4;
+        m_engine.geoWarp     = 0.4f;
+        m_engine.geoTile     = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Grid + XY mirror + 4-segment kaleid: crystal lattice");
+    ImGui::SameLine();
+
+    // Prism
+    if (ImGui::SmallButton("Prism")) {
+        m_engine.geoShape    = 2;   // star
+        m_engine.geoSides    = 3;
+        m_engine.geoRadius   = 0.45f;
+        m_engine.geoMirror   = 1;   // X only
+        m_engine.geoKaleid   = 3;
+        m_engine.geoWarp     = 0.5f;
+        m_engine.geoTile     = false;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Triangle star + X mirror + 3-segment kaleid");
+
+    // Second row
+    if (ImGui::SmallButton("Eye")) {
+        m_engine.geoShape    = 0;   // circle
+        m_engine.geoRadius   = 0.3f;
+        m_engine.geoMirror   = 2;   // Y mirror
+        m_engine.geoKaleid   = 2;
+        m_engine.geoWarp     = 0.8f;
+        m_engine.geoTile     = false;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Circle + Y mirror + bilateral fold: eye / lens shape");
+    ImGui::SameLine();
+
+    if (ImGui::SmallButton("Fractal Grid")) {
+        m_engine.geoShape    = 3;   // grid
+        m_engine.geoRadius   = 0.15f;
+        m_engine.geoMirror   = 0;
+        m_engine.geoKaleid   = 0;
+        m_engine.geoWarp     = 0.9f;
+        m_engine.geoTile     = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dense tiled grid with max warp: fractal interference grid");
+    ImGui::SameLine();
+
+    if (ImGui::SmallButton("No Mirror")) {
+        m_engine.geoMirror = 0;
+        m_engine.geoKaleid = 0;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove all mirror / kaleidoscope folds");
+
+    // ── MIDI map hint ─────────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("MIDI: map 'Geo mirror (0-3)' and 'Kaleidoscope segments'");
+    ImGui::TextDisabled("      in the MIDI Mapper window to control live.");
 }
 
 void EquationEditor::drawVideoPanel() {
@@ -589,7 +691,7 @@ void EquationEditor::drawMidiWindow() {
             if (ImGui::Button("  ■  Stop  ")) {
                 std::vector<MidiInput::Message> offs;
                 G.stop(offs);
-                for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend);
+                for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend, m_colorSynth);
             }
             ImGui::PopStyleColor();
         }
@@ -597,7 +699,7 @@ void EquationEditor::drawMidiWindow() {
         if (ImGui::Button("♪ One Note")) {
             auto msgs = G.fireOneNote();
             for (auto& m : msgs) {
-                m_midiMapper.apply(m, m_engine, m_blend);
+                m_midiMapper.apply(m, m_engine, m_blend, m_colorSynth);
                 m_midiOut.send(m);
             }
         }
@@ -606,7 +708,7 @@ void EquationEditor::drawMidiWindow() {
             std::vector<MidiInput::Message> offs;
             G.stop(offs);
             for (auto& m : offs) {
-                m_midiMapper.apply(m, m_engine, m_blend);
+                m_midiMapper.apply(m, m_engine, m_blend, m_colorSynth);
                 m_midiOut.send(m);   // NoteOffs to real MIDI port
             }
             m_midiOut.panic();   // belt-and-suspenders: CC123 all channels
@@ -1004,4 +1106,196 @@ void EquationEditor::drawGlitchPanel() {
     if (!G.enabled) { ImGui::EndDisabled(); }
 
     ImGui::End();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// COLOR SYNTHESIZER  — MIDI-reactive HSL / RGB palette engine
+// ════════════════════════════════════════════════════════════════════════════════
+void EquationEditor::drawColorSynthPanel() {
+    auto& C = m_colorSynth;
+
+    ImGui::Checkbox("Enable Color Synth", &C.enabled);
+    if (!C.enabled) { ImGui::BeginDisabled(); }
+
+    // ── Blend mode ────────────────────────────────────────────────────────────
+    static const char* kBlendModes[] = {
+        "Replace  (synth only)",
+        "Multiply (tint palette)",
+        "Screen   (lighten)"
+    };
+    ImGui::SetNextItemWidth(200);
+    ImGui::Combo("Blend mode", &C.blendMode, kBlendModes, 3);
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── Primary Color (HSL) ─────────────────");
+
+    ImGui::SliderFloat("Hue",        &C.hueBase, 0.0f, 1.0f);
+    ImGui::SliderFloat("Saturation", &C.satBase, 0.0f, 1.0f);
+    ImGui::SliderFloat("Luminance",  &C.lumBase, 0.0f, 1.0f);
+
+    // Live colour swatch
+    {
+        // Simple HSL→RGB approximation for the swatch
+        auto hsl2rgb_ui = [](float h, float s, float l) -> ImVec4 {
+            auto f = [&](float n) {
+                float k = fmodf(n + h * 12.0f, 12.0f);
+                float a = s * (l < 0.5f ? l : 1.0f - l);
+                return l - a * fmaxf(-1.0f, fminf(fminf(k - 3.0f, 9.0f - k), 1.0f));
+            };
+            return {f(0), f(8), f(4), 1.0f};
+        };
+        auto col = hsl2rgb_ui(C.hueBase, C.satBase, C.lumBase);
+        ImGui::SameLine();
+        ImGui::ColorButton("##primary_swatch", col,
+            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, {24, 24});
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── Alternate Color (HSL) ───────────────");
+
+    ImGui::SliderFloat("Alt Hue",   &C.hueAlt, 0.0f, 1.0f);
+    ImGui::SliderFloat("Alt Sat",   &C.satAlt, 0.0f, 1.0f);
+    ImGui::SliderFloat("Alt Lum",   &C.lumAlt, 0.0f, 1.0f);
+    ImGui::SliderFloat("Alt rate (Hz)",  &C.altRate,  0.01f, 8.0f, "%.2f Hz");
+
+    {
+        auto hsl2rgb_ui = [](float h, float s, float l) -> ImVec4 {
+            auto f = [&](float n) {
+                float k = fmodf(n + h * 12.0f, 12.0f);
+                float a = s * (l < 0.5f ? l : 1.0f - l);
+                return l - a * fmaxf(-1.0f, fminf(fminf(k - 3.0f, 9.0f - k), 1.0f));
+            };
+            return {f(0), f(8), f(4), 1.0f};
+        };
+        auto col = hsl2rgb_ui(C.hueAlt, C.satAlt, C.lumAlt);
+        ImGui::SameLine();
+        ImGui::ColorButton("##alt_swatch", col,
+            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, {24, 24});
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── Oscillators ─────────────────────────");
+
+    ImGui::SliderFloat("Hue osc amp",   &C.hueOscAmp,  0.0f, 0.5f);
+    ImGui::SliderFloat("Hue osc rate",  &C.hueOscRate, 0.01f, 4.0f, "%.2f Hz");
+    ImGui::SliderFloat("Lum osc amp",   &C.lumOscAmp,  0.0f, 0.5f);
+    ImGui::SliderFloat("Lum osc rate",  &C.lumOscRate, 0.01f, 4.0f, "%.2f Hz");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── Escape-value Spread ─────────────────");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much hue and lum shift across the fractal\n"
+                          "detail range (0 = flat colour block).");
+
+    ImGui::SliderFloat("Hue spread",  &C.hueSpread, 0.0f, 1.0f);
+    ImGui::SliderFloat("Lum spread",  &C.lumSpread, 0.0f, 1.0f);
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── MIDI Note Reaction ──────────────────");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How strongly incoming note-on velocity\n"
+                          "flashes hue, saturation, and luminance.");
+
+    ImGui::SliderFloat("Hue sens",   &C.midiHueSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("Sat sens",   &C.midiSatSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("Lum sens",   &C.midiLumSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("Decay (s)",  &C.midiDecay,   0.2f, 8.0f, "%.2f s");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("── Quick Presets ───────────────────────");
+
+    // Fire preset
+    if (ImGui::SmallButton("Fire")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.05f; C.satBase = 1.0f; C.lumBase = 0.5f;
+        C.hueAlt  = 0.0f;  C.satAlt  = 1.0f; C.lumAlt  = 0.3f;
+        C.altRate = 1.5f;  C.hueOscAmp = 0.04f; C.hueOscRate = 0.8f;
+        C.lumOscAmp = 0.2f; C.lumOscRate = 1.2f;
+        C.hueSpread = 0.1f; C.lumSpread = 0.5f;
+        C.midiLumSens = 0.6f; C.midiHueSens = 0.05f;
+    }
+    ImGui::SameLine();
+    // Ocean preset
+    if (ImGui::SmallButton("Ocean")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.58f; C.satBase = 0.9f; C.lumBase = 0.45f;
+        C.hueAlt  = 0.52f; C.satAlt  = 0.7f; C.lumAlt  = 0.6f;
+        C.altRate = 0.3f;  C.hueOscAmp = 0.06f; C.hueOscRate = 0.15f;
+        C.lumOscAmp = 0.1f; C.lumOscRate = 0.4f;
+        C.hueSpread = 0.08f; C.lumSpread = 0.3f;
+        C.midiLumSens = 0.4f; C.midiHueSens = 0.1f;
+    }
+    ImGui::SameLine();
+    // Psychedelic preset
+    if (ImGui::SmallButton("Psychedelic")) {
+        C.enabled = true; C.blendMode = 2;
+        C.hueBase = 0.0f; C.satBase = 1.0f; C.lumBase = 0.5f;
+        C.hueAlt  = 0.5f; C.satAlt  = 1.0f; C.lumAlt  = 0.5f;
+        C.altRate = 3.0f;  C.hueOscAmp = 0.2f; C.hueOscRate = 1.0f;
+        C.lumOscAmp = 0.2f; C.lumOscRate = 2.0f;
+        C.hueSpread = 0.5f; C.lumSpread = 0.5f;
+        C.midiHueSens = 0.5f; C.midiSatSens = 0.3f; C.midiLumSens = 0.6f;
+    }
+    // Neon preset
+    if (ImGui::SmallButton("Neon")) {
+        C.enabled = true; C.blendMode = 2;
+        C.hueBase = 0.83f; C.satBase = 1.0f; C.lumBase = 0.6f;
+        C.hueAlt  = 0.17f; C.satAlt  = 1.0f; C.lumAlt  = 0.6f;
+        C.altRate = 2.0f;  C.hueOscAmp = 0.05f; C.hueOscRate = 3.0f;
+        C.lumOscAmp = 0.15f; C.lumOscRate = 3.0f;
+        C.hueSpread = 0.3f; C.lumSpread = 0.2f;
+        C.midiHueSens = 0.3f; C.midiLumSens = 0.8f; C.midiDecay = 0.6f;
+    }
+    ImGui::SameLine();
+    // Monochrome preset
+    if (ImGui::SmallButton("Mono")) {
+        C.enabled = true; C.blendMode = 0;
+        C.hueBase = 0.0f; C.satBase = 0.0f; C.lumBase = 0.5f;
+        C.hueAlt  = 0.0f; C.satAlt  = 0.0f; C.lumAlt  = 0.8f;
+        C.altRate = 0.5f;  C.hueOscAmp = 0.0f;
+        C.lumOscAmp = 0.3f; C.lumOscRate = 0.8f;
+        C.hueSpread = 0.0f; C.lumSpread = 0.6f;
+        C.midiLumSens = 0.7f; C.midiDecay = 0.8f;
+    }
+    ImGui::SameLine();
+    // Sunrise preset
+    if (ImGui::SmallButton("Sunrise")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.08f; C.satBase = 0.95f; C.lumBase = 0.55f;
+        C.hueAlt  = 0.72f; C.satAlt  = 0.8f;  C.lumAlt  = 0.35f;
+        C.altRate = 0.15f; C.hueOscAmp = 0.03f; C.hueOscRate = 0.1f;
+        C.lumOscAmp = 0.08f; C.lumOscRate = 0.2f;
+        C.hueSpread = 0.2f; C.lumSpread = 0.4f;
+        C.midiHueSens = 0.15f; C.midiLumSens = 0.5f; C.midiDecay = 2.5f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Off")) {
+        C.enabled = false;
+    }
+
+    // ── Live indicator ────────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("Live output:");
+    ImGui::SameLine();
+    {
+        auto hsl2rgb_ui = [](float h, float s, float l) -> ImVec4 {
+            auto f = [&](float n) {
+                float k = fmodf(n + h * 12.0f, 12.0f);
+                float a = s * (l < 0.5f ? l : 1.0f - l);
+                return l - a * fmaxf(-1.0f, fminf(fminf(k - 3.0f, 9.0f - k), 1.0f));
+            };
+            return {f(0), f(8), f(4), 1.0f};
+        };
+        auto col = hsl2rgb_ui(C.outHSL[0], C.outHSL[1], C.outHSL[2]);
+        ImGui::ColorButton("##live_primary", col,
+            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, {18, 18});
+        ImGui::SameLine();
+        auto colA = hsl2rgb_ui(C.outHSLAlt[0], C.outHSLAlt[1], C.outHSLAlt[2]);
+        ImGui::ColorButton("##live_alt", colA,
+            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, {18, 18});
+        ImGui::SameLine();
+        ImGui::Text("blend %.2f", C.outAltBlend);
+    }
+
+    if (!C.enabled) { ImGui::EndDisabled(); }
 }

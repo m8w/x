@@ -25,13 +25,24 @@ const char* midiParamName(MidiParam p) {
         case MidiParam::GeoWarp:         return "Geo warp";
         case MidiParam::GeoRadius:       return "Geo radius";
         case MidiParam::GeoRotation:     return "Geo rotation";
+        case MidiParam::GeoMirror:       return "Geo mirror (0-3)";
+        case MidiParam::GeoKaleid:       return "Kaleidoscope segments";
+        case MidiParam::ColorHue:        return "Color: Hue";
+        case MidiParam::ColorSat:        return "Color: Saturation";
+        case MidiParam::ColorLum:        return "Color: Luminance";
+        case MidiParam::ColorAltHue:     return "Color: Alt Hue";
+        case MidiParam::ColorAltRate:    return "Color: Alt Rate";
+        case MidiParam::ColorHueOscRate: return "Color: Hue Osc Rate";
+        case MidiParam::ColorHueOscAmp:  return "Color: Hue Osc Amp";
+        case MidiParam::ColorLumOscAmp:  return "Color: Lum Osc Amp";
         default:                         return "Unknown";
     }
 }
 
 // ── Apply one param value ─────────────────────────────────────────────────────
 void MidiMapper::applyToParam(MidiParam p, float val,
-                              FractalEngine& eng, BlendController& blend) {
+                              FractalEngine& eng, BlendController& blend,
+                              ColorSynth& colorSynth) {
     switch (p) {
         case MidiParam::BlendMandelbrot: blend.mandelbrot  = val; break;
         case MidiParam::BlendJulia:      blend.julia       = val; break;
@@ -53,13 +64,26 @@ void MidiMapper::applyToParam(MidiParam p, float val,
         case MidiParam::GeoWarp:         eng.geoWarp       = val; break;
         case MidiParam::GeoRadius:       eng.geoRadius     = val; break;
         case MidiParam::GeoRotation:     eng.geoRotation   = val; break;
+        // ── Mirror / Kaleidoscope ─────────────────────────────────────────────
+        case MidiParam::GeoMirror:       eng.geoMirror     = (int)std::clamp(val, 0.0f, 3.0f); break;
+        case MidiParam::GeoKaleid:       eng.geoKaleid     = (int)std::clamp(val, 0.0f, 16.0f); break;
+        // ── Color Synthesizer ─────────────────────────────────────────────────
+        case MidiParam::ColorHue:        colorSynth.hueBase        = val; break;
+        case MidiParam::ColorSat:        colorSynth.satBase        = val; break;
+        case MidiParam::ColorLum:        colorSynth.lumBase        = val; break;
+        case MidiParam::ColorAltHue:     colorSynth.hueAlt         = val; break;
+        case MidiParam::ColorAltRate:    colorSynth.altRate        = val; break;
+        case MidiParam::ColorHueOscRate: colorSynth.hueOscRate     = val; break;
+        case MidiParam::ColorHueOscAmp:  colorSynth.hueOscAmp      = val; break;
+        case MidiParam::ColorLumOscAmp:  colorSynth.lumOscAmp      = val; break;
         default: break;
     }
 }
 
 // ── Apply all mappings to one incoming message ────────────────────────────────
 void MidiMapper::apply(const MidiInput::Message& msg,
-                       FractalEngine& eng, BlendController& blend) {
+                       FractalEngine& eng, BlendController& blend,
+                       ColorSynth& colorSynth) {
     int msgCh   = (msg.status & 0x0F) + 1;   // 1-based channel
     int msgType = (msg.status & 0xF0);
 
@@ -90,7 +114,7 @@ void MidiMapper::apply(const MidiInput::Message& msg,
 
         if (hit) {
             float val = m.minVal + raw * (m.maxVal - m.minVal);
-            applyToParam(m.param, val, eng, blend);
+            applyToParam(m.param, val, eng, blend, colorSynth);
         }
     }
 }

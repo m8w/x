@@ -65,6 +65,9 @@ void ShaderProgram::setFloat(const char* n, float v) const {
 void ShaderProgram::setFloat2(const char* n, float x, float y) const {
     glUniform2f(glGetUniformLocation(m_id, n), x, y);
 }
+void ShaderProgram::setFloat3(const char* n, float x, float y, float z) const {
+    glUniform3f(glGetUniformLocation(m_id, n), x, y, z);
+}
 void ShaderProgram::setInt(const char* n, int v) const {
     glUniform1i(glGetUniformLocation(m_id, n), v);
 }

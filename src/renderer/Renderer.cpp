@@ -45,7 +45,8 @@ void Renderer::ensureFBO(int w, int h) {
 
 void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                                const FractalEngine& eng,
-                               const BlendController& blend) {
+                               const BlendController& blend,
+                               const ColorSynth& cs) {
     float bw[5];
     blend.weights(bw);
 
@@ -82,12 +83,22 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_mb_scale",        eng.mbScale);
     prog.setFloat ("u_mb_fold",         eng.mbFold);
     prog.setInt   ("u_video_tex",       0);  // texture unit 0
+
+    // ── Color Synthesizer ─────────────────────────────────────────────────────
+    prog.setBool  ("u_cs_enabled",    cs.enabled);
+    prog.setFloat3("u_cs_hsl",        cs.outHSL[0],    cs.outHSL[1],    cs.outHSL[2]);
+    prog.setFloat3("u_cs_hsl_alt",    cs.outHSLAlt[0], cs.outHSLAlt[1], cs.outHSLAlt[2]);
+    prog.setFloat ("u_cs_alt_blend",  cs.outAltBlend);
+    prog.setInt   ("u_cs_mode",       cs.blendMode);
+    prog.setFloat ("u_cs_hue_spread", cs.hueSpread);
+    prog.setFloat ("u_cs_lum_spread", cs.lumSpread);
 }
 
 void Renderer::render(int width, int height, float time,
                        const FractalEngine& engine,
                        const BlendController& blend,
-                       const VideoTexture& videoTex) {
+                       const VideoTexture& videoTex,
+                       const ColorSynth& colorSynth) {
     ensureFBO(width, height);
 
     // Choose shader: use Mandelbulb shader when its weight dominates
@@ -100,7 +111,7 @@ void Renderer::render(int width, int height, float time,
     glClear(GL_COLOR_BUFFER_BIT);
 
     prog.use();
-    uploadUniforms(prog, width, height, time, engine, blend);
+    uploadUniforms(prog, width, height, time, engine, blend, colorSynth);
     videoTex.bind(0);
 
     glBindVertexArray(m_vao);

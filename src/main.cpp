@@ -9,6 +9,7 @@
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
 #include "fractal/GlitchEngine.h"
+#include "fractal/ColorSynth.h"
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "ui/EquationEditor.h"
@@ -75,7 +76,9 @@ int main(int argc, char** argv) {
     MidiMapper     midiMapper;
     MidiGenerator  midiGen;
     GlitchEngine   glitchEng;
-    EquationEditor ui(engine, blend, glitchEng, videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
+    ColorSynth     colorSynth;
+    EquationEditor ui(engine, blend, glitchEng, colorSynth,
+                      videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -101,48 +104,55 @@ int main(int argc, char** argv) {
     // Default video path from argv
     if (argc > 1) videoIn.open(argv[1]);
 
-    double t0 = glfwGetTime();
+    double t0   = glfwGetTime();
+    double tPrev = t0;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
+        double now     = glfwGetTime();
+        float  t       = (float)(now - t0);
+        float  dt      = (float)(now - tPrev);
+        tPrev = now;
+
         // Poll real MIDI input; optional MIDI-Thru to output port
+        std::vector<ColorSynth::Msg> synthMsgs;
         if (midiIn.isOpen()) {
             auto msgs = midiIn.poll();
             for (auto& msg : msgs) {
-                midiMapper.apply(msg, engine, blend);
+                midiMapper.apply(msg, engine, blend, colorSynth);
                 midiMapper.feedLearn(msg);
                 if (midiGen.midiThru && midiOut.isOpen())
                     midiOut.send(msg);  // MIDI Thru
+                // Forward to color synth for velocity reaction
+                synthMsgs.push_back({msg.status, msg.data1, msg.data2});
             }
         }
 
         // Tick MIDI generator — drive fractal params AND send real MIDI to VST
         {
-            double elapsed = glfwGetTime() - t0;
+            double elapsed = now - t0;
 
             // Tick glitch engine first (modifies engine/blend, returns ghost notes)
             auto glitchMsgs = glitchEng.tick(elapsed, engine, blend);
             for (auto& msg : glitchMsgs) {
-                midiMapper.apply(msg, engine, blend);
+                midiMapper.apply(msg, engine, blend, colorSynth);
                 midiOut.send(msg);
+                synthMsgs.push_back({msg.status, msg.data1, msg.data2});
             }
 
             auto genMsgs = midiGen.tick(elapsed);
             for (auto& msg : genMsgs) {
                 // Apply MIDI glitch modifiers (velocity spike, pitch scramble)
                 auto gMsg = glitchEng.applyMidiGlitch(msg);
-                midiMapper.apply(gMsg, engine, blend);  // fractal params
-                midiOut.send(gMsg);                     // real MIDI to DAW/VST
+                midiMapper.apply(gMsg, engine, blend, colorSynth);  // fractal params
+                midiOut.send(gMsg);                                  // real MIDI to DAW/VST
+                synthMsgs.push_back({gMsg.status, gMsg.data1, gMsg.data2});
             }
         }
 
-        // MIDI-Thru: route hardware input to output (if thru enabled in UI)
-        // (thruEnabled flag lives in MidiGenerator for simplicity)
-        if (midiIn.isOpen() && midiOut.isOpen() && midiGen.midiThru) {
-            // already polled above — re-use is not possible; thru is handled
-            // in the input poll block below when midiGen.midiThru is set
-        }
+        // Tick color synthesizer — update oscillators + react to MIDI
+        colorSynth.tick(t, dt, synthMsgs);
 
         // Decode next video frame if ready
         if (videoIn.isOpen()) {
@@ -156,9 +166,8 @@ int main(int argc, char** argv) {
         // Render fractal + video blend
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
-        float t = (float)(glfwGetTime() - t0);
 
-        renderer.render(fw, fh, t, engine, blend, videoTex);
+        renderer.render(fw, fh, t, engine, blend, videoTex, colorSynth);
 
         // Encode frame for RTMP if streaming
         if (streamOut.isStreaming()) {

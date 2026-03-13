@@ -13,6 +13,7 @@ public:
 
     void setFloat (const char* name, float v) const;
     void setFloat2(const char* name, float x, float y) const;
+    void setFloat3(const char* name, float x, float y, float z) const;
     void setInt   (const char* name, int v)   const;
     void setBool  (const char* name, bool v)  const;
 

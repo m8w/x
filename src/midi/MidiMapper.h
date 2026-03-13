@@ -2,6 +2,7 @@
 #include "MidiInput.h"
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
+#include "fractal/ColorSynth.h"
 #include <vector>
 #include <string>
 
@@ -13,6 +14,18 @@ enum class MidiParam {
     FormulaA, FormulaB, FormulaBlend,
     PixelWeight, LayerCount, LayerOffset,
     GeoWarp, GeoRadius, GeoRotation,
+    // ── Mirror / Kaleidoscope ─────────────────────────────────────────────────
+    GeoMirror,      // 0=none 1=X 2=Y 3=XY
+    GeoKaleid,      // 0=off  2-16=segment count
+    // ── Color Synthesizer ─────────────────────────────────────────────────────
+    ColorHue,       // primary hue base
+    ColorSat,       // primary saturation
+    ColorLum,       // primary luminance
+    ColorAltHue,    // alternate hue base
+    ColorAltRate,   // alternation oscillator frequency (Hz)
+    ColorHueOscRate,// hue oscillator frequency (Hz)
+    ColorHueOscAmp, // hue oscillator amplitude
+    ColorLumOscAmp, // luminance oscillator amplitude
     COUNT
 };
 
@@ -44,7 +57,8 @@ struct LearnState {
 class MidiMapper {
 public:
     // Apply all mappings to a single incoming message
-    void apply(const MidiInput::Message& msg, FractalEngine& eng, BlendController& blend);
+    void apply(const MidiInput::Message& msg,
+               FractalEngine& eng, BlendController& blend, ColorSynth& colorSynth);
 
     // Mapping list management
     void add(const MidiMapping& m);
@@ -62,5 +76,6 @@ private:
     LearnState               m_learn;
 
     static void applyToParam(MidiParam p, float val,
-                             FractalEngine& eng, BlendController& blend);
+                             FractalEngine& eng, BlendController& blend,
+                             ColorSynth& colorSynth);
 };

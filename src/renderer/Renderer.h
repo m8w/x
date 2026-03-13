@@ -5,6 +5,7 @@
 #include "VideoTexture.h"
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
+#include "fractal/ColorSynth.h"
 
 class Renderer {
 public:
@@ -15,7 +16,8 @@ public:
     void render(int width, int height, float time,
                 const FractalEngine& engine,
                 const BlendController& blend,
-                const VideoTexture& videoTex);
+                const VideoTexture& videoTex,
+                const ColorSynth& colorSynth);
 
     // Read back FBO pixels (RGB24) for RTMP encoding.
     // Returns pointer to internal buffer (valid until next call).
@@ -34,5 +36,6 @@ private:
     void ensureFBO(int w, int h);
     void uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                         const FractalEngine& engine,
-                        const BlendController& blend);
+                        const BlendController& blend,
+                        const ColorSynth& colorSynth);
 };

@@ -33,6 +33,15 @@ uniform int   u_layer_count;       // 1–4: spatial layer repetition
 uniform float u_layer_offset;      // gap between layers
 uniform sampler2D u_video_tex;
 
+// ── Color Synthesizer ─────────────────────────────────────────────────────────
+uniform bool  u_cs_enabled;
+uniform vec3  u_cs_hsl;         // primary HSL (hue 0-1 wrapping, sat 0-1, lum 0-1)
+uniform vec3  u_cs_hsl_alt;     // alternate HSL
+uniform float u_cs_alt_blend;   // 0=primary  1=alt  (oscillates)
+uniform int   u_cs_mode;        // 0=replace  1=multiply  2=screen
+uniform float u_cs_hue_spread;  // hue range spread across escape value
+uniform float u_cs_lum_spread;  // lum range spread across escape value
+
 // ════════════════════════════════════════════════════════════════════════════════
 // COMPLEX NUMBER LIBRARY
 // ════════════════════════════════════════════════════════════════════════════════
@@ -255,6 +264,36 @@ vec3 palette(float t) {
     return vec3(0.5)+vec3(0.5)*cos(6.28318*(vec3(1.0,1.0,0.5)*t+vec3(0.8,0.9,0.3)));
 }
 
+// ── HSL → RGB (compact version) ───────────────────────────────────────────────
+vec3 hsl2rgb(vec3 c) {
+    vec3 rgb = clamp(abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0);
+    return c.z + c.y*(rgb-0.5)*(1.0-abs(2.0*c.z-1.0));
+}
+
+// ── RGB → HSL ─────────────────────────────────────────────────────────────────
+vec3 rgb2hsl(vec3 c) {
+    float maxC = max(max(c.r,c.g),c.b);
+    float minC = min(min(c.r,c.g),c.b);
+    float d    = maxC - minC;
+    float l    = (maxC + minC) * 0.5;
+    float s    = (l < 0.5) ? d/(maxC+minC+1e-6) : d/(2.0-maxC-minC+1e-6);
+    float h = 0.0;
+    if (d > 1e-6) {
+        if (maxC == c.r) h = (c.g-c.b)/d + (c.g<c.b ? 6.0 : 0.0);
+        else if (maxC == c.g) h = (c.b-c.r)/d + 2.0;
+        else                  h = (c.r-c.g)/d + 4.0;
+        h /= 6.0;
+    }
+    return vec3(h, s, l);
+}
+
+// ── Synth palette: derive an HSL colour for escape value t ────────────────────
+vec3 synthPalette(float t, vec3 hsl) {
+    float h = fract(hsl.x + t * u_cs_hue_spread);
+    float l = clamp(hsl.z + (t - 0.5) * u_cs_lum_spread, 0.0, 1.0);
+    return hsl2rgb(vec3(h, hsl.y, l));
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ════════════════════════════════════════════════════════════════════════════════
@@ -314,7 +353,30 @@ void main() {
 
     vec2 vidUV = vec2(fract(escape*3.7+u_time*0.05), fract(escape*5.3+0.5));
     vec3 video  = texture(u_video_tex, vidUV).rgb;
-    vec3 color  = mix(palette(escape+u_time*0.08), video, 0.65+0.35*escape);
+
+    // ── Base palette ──────────────────────────────────────────────────────────
+    vec3 baseColor = palette(escape + u_time*0.08);
+
+    // ── Color Synthesizer ─────────────────────────────────────────────────────
+    if (u_cs_enabled) {
+        // Build primary and alternate colours for this escape value
+        vec3 col1 = synthPalette(escape, u_cs_hsl);
+        vec3 col2 = synthPalette(escape, u_cs_hsl_alt);
+        vec3 synthCol = mix(col1, col2, u_cs_alt_blend);
+
+        if (u_cs_mode == 0) {
+            // Replace: synth drives all colour; palette provides detail variation
+            baseColor = synthCol;
+        } else if (u_cs_mode == 1) {
+            // Multiply: tints the palette with the synth colour
+            baseColor = baseColor * synthCol * 2.0;
+        } else {
+            // Screen: lightens — good for dark fractals
+            baseColor = 1.0 - (1.0-baseColor)*(1.0-synthCol);
+        }
+    }
+
+    vec3 color  = mix(baseColor, video, 0.65+0.35*escape);
     color *= step(0.001, escape)*0.95 + 0.05;
 
     fragColor = vec4(color, 1.0);

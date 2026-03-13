@@ -89,7 +89,6 @@ set(SOURCES
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
     src/ui/EquationEditor.cpp
-    src/ui/FilePicker_linux.cpp
     src/remote/RemoteControl.cpp
     src/midi/MidiInput.cpp
     src/midi/MidiMapper.cpp
@@ -99,6 +98,8 @@ set(SOURCES
 
 if(APPLE)
     list(APPEND SOURCES src/ui/FilePicker.mm)
+else()
+    list(APPEND SOURCES src/ui/FilePicker_linux.cpp)
 endif()
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})
@@ -135,6 +136,7 @@ if(APPLE)
         "-framework CoreMIDI"
         "-framework CoreAudio"
         "-framework CoreFoundation"
+        "-framework VideoToolbox"
         "-framework UniformTypeIdentifiers"
         glfw
         ${FFMPEG_LIBRARIES}

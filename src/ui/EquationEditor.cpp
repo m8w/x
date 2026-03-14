@@ -1,10 +1,14 @@
 #include "EquationEditor.h"
+#include "AppSettings.h"
 #include "midi/MidiOutput.h"
 #include "FilePicker.h"
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <algorithm>
+#include <string>
+#include <unordered_map>
 
 static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440", "3840x2160 (4K)"};
 static const int   kResW[]      = {1280, 1920, 2560, 3840};
@@ -26,6 +30,8 @@ void EquationEditor::draw() {
     ImGui::SetNextWindowSize({360, 980}, ImGuiCond_Once);
     ImGui::Begin("Fractal Stream Controls");
 
+    if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen))
+        drawPresetsPanel();
     if (ImGui::CollapsingHeader("Blend"))
         drawBlendPanel();
     if (ImGui::CollapsingHeader("Fractal Parameters", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1509,5 +1515,370 @@ void EquationEditor::drawChaosPanel() {
         ImGui::Spacing();
         ImGui::TextDisabled("Logistic r = %.3f  (%s)", r,
                             chaotic ? "chaotic regime" : "periodic (increase Strength)");
+    }
+}
+
+// ── INI helpers (file-local) ──────────────────────────────────────────────────
+
+using IniMap = std::unordered_map<std::string, std::string>;
+
+static IniMap parseIni(const std::string& path) {
+    IniMap m;
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) return m;
+    char line[1024];
+    std::string section;
+    while (fgets(line, sizeof(line), f)) {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0 || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[') {
+            char* end = strchr(line, ']');
+            if (end) { *end = '\0'; section = line + 1; }
+            continue;
+        }
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        m[section + "." + line] = eq + 1;
+    }
+    fclose(f);
+    return m;
+}
+static float       ini_f(const IniMap& m, const std::string& k, float def)
+    { auto it = m.find(k); return it != m.end() ? (float)atof(it->second.c_str()) : def; }
+static int         ini_i(const IniMap& m, const std::string& k, int   def)
+    { auto it = m.find(k); return it != m.end() ? atoi(it->second.c_str()) : def; }
+static bool        ini_b(const IniMap& m, const std::string& k, bool  def)
+    { auto it = m.find(k); return it != m.end() ? (it->second != "0") : def; }
+static std::string ini_s(const IniMap& m, const std::string& k, const std::string& def)
+    { auto it = m.find(k); return it != m.end() ? it->second : def; }
+
+// ── saveSettings ──────────────────────────────────────────────────────────────
+
+void EquationEditor::saveSettings(const std::string& path) const {
+    AppSettings::ensureDirs();
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) { fprintf(stderr, "AppSettings: cannot write %s\n", path.c_str()); return; }
+
+    const auto& E = m_engine;
+    const auto& B = m_blend;
+    const auto& G = m_glitch;
+    const auto& C = m_colorSynth;
+    const auto& MG = m_midiGen;
+
+    // [fractal]
+    fprintf(f, "[fractal]\n");
+    fprintf(f, "zoom=%f\noffset_x=%f\noffset_y=%f\n", E.zoom, E.offset.x, E.offset.y);
+    fprintf(f, "julia_c_x=%f\njulia_c_y=%f\n", E.juliaC.x, E.juliaC.y);
+    fprintf(f, "power=%f\nmax_iter=%d\nbailout=%f\n", E.power, E.maxIter, E.bailout);
+    fprintf(f, "formula=%d\nformula_b=%d\nformula_blend=%f\nformula_param=%f\n",
+            E.formula, E.formulaB, E.formulaBlend, E.formulaParam);
+    fprintf(f, "pixel_weight=%f\nlayer_count=%d\nlayer_offset=%f\n",
+            E.pixelWeight, E.layerCount, E.layerOffset);
+    fprintf(f, "geo_shape=%d\ngeo_sides=%d\ngeo_radius=%f\ngeo_rotation=%f\n",
+            E.geoShape, E.geoSides, E.geoRadius, E.geoRotation);
+    fprintf(f, "geo_tile=%d\ngeo_warp=%f\ngeo_mirror=%d\ngeo_kaleid=%d\n",
+            (int)E.geoTile, E.geoWarp, E.geoMirror, E.geoKaleid);
+    fprintf(f, "fractal_3d=%d\nmb_scale=%f\nmb_fold=%f\n",
+            E.fractal3D, E.mbScale, E.mbFold);
+    fprintf(f, "chaos_mode=%d\nchaos_strength=%f\nchaos_scale=%f\nchaos_speed=%f\n",
+            E.chaosMode, E.chaosStrength, E.chaosScale, E.chaosSpeed);
+    fprintf(f, "distortion_mode=%d\ndistort_speed=%f\ndistort_blobs=%d\n",
+            (int)E.distortionMode, E.distortSpeed, E.distortBlobs);
+    fprintf(f, "distort_glow=%f\ndistort_irid=%f\ndistort_outline=%f\n",
+            E.distortGlow, E.distortIrid, E.distortOutline);
+
+    // [blend]
+    fprintf(f, "\n[blend]\n");
+    fprintf(f, "mandelbrot=%f\njulia=%f\nmandelbulb=%f\neuclidean=%f\ndiff=%f\n",
+            B.mandelbrot, B.julia, B.mandelbulb, B.euclidean, B.diff);
+
+    // [color]
+    fprintf(f, "\n[color]\n");
+    fprintf(f, "enabled=%d\n", (int)C.enabled);
+    fprintf(f, "hue_base=%f\nsat_base=%f\nlum_base=%f\n", C.hueBase, C.satBase, C.lumBase);
+    fprintf(f, "hue_alt=%f\nsat_alt=%f\nlum_alt=%f\nalt_rate=%f\n",
+            C.hueAlt, C.satAlt, C.lumAlt, C.altRate);
+    fprintf(f, "hue_osc_amp=%f\nhue_osc_rate=%f\n", C.hueOscAmp, C.hueOscRate);
+    fprintf(f, "lum_osc_amp=%f\nlum_osc_rate=%f\n", C.lumOscAmp, C.lumOscRate);
+    fprintf(f, "hue_spread=%f\nlum_spread=%f\n", C.hueSpread, C.lumSpread);
+    fprintf(f, "midi_hue_sens=%f\nmidi_sat_sens=%f\nmidi_lum_sens=%f\nmidi_decay=%f\n",
+            C.midiHueSens, C.midiSatSens, C.midiLumSens, C.midiDecay);
+    fprintf(f, "blend_mode=%d\n", C.blendMode);
+
+    // [glitch]
+    fprintf(f, "\n[glitch]\n");
+    fprintf(f, "enabled=%d\nrate_hz=%f\ndur_min=%f\ndur_max=%f\nintensity=%f\n",
+            (int)G.enabled, G.glitchRateHz, G.glitchDurMin, G.glitchDurMax, G.intensity);
+    fprintf(f, "julia_jump=%d\nformula_flash=%d\nzoom_punch=%d\nblend_scatter=%d\n",
+            (int)G.doJuliaJump, (int)G.doFormulaFlash, (int)G.doZoomPunch, (int)G.doBlendScatter);
+    fprintf(f, "power_spike=%d\noffset_shift=%d\nvel_spike=%d\npitch_scramble=%d\nghost_note=%d\n",
+            (int)G.doPowerSpike, (int)G.doOffsetShift,
+            (int)G.doVelocitySpike, (int)G.doPitchScramble, (int)G.doGhostNote);
+    fprintf(f, "midi_channel=%d\nnote_min=%d\nnote_max=%d\n",
+            G.midiChannel, G.noteMin, G.noteMax);
+
+    // [midi_gen]
+    fprintf(f, "\n[midi_gen]\n");
+    fprintf(f, "enabled=%d\nnote_enabled=%d\n", (int)MG.enabled, (int)MG.noteEnabled);
+    fprintf(f, "note_min=%d\nnote_max=%d\nroot_key=%d\nscale=%d\n",
+            MG.noteMin, MG.noteMax, MG.rootKey, (int)MG.scale);
+    fprintf(f, "vel_min=%d\nvel_max=%d\nchannel=%d\nchord_size=%d\n",
+            MG.velMin, MG.velMax, MG.channel, MG.chordSize);
+    fprintf(f, "bpm=%f\nstep_rate_idx=%d\nnote_len_idx=%d\nrest_prob=%f\nhumanize=%d\n",
+            MG.bpm, MG.stepRateIdx, MG.noteLenIdx, MG.restProb, (int)MG.humanize);
+    fprintf(f, "pg_enabled=%d\npg_every=%d\npg_min=%d\npg_max=%d\nmidi_thru=%d\n",
+            (int)MG.pgEnabled, MG.pgEvery, MG.pgMin, MG.pgMax, (int)MG.midiThru);
+
+    // [midi_mappings]
+    const auto& maps = m_midiMapper.mappings();
+    fprintf(f, "\n[midi_mappings]\ncount=%d\n", (int)maps.size());
+    for (int i = 0; i < (int)maps.size(); i++) {
+        const auto& mm = maps[i];
+        fprintf(f, "%d_type=%d\n%d_channel=%d\n%d_number=%d\n%d_param=%d\n"
+                   "%d_min=%f\n%d_max=%f\n%d_label=%s\n",
+                i, mm.msgType, i, mm.channel, i, mm.number, i, (int)mm.param,
+                i, mm.minVal, i, mm.maxVal, i, mm.label);
+    }
+
+    // [stream]
+    fprintf(f, "\n[stream]\n");
+    fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
+            m_bitrateKbps, m_resIndex,
+            m_streamOut.audioDevice.c_str(), m_videoPath);
+    int ndest = m_streamOut.destCount();
+    fprintf(f, "dest_count=%d\n", ndest);
+    for (int i = 0; i < ndest; i++) {
+        const auto& d = m_streamOut.dest(i);
+        fprintf(f, "dest%d_name=%s\ndest%d_url=%s\ndest%d_enabled=%d\n",
+                i, d.name.c_str(), i, d.url.c_str(), i, (int)d.enabled);
+    }
+
+    fclose(f);
+}
+
+// ── loadSettings ──────────────────────────────────────────────────────────────
+
+void EquationEditor::loadSettings(const std::string& path) {
+    IniMap m = parseIni(path);
+    if (m.empty()) return;
+
+    auto& E  = m_engine;
+    auto& B  = m_blend;
+    auto& G  = m_glitch;
+    auto& C  = m_colorSynth;
+    auto& MG = m_midiGen;
+
+    // [fractal]
+    E.zoom           = ini_f(m, "fractal.zoom",           E.zoom);
+    E.offset.x       = ini_f(m, "fractal.offset_x",       E.offset.x);
+    E.offset.y       = ini_f(m, "fractal.offset_y",       E.offset.y);
+    E.juliaC.x       = ini_f(m, "fractal.julia_c_x",      E.juliaC.x);
+    E.juliaC.y       = ini_f(m, "fractal.julia_c_y",      E.juliaC.y);
+    E.power          = ini_f(m, "fractal.power",           E.power);
+    E.maxIter        = ini_i(m, "fractal.max_iter",        E.maxIter);
+    E.bailout        = ini_f(m, "fractal.bailout",         E.bailout);
+    E.formula        = ini_i(m, "fractal.formula",         E.formula);
+    E.formulaB       = ini_i(m, "fractal.formula_b",       E.formulaB);
+    E.formulaBlend   = ini_f(m, "fractal.formula_blend",   E.formulaBlend);
+    E.formulaParam   = ini_f(m, "fractal.formula_param",   E.formulaParam);
+    E.pixelWeight    = ini_f(m, "fractal.pixel_weight",    E.pixelWeight);
+    E.layerCount     = ini_i(m, "fractal.layer_count",     E.layerCount);
+    E.layerOffset    = ini_f(m, "fractal.layer_offset",    E.layerOffset);
+    E.geoShape       = ini_i(m, "fractal.geo_shape",       E.geoShape);
+    E.geoSides       = ini_i(m, "fractal.geo_sides",       E.geoSides);
+    E.geoRadius      = ini_f(m, "fractal.geo_radius",      E.geoRadius);
+    E.geoRotation    = ini_f(m, "fractal.geo_rotation",    E.geoRotation);
+    E.geoTile        = ini_b(m, "fractal.geo_tile",        E.geoTile);
+    E.geoWarp        = ini_f(m, "fractal.geo_warp",        E.geoWarp);
+    E.geoMirror      = ini_i(m, "fractal.geo_mirror",      E.geoMirror);
+    E.geoKaleid      = ini_i(m, "fractal.geo_kaleid",      E.geoKaleid);
+    E.fractal3D      = ini_i(m, "fractal.fractal_3d",      E.fractal3D);
+    E.mbScale        = ini_f(m, "fractal.mb_scale",        E.mbScale);
+    E.mbFold         = ini_f(m, "fractal.mb_fold",         E.mbFold);
+    E.chaosMode      = ini_i(m, "fractal.chaos_mode",      E.chaosMode);
+    E.chaosStrength  = ini_f(m, "fractal.chaos_strength",  E.chaosStrength);
+    E.chaosScale     = ini_f(m, "fractal.chaos_scale",     E.chaosScale);
+    E.chaosSpeed     = ini_f(m, "fractal.chaos_speed",     E.chaosSpeed);
+    E.distortionMode = ini_b(m, "fractal.distortion_mode", E.distortionMode);
+    E.distortSpeed   = ini_f(m, "fractal.distort_speed",   E.distortSpeed);
+    E.distortBlobs   = ini_i(m, "fractal.distort_blobs",   E.distortBlobs);
+    E.distortGlow    = ini_f(m, "fractal.distort_glow",    E.distortGlow);
+    E.distortIrid    = ini_f(m, "fractal.distort_irid",    E.distortIrid);
+    E.distortOutline = ini_f(m, "fractal.distort_outline", E.distortOutline);
+
+    // [blend]
+    B.mandelbrot = ini_f(m, "blend.mandelbrot", B.mandelbrot);
+    B.julia      = ini_f(m, "blend.julia",      B.julia);
+    B.mandelbulb = ini_f(m, "blend.mandelbulb", B.mandelbulb);
+    B.euclidean  = ini_f(m, "blend.euclidean",  B.euclidean);
+    B.diff       = ini_f(m, "blend.diff",       B.diff);
+
+    // [color]
+    C.enabled      = ini_b(m, "color.enabled",       C.enabled);
+    C.hueBase      = ini_f(m, "color.hue_base",      C.hueBase);
+    C.satBase      = ini_f(m, "color.sat_base",      C.satBase);
+    C.lumBase      = ini_f(m, "color.lum_base",      C.lumBase);
+    C.hueAlt       = ini_f(m, "color.hue_alt",       C.hueAlt);
+    C.satAlt       = ini_f(m, "color.sat_alt",       C.satAlt);
+    C.lumAlt       = ini_f(m, "color.lum_alt",       C.lumAlt);
+    C.altRate      = ini_f(m, "color.alt_rate",      C.altRate);
+    C.hueOscAmp    = ini_f(m, "color.hue_osc_amp",   C.hueOscAmp);
+    C.hueOscRate   = ini_f(m, "color.hue_osc_rate",  C.hueOscRate);
+    C.lumOscAmp    = ini_f(m, "color.lum_osc_amp",   C.lumOscAmp);
+    C.lumOscRate   = ini_f(m, "color.lum_osc_rate",  C.lumOscRate);
+    C.hueSpread    = ini_f(m, "color.hue_spread",    C.hueSpread);
+    C.lumSpread    = ini_f(m, "color.lum_spread",    C.lumSpread);
+    C.midiHueSens  = ini_f(m, "color.midi_hue_sens", C.midiHueSens);
+    C.midiSatSens  = ini_f(m, "color.midi_sat_sens", C.midiSatSens);
+    C.midiLumSens  = ini_f(m, "color.midi_lum_sens", C.midiLumSens);
+    C.midiDecay    = ini_f(m, "color.midi_decay",    C.midiDecay);
+    C.blendMode    = ini_i(m, "color.blend_mode",    C.blendMode);
+
+    // [glitch]
+    G.enabled        = ini_b(m, "glitch.enabled",       G.enabled);
+    G.glitchRateHz   = ini_f(m, "glitch.rate_hz",       G.glitchRateHz);
+    G.glitchDurMin   = ini_f(m, "glitch.dur_min",       G.glitchDurMin);
+    G.glitchDurMax   = ini_f(m, "glitch.dur_max",       G.glitchDurMax);
+    G.intensity      = ini_f(m, "glitch.intensity",     G.intensity);
+    G.doJuliaJump    = ini_b(m, "glitch.julia_jump",    G.doJuliaJump);
+    G.doFormulaFlash = ini_b(m, "glitch.formula_flash", G.doFormulaFlash);
+    G.doZoomPunch    = ini_b(m, "glitch.zoom_punch",    G.doZoomPunch);
+    G.doBlendScatter = ini_b(m, "glitch.blend_scatter", G.doBlendScatter);
+    G.doPowerSpike   = ini_b(m, "glitch.power_spike",   G.doPowerSpike);
+    G.doOffsetShift  = ini_b(m, "glitch.offset_shift",  G.doOffsetShift);
+    G.doVelocitySpike  = ini_b(m, "glitch.vel_spike",     G.doVelocitySpike);
+    G.doPitchScramble  = ini_b(m, "glitch.pitch_scramble",G.doPitchScramble);
+    G.doGhostNote      = ini_b(m, "glitch.ghost_note",    G.doGhostNote);
+    G.midiChannel    = ini_i(m, "glitch.midi_channel",  G.midiChannel);
+    G.noteMin        = ini_i(m, "glitch.note_min",      G.noteMin);
+    G.noteMax        = ini_i(m, "glitch.note_max",      G.noteMax);
+
+    // [midi_gen]
+    MG.enabled      = ini_b(m, "midi_gen.enabled",       MG.enabled);
+    MG.noteEnabled  = ini_b(m, "midi_gen.note_enabled",  MG.noteEnabled);
+    MG.noteMin      = ini_i(m, "midi_gen.note_min",      MG.noteMin);
+    MG.noteMax      = ini_i(m, "midi_gen.note_max",      MG.noteMax);
+    MG.rootKey      = ini_i(m, "midi_gen.root_key",      MG.rootKey);
+    MG.scale        = (GenScale)ini_i(m, "midi_gen.scale", (int)MG.scale);
+    MG.velMin       = ini_i(m, "midi_gen.vel_min",       MG.velMin);
+    MG.velMax       = ini_i(m, "midi_gen.vel_max",       MG.velMax);
+    MG.channel      = ini_i(m, "midi_gen.channel",       MG.channel);
+    MG.chordSize    = ini_i(m, "midi_gen.chord_size",    MG.chordSize);
+    MG.bpm          = ini_f(m, "midi_gen.bpm",           MG.bpm);
+    MG.stepRateIdx  = ini_i(m, "midi_gen.step_rate_idx", MG.stepRateIdx);
+    MG.noteLenIdx   = ini_i(m, "midi_gen.note_len_idx",  MG.noteLenIdx);
+    MG.restProb     = ini_f(m, "midi_gen.rest_prob",     MG.restProb);
+    MG.humanize     = ini_b(m, "midi_gen.humanize",      MG.humanize);
+    MG.pgEnabled    = ini_b(m, "midi_gen.pg_enabled",    MG.pgEnabled);
+    MG.pgEvery      = ini_i(m, "midi_gen.pg_every",      MG.pgEvery);
+    MG.pgMin        = ini_i(m, "midi_gen.pg_min",        MG.pgMin);
+    MG.pgMax        = ini_i(m, "midi_gen.pg_max",        MG.pgMax);
+    MG.midiThru     = ini_b(m, "midi_gen.midi_thru",     MG.midiThru);
+
+    // [midi_mappings]
+    int nmaps = ini_i(m, "midi_mappings.count", 0);
+    if (nmaps > 0) {
+        m_midiMapper.mappings().clear();
+        for (int i = 0; i < nmaps; i++) {
+            std::string pfx = "midi_mappings." + std::to_string(i);
+            MidiMapping mm{};
+            mm.msgType = ini_i(m, pfx + "_type",    0);
+            mm.channel = ini_i(m, pfx + "_channel", 0);
+            mm.number  = ini_i(m, pfx + "_number",  0);
+            mm.param   = (MidiParam)ini_i(m, pfx + "_param", 0);
+            mm.minVal  = ini_f(m, pfx + "_min",     0.0f);
+            mm.maxVal  = ini_f(m, pfx + "_max",     1.0f);
+            std::string lbl = ini_s(m, pfx + "_label", "");
+            strncpy(mm.label, lbl.c_str(), sizeof(mm.label) - 1);
+            m_midiMapper.add(mm);
+        }
+    }
+
+    // [stream]
+    m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);
+    m_resIndex    = ini_i(m, "stream.res_index",    m_resIndex);
+    {
+        std::string dev = ini_s(m, "stream.audio_device", m_streamOut.audioDevice);
+        m_streamOut.audioDevice = dev;
+    }
+    {
+        std::string vp = ini_s(m, "stream.video_path", "");
+        if (!vp.empty()) {
+            strncpy(m_videoPath, vp.c_str(), sizeof(m_videoPath) - 1);
+            m_videoIn.open(vp);
+        }
+    }
+    int ndest = ini_i(m, "stream.dest_count", 0);
+    if (ndest > 0) {
+        // Remove existing destinations, then restore saved ones
+        while (m_streamOut.destCount() > 0) m_streamOut.removeDestination(0);
+        for (int i = 0; i < ndest; i++) {
+            std::string pfx = "stream.dest" + std::to_string(i);
+            std::string dname = ini_s(m, pfx + "_name", "");
+            std::string durl  = ini_s(m, pfx + "_url",  "");
+            bool den          = ini_b(m, pfx + "_enabled", true);
+            if (!dname.empty()) {
+                m_streamOut.addDestination(dname, durl);
+                m_streamOut.dest(m_streamOut.destCount() - 1).enabled = den;
+            }
+        }
+    }
+}
+
+// ── Presets panel ─────────────────────────────────────────────────────────────
+
+void EquationEditor::drawPresetsPanel() {
+    // Refresh list when needed
+    if (m_presetListDirty) {
+        m_presetList = AppSettings::listPresets();
+        m_presetListDirty = false;
+    }
+
+    // Save row
+    ImGui::SetNextItemWidth(160);
+    ImGui::InputText("##pname", m_presetName, sizeof(m_presetName));
+    ImGui::SameLine();
+    if (ImGui::Button("Save") && m_presetName[0] != '\0') {
+        saveSettings(AppSettings::presetPath(m_presetName));
+        m_presetListDirty = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Save current settings as a named preset");
+
+    ImGui::SameLine();
+    if (ImGui::Button("Save 'last'"))
+        saveSettings(AppSettings::lastPath());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Overwrite the auto-saved last session now");
+
+    ImGui::Spacing();
+
+    // Preset list
+    if (m_presetList.empty()) {
+        ImGui::TextDisabled("No presets yet — type a name and click Save");
+        return;
+    }
+
+    int deleteIdx = -1;
+    for (int i = 0; i < (int)m_presetList.size(); i++) {
+        ImGui::PushID(i);
+        if (ImGui::SmallButton("Load")) {
+            loadSettings(AppSettings::presetPath(m_presetList[i]));
+            // Copy name into the name field so "Save" overwrites it easily
+            strncpy(m_presetName, m_presetList[i].c_str(), sizeof(m_presetName) - 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) deleteIdx = i;
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m_presetList[i].c_str());
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0) {
+        std::string p = AppSettings::presetPath(m_presetList[deleteIdx]);
+        remove(p.c_str());
+        m_presetListDirty = true;
     }
 }

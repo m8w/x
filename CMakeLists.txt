@@ -79,6 +79,7 @@ set(IMGUI_SOURCES
 # ── Project sources ───────────────────────────────────────────────────────────
 set(SOURCES
     src/main.cpp
+    src/AppSettings.cpp
     src/renderer/Renderer.cpp
     src/renderer/ShaderProgram.cpp
     src/renderer/VideoTexture.cpp

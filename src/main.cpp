@@ -13,6 +13,7 @@
 #include "stream/VideoInput.h"
 #include "stream/StreamOutput.h"
 #include "ui/EquationEditor.h"
+#include "AppSettings.h"
 #include "remote/RemoteControl.h"
 #include "midi/MidiInput.h"
 #include "midi/MidiMapper.h"
@@ -101,6 +102,9 @@ int main(int argc, char** argv) {
 
     renderer.init();
 
+    // Restore last session (before argv override so explicit path wins)
+    ui.loadSettings(AppSettings::lastPath());
+
     // Default video path from argv
     if (argc > 1) videoIn.open(argv[1]);
 
@@ -186,6 +190,9 @@ int main(int argc, char** argv) {
     }
 
     streamOut.stop();
+
+    // Auto-save session so next launch resumes where we left off
+    ui.saveSettings(AppSettings::lastPath());
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

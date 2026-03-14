@@ -10,6 +10,7 @@
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include <string>
+#include <vector>
 
 class EquationEditor {
 public:
@@ -19,6 +20,10 @@ public:
                    MidiInput& midiIn, MidiOutput& midiOut,
                    MidiMapper& midiMapper, MidiGenerator& midiGen);
     void draw();   // Call once per frame after ImGui::NewFrame()
+
+    // Persist all panel state to / from an INI file.
+    void saveSettings(const std::string& path) const;
+    void loadSettings(const std::string& path);
 
 private:
     FractalEngine&   m_engine;
@@ -40,6 +45,11 @@ private:
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";
 
+    // Preset panel state
+    char                     m_presetName[64] = "";
+    std::vector<std::string> m_presetList;
+    bool                     m_presetListDirty = true;
+
     void drawBlendPanel();
     void drawFractalPanel();
     void drawGeometryPanel();
@@ -51,4 +61,5 @@ private:
     void drawColorSynthPanel();
     void drawDistortionPanel();
     void drawChaosPanel();
+    void drawPresetsPanel();
 };

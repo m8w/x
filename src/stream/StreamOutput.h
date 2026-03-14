@@ -15,6 +15,7 @@ extern "C" {
 #include <queue>
 #include <condition_variable>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 
@@ -82,6 +83,9 @@ private:
     // Track SwsContext input dimensions — recreate if window size changes
     int             m_swsInW    = 0;
     int             m_swsInH    = 0;
+
+    // Wall-clock rate limiter — prevents sending faster than realtime
+    std::chrono::steady_clock::time_point m_lastFrameTime{};
 
     // m_hwDeviceCtx is non-null only when using VAAPI
     AVBufferRef* m_hwDeviceCtx = nullptr;

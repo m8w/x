@@ -511,7 +511,10 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
     m_swsCtx = sws_getContext(width, height, AV_PIX_FMT_RGB24,
                                width, height, swFmt,
                                SWS_BILINEAR, nullptr, nullptr, nullptr);
-    m_pts       = 0;
+    m_pts           = 0;
+    m_lastFrameTime = std::chrono::steady_clock::now() -
+                      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                          std::chrono::duration<double>(1.0 / fps));
     m_streaming = true;
     return true;
 }
@@ -574,6 +577,20 @@ void StreamOutput::stop() {
 
 void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
     if (!m_streaming) return;
+
+    // Rate-limit to the configured stream fps using the wall clock.
+    // Without this the render loop (which runs uncapped) sends frames far
+    // faster than realtime and YouTube/Twitch reject the stream.
+    auto now = std::chrono::steady_clock::now();
+    using Sec = std::chrono::duration<double>;
+    double elapsed = Sec(now - m_lastFrameTime).count();
+    double framePeriod = 1.0 / fps;
+    if (elapsed < framePeriod) return;
+    // Advance by one period (keeps cadence stable; clamps runaway drift to 2×)
+    m_lastFrameTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(framePeriod));
+    if (Sec(now - m_lastFrameTime).count() > framePeriod)
+        m_lastFrameTime = now;
 
     // Recreate SwsContext if the window framebuffer size differs from stream
     // resolution — the window can be any size/DPI but we always encode at

@@ -1090,6 +1090,13 @@ void EquationEditor::drawMidiWindow() {
     ImGui::Separator();
 
     // ════════════════════════════════════════════════════════════════════════════
+    // SURGE XT
+    // ════════════════════════════════════════════════════════════════════════════
+    drawSurgeXTSection();
+
+    ImGui::Separator();
+
+    // ════════════════════════════════════════════════════════════════════════════
     // MIDI LEARN + MAPPING TABLE
     // ════════════════════════════════════════════════════════════════════════════
     if (ImGui::CollapsingHeader("Mappings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1793,6 +1800,7 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
             m_bitrateKbps, m_resIndex,
             m_streamOut.audioDevice.c_str(), m_videoPath);
+    fprintf(f, "surge_bank=%d\nsurge_patch=%d\n", m_surgeBank, m_surgePatch);
     int ndest = m_streamOut.destCount();
     fprintf(f, "dest_count=%d\n", ndest);
     for (int i = 0; i < ndest; i++) {
@@ -1945,6 +1953,8 @@ void EquationEditor::loadSettings(const std::string& path) {
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);
     m_resIndex    = ini_i(m, "stream.res_index",    m_resIndex);
+    m_surgeBank   = ini_i(m, "stream.surge_bank",   m_surgeBank);
+    m_surgePatch  = ini_i(m, "stream.surge_patch",  m_surgePatch);
     {
         std::string dev = ini_s(m, "stream.audio_device", m_streamOut.audioDevice);
         m_streamOut.audioDevice = dev;
@@ -2039,4 +2049,190 @@ void EquationEditor::drawPresetsPanel() {
         remove(p.c_str());
         m_presetListDirty = true;
     }
+}
+
+// ── Surge XT constants ────────────────────────────────────────────────────────
+
+// Factory bank names — approximate alphabetical order matching a standard
+// Surge XT installation.  User banks follow from index 17 onwards.
+static const char* kSurgeBankNames[] = {
+    "0  Bass",            "1  Brass",           "2  Chip",
+    "3  Drone & Atmos",   "4  Keys",             "5  Lead",
+    "6  Orchestral",      "7  Pad",              "8  Piano",
+    "9  Plucked",         "10 Seq & Arps",       "11 Splits & Layers",
+    "12 String",          "13 Synth",            "14 Template",
+    "15 Voc & Bell",      "16 Wind & Blow",
+    "17 User 0",          "18 User 1",           "19 User 2",
+    "20 User 3",
+};
+static constexpr int kSurgeBankNameCount = 21;
+
+// Default CC41–48 → fractal param mappings (Surge XT Macros 1–8)
+struct SurgeDefaultMap {
+    int cc; MidiParam param; float minV; float maxV; const char* label;
+};
+static const SurgeDefaultMap kSurgeMaps[] = {
+    { 41, MidiParam::JuliaCX,          -2.0f,  2.0f,  "M1 → Julia X"   },
+    { 42, MidiParam::JuliaCY,          -2.0f,  2.0f,  "M2 → Julia Y"   },
+    { 43, MidiParam::Zoom,              0.1f,  8.0f,  "M3 → Zoom"      },
+    { 44, MidiParam::FormulaBlend,      0.0f,  1.0f,  "M4 → FmlaBlend" },
+    { 45, MidiParam::ColorHue,          0.0f,  1.0f,  "M5 → Color Hue" },
+    { 46, MidiParam::GeoWarp,           0.0f,  1.0f,  "M6 → Geo Warp"  },
+    { 47, MidiParam::Power,             1.0f, 12.0f,  "M7 → Power"     },
+    { 48, MidiParam::BlendMandelbrot,   0.0f,  1.0f,  "M8 → M.Blend"   },
+};
+static constexpr int kSurgeMapsCount = 8;
+
+// ── applyDefaultSurgeMappings ─────────────────────────────────────────────────
+
+void EquationEditor::applyDefaultSurgeMappings() {
+    auto& maps = m_midiMapper.mappings();
+
+    // Remove any existing CC41–48 entries so we start clean
+    maps.erase(
+        std::remove_if(maps.begin(), maps.end(), [](const MidiMapping& m) {
+            return m.msgType == 0 && m.number >= 41 && m.number <= 48;
+        }),
+        maps.end()
+    );
+
+    // Add the 8 standard Surge XT macro mappings
+    for (const auto& sm : kSurgeMaps) {
+        MidiMapping mm{};
+        mm.msgType = 0;        // CC
+        mm.channel = 0;        // any channel
+        mm.number  = sm.cc;
+        mm.param   = sm.param;
+        mm.minVal  = sm.minV;
+        mm.maxVal  = sm.maxV;
+        strncpy(mm.label, sm.label, sizeof(mm.label) - 1);
+        m_midiMapper.add(mm);
+    }
+}
+
+// ── drawSurgeXTSection ────────────────────────────────────────────────────────
+
+void EquationEditor::drawSurgeXTSection() {
+    if (!ImGui::CollapsingHeader("Surge XT")) return;
+
+    const uint8_t ch0 = (uint8_t)(std::max(1, m_midiGen.channel) - 1);
+
+    // Helper: send CC0 (bank) + PC (patch) to MIDI out immediately
+    auto sendNow = [&]() {
+        m_midiOut.sendRaw(0xB0 | ch0, 0, (uint8_t)m_surgeBank);   // CC0 bank
+        m_midiOut.sendRaw(0xC0 | ch0, (uint8_t)m_surgePatch);      // PC
+    };
+
+    // ── Patch browser ─────────────────────────────────────────────────────────
+    ImGui::TextDisabled("Patch browser — sends immediately to MIDI out");
+    ImGui::Spacing();
+
+    // Bank input
+    ImGui::SetNextItemWidth(55);
+    if (ImGui::InputInt("Bank##surge", &m_surgeBank)) {
+        m_surgeBank = std::max(0, m_surgeBank);
+        sendNow();
+    }
+    ImGui::SameLine();
+    if (m_surgeBank < kSurgeBankNameCount)
+        ImGui::TextColored({0.6f,0.9f,1.0f,1}, "%s", kSurgeBankNames[m_surgeBank]);
+    else
+        ImGui::TextDisabled("User bank %d", m_surgeBank);
+
+    // Patch slider (full width)
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("Patch##surge", &m_surgePatch, 0, 127)) {
+        m_surgePatch = std::max(0, std::min(127, m_surgePatch));
+        sendNow();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Ctrl+click to type exact patch number\n"
+                          "Combined index: %d", m_surgeBank * 128 + m_surgePatch);
+
+    // Navigation buttons + combined index display
+    if (ImGui::ArrowButton("##surgeprev", ImGuiDir_Left)) {
+        if (m_surgePatch > 0)      { m_surgePatch--; }
+        else if (m_surgeBank > 0)  { m_surgeBank--;  m_surgePatch = 127; }
+        sendNow();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Previous patch");
+    ImGui::SameLine();
+    if (ImGui::ArrowButton("##surgenext", ImGuiDir_Right)) {
+        if (m_surgePatch < 127) { m_surgePatch++; }
+        else                    { m_surgeBank++;  m_surgePatch = 0; }
+        sendNow();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Next patch");
+    ImGui::SameLine();
+    if (ImGui::Button("Send Now")) sendNow();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Send CC0 bank=%d + PC %d  (combined index %d)",
+                          m_surgeBank, m_surgePatch, m_surgeBank*128 + m_surgePatch);
+    ImGui::SameLine();
+    ImGui::TextDisabled("= patch #%d", m_surgeBank * 128 + m_surgePatch);
+
+    // MIDI out status reminder
+    if (!m_midiOut.isOpen())
+        ImGui::TextColored({1.0f,0.6f,0.2f,1}, "  ⚠ MIDI out not connected — connect above");
+
+    ImGui::Separator();
+
+    // ── Macro CC mapping display (CC41–48) ────────────────────────────────────
+    ImGui::TextDisabled("Macro CCs  (CC41–48 = Surge XT Macros 1–8)");
+    ImGui::Spacing();
+
+    // Show each CC41–48 and what it's currently mapped to in MidiMapper
+    const auto& maps = m_midiMapper.mappings();
+    for (const auto& sm : kSurgeMaps) {
+        // Find active mapping for this CC
+        const MidiMapping* found = nullptr;
+        for (const auto& mm : maps)
+            if (mm.msgType == 0 && mm.number == sm.cc) { found = &mm; break; }
+
+        ImGui::TextColored({0.7f,0.7f,0.7f,1}, "CC%-3d", sm.cc);
+        ImGui::SameLine();
+        if (found) {
+            ImGui::TextColored({0.3f,1.0f,0.5f,1}, "→ %-16s",
+                               midiParamName(found->param));
+            ImGui::SameLine();
+            ImGui::TextDisabled("[%.2f .. %.2f]", found->minVal, found->maxVal);
+        } else {
+            ImGui::TextColored({0.5f,0.5f,0.5f,1}, "  (not mapped)");
+            ImGui::SameLine();
+            ImGui::TextDisabled("suggested: %s", sm.label);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // ── Apply / Save buttons ──────────────────────────────────────────────────
+    if (ImGui::Button("Apply default Surge XT mappings")) {
+        applyDefaultSurgeMappings();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Maps CC41–48 to:\n"
+                          "M1 Julia X  M2 Julia Y  M3 Zoom  M4 Formula Blend\n"
+                          "M5 Color Hue  M6 Geo Warp  M7 Power  M8 M.Blend\n"
+                          "Existing CC41–48 mappings are replaced.");
+
+    ImGui::SameLine();
+    if (ImGui::Button("Apply + Save as 'SurgeXT'")) {
+        applyDefaultSurgeMappings();
+        // Also set sensible generator PC defaults for Surge XT
+        m_midiGen.pgEnabled  = true;
+        m_midiGen.pgEvery    = 8;
+        m_midiGen.pgMin      = m_surgeBank * 128;
+        m_midiGen.pgMax      = m_surgeBank * 128 + 127;
+        saveSettings(AppSettings::presetPath("SurgeXT"));
+        m_presetListDirty = true;
+        strncpy(m_presetName, "SurgeXT", sizeof(m_presetName) - 1);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Apply the 8 macro mappings, enable PC auto-change\n"
+                          "for the currently selected bank, then save as\n"
+                          "~/.fractal_stream/presets/SurgeXT.ini");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("In Surge XT: right-click a Macro knob → Assign MIDI CC → move the knob");
 }

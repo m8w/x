@@ -50,6 +50,11 @@ private:
     std::vector<std::string> m_presetList;
     bool                     m_presetListDirty = true;
 
+    // Surge XT browser state
+    int  m_surgeBank  = 0;
+    int  m_surgePatch = 0;
+
+    void applyDefaultSurgeMappings();
     void drawBlendPanel();
     void drawFractalPanel();
     void drawGeometryPanel();
@@ -62,4 +67,5 @@ private:
     void drawDistortionPanel();
     void drawChaosPanel();
     void drawPresetsPanel();
+    void drawSurgeXTSection();
 };

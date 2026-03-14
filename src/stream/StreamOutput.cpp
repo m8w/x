@@ -203,34 +203,68 @@ bool StreamOutput::openAudioCapture(const std::string& device) {
         }
     }
     if (m_captureStreamIdx < 0) {
+        fprintf(stderr, "StreamOutput: no audio stream in '%s' — using silence\n",
+                device.c_str());
         avformat_close_input(&m_captureFmtCtx);
         return true;
     }
 
     auto* par = m_captureFmtCtx->streams[m_captureStreamIdx]->codecpar;
+
+    // avfoundation can deliver raw PCM whose decoder may not exist in all builds
     const AVCodec* dec = avcodec_find_decoder(par->codec_id);
-    m_captureCodecCtx  = avcodec_alloc_context3(dec);
+    if (!dec) {
+        fprintf(stderr, "StreamOutput: no decoder for avfoundation audio (codec_id=%d) — using silence\n",
+                par->codec_id);
+        avformat_close_input(&m_captureFmtCtx);
+        m_captureStreamIdx = -1;
+        return true;
+    }
+
+    m_captureCodecCtx = avcodec_alloc_context3(dec);
     avcodec_parameters_to_context(m_captureCodecCtx, par);
+
+    // avfoundation sometimes leaves sample_rate / ch_layout uninitialised;
+    // supply safe defaults so the resampler doesn't receive zeros.
+    if (m_captureCodecCtx->sample_rate <= 0)
+        m_captureCodecCtx->sample_rate = 44100;
+    if (m_captureCodecCtx->ch_layout.nb_channels <= 0) {
+        AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+        av_channel_layout_copy(&m_captureCodecCtx->ch_layout, &stereo);
+    }
+    if (m_captureCodecCtx->sample_fmt == AV_SAMPLE_FMT_NONE)
+        m_captureCodecCtx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+
     if (avcodec_open2(m_captureCodecCtx, dec, nullptr) < 0) {
+        fprintf(stderr, "StreamOutput: avcodec_open2 failed for capture device — using silence\n");
         avcodec_free_context(&m_captureCodecCtx);
         avformat_close_input(&m_captureFmtCtx);
+        m_captureStreamIdx = -1;
         return true;
     }
 
     // Resampler: whatever avfoundation delivers → FLTP 44100 Hz stereo
     AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
-    swr_alloc_set_opts2(&m_swrCtx,
+    int swr_ret = swr_alloc_set_opts2(&m_swrCtx,
                         &stereo,                          AV_SAMPLE_FMT_FLTP, 44100,
                         &m_captureCodecCtx->ch_layout,    m_captureCodecCtx->sample_fmt,
                         m_captureCodecCtx->sample_rate,
                         0, nullptr);
-    swr_init(m_swrCtx);
+    if (swr_ret < 0 || swr_init(m_swrCtx) < 0) {
+        fprintf(stderr, "StreamOutput: swr init failed — using silence\n");
+        if (m_swrCtx) { swr_free(&m_swrCtx); m_swrCtx = nullptr; }
+        avcodec_free_context(&m_captureCodecCtx);
+        avformat_close_input(&m_captureFmtCtx);
+        m_captureStreamIdx = -1;
+        return true;
+    }
 
     m_audioCaptureRunning = true;
     m_audioCaptureThread  = std::thread(&StreamOutput::audioCaptureLoop, this);
-    fprintf(stderr, "StreamOutput: audio capture '%s' %d Hz %dch\n",
+    fprintf(stderr, "StreamOutput: audio capture '%s' %d Hz %dch fmt=%s\n",
             device.c_str(), m_captureCodecCtx->sample_rate,
-            m_captureCodecCtx->ch_layout.nb_channels);
+            m_captureCodecCtx->ch_layout.nb_channels,
+            av_get_sample_fmt_name(m_captureCodecCtx->sample_fmt));
     return true;
 }
 
@@ -259,16 +293,19 @@ void StreamOutput::audioCaptureLoop() {
         av_packet_unref(pkt);
 
         while (avcodec_receive_frame(m_captureCodecCtx, dec) == 0) {
+            if (!m_swrCtx || dec->nb_samples <= 0) { av_frame_unref(dec); continue; }
+
             // How many output samples will the resampler produce?
-            int outSamples = (int)av_rescale_rnd(
-                swr_get_delay(m_swrCtx, m_captureCodecCtx->sample_rate) + dec->nb_samples,
+            int64_t delay = swr_get_delay(m_swrCtx, m_captureCodecCtx->sample_rate);
+            int outSamples = (int)av_rescale_rnd(delay + dec->nb_samples,
                 44100, m_captureCodecCtx->sample_rate, AV_ROUND_UP);
+            if (outSamples <= 0) { av_frame_unref(dec); continue; }
 
             res->format      = AV_SAMPLE_FMT_FLTP;
             res->sample_rate = 44100;
             res->nb_samples  = outSamples;
             av_channel_layout_copy(&res->ch_layout, &stereo);
-            av_frame_get_buffer(res, 0);
+            if (av_frame_get_buffer(res, 0) < 0) { av_frame_unref(dec); continue; }
 
             int converted = swr_convert(m_swrCtx,
                                         res->data, outSamples,

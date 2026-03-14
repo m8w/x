@@ -27,7 +27,7 @@ find_package(OpenGL REQUIRED)
 find_package(glfw3  REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
-    libavcodec libavformat libavutil libswscale)
+    libavcodec libavformat libavutil libswscale libswresample)
 
 # ── RtMidi: prefer system package, fall back to bundled third_party/rtmidi ───
 pkg_check_modules(RTMIDI QUIET rtmidi)

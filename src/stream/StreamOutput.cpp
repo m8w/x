@@ -5,6 +5,8 @@
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/samplefmt.h>
+#include <libavutil/channel_layout.h>
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +73,11 @@ bool StreamOutput::openSink(DestSink& s) {
     avcodec_parameters_from_context(s.avStream->codecpar, m_codecCtx);
     s.avStream->time_base = m_codecCtx->time_base;
 
+    // YouTube requires an audio track — add a silent AAC stream
+    s.audioStream = avformat_new_stream(s.fmtCtx, nullptr);
+    avcodec_parameters_from_context(s.audioStream->codecpar, m_audioCtx);
+    s.audioStream->time_base = m_audioCtx->time_base;
+
     if (!(s.fmtCtx->oformat->flags & AVFMT_NOFILE)) {
         AVDictionary* opts = nullptr;
         av_dict_set(&opts, "rtmp_live", "live", 0);
@@ -117,6 +124,47 @@ void StreamOutput::closeSink(DestSink& s) {
     s.fmtCtx    = nullptr;
     s.avStream  = nullptr;
     s.connected = false;
+}
+
+// ── audio encoder (silent AAC — required by YouTube RTMP ingest) ─────────────
+
+bool StreamOutput::openAudioEncoder() {
+    const AVCodec* acodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    if (!acodec) {
+        fprintf(stderr, "StreamOutput: AAC encoder not found\n");
+        return false;
+    }
+    m_audioCtx = avcodec_alloc_context3(acodec);
+    m_audioCtx->sample_rate = 44100;
+    m_audioCtx->bit_rate    = 128000;
+    m_audioCtx->time_base   = {1, 44100};
+    m_audioCtx->flags      |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    // Use FLTP (planar float) — the native format for FFmpeg's AAC encoder
+    m_audioCtx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+
+    // Channel layout: stereo
+    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+    av_channel_layout_copy(&m_audioCtx->ch_layout, &stereo);
+
+    if (avcodec_open2(m_audioCtx, acodec, nullptr) < 0) {
+        avcodec_free_context(&m_audioCtx);
+        return false;
+    }
+
+    m_audioSamplesPerFrame = m_audioCtx->frame_size > 0 ? m_audioCtx->frame_size : 1024;
+
+    m_audioFrame = av_frame_alloc();
+    m_audioFrame->format      = m_audioCtx->sample_fmt;
+    m_audioFrame->sample_rate = m_audioCtx->sample_rate;
+    m_audioFrame->nb_samples  = m_audioSamplesPerFrame;
+    av_channel_layout_copy(&m_audioFrame->ch_layout, &m_audioCtx->ch_layout);
+    av_frame_get_buffer(m_audioFrame, 0);
+    av_samples_set_silence(m_audioFrame->data, 0, m_audioFrame->nb_samples,
+                           m_audioCtx->ch_layout.nb_channels,
+                           (AVSampleFormat)m_audioFrame->format);
+    m_audioPts = 0;
+    return true;
 }
 
 // ── encoder selection ─────────────────────────────────────────────────────────
@@ -172,15 +220,21 @@ bool StreamOutput::tryOpenEncoder(const char* name, bool vaapi, int w, int h) {
     } else {
         ctx->pix_fmt = AV_PIX_FMT_YUV420P;
         if (strcmp(name, "h264_nvenc") == 0) {
-            av_opt_set(ctx->priv_data, "preset", "p4",  0);
-            av_opt_set(ctx->priv_data, "tune",   "ll",  0);
-            av_opt_set(ctx->priv_data, "rc",     "cbr", 0);
+            av_opt_set(ctx->priv_data, "preset",  "p4",  0);
+            av_opt_set(ctx->priv_data, "tune",    "ll",  0);
+            av_opt_set(ctx->priv_data, "rc",      "cbr", 0);
+            av_opt_set(ctx->priv_data, "profile", "main", 0);
+            ctx->level = 41;
         } else if (strcmp(name, "h264_amf") == 0) {
-            av_opt_set(ctx->priv_data, "usage", "ultralowlatency", 0);
-            av_opt_set(ctx->priv_data, "rc",    "cbr",             0);
+            av_opt_set(ctx->priv_data, "usage",   "ultralowlatency", 0);
+            av_opt_set(ctx->priv_data, "rc",      "cbr",             0);
+            av_opt_set(ctx->priv_data, "profile", "main",            0);
+            ctx->level = 41;
         } else if (strcmp(name, "libx264") == 0) {
-            av_opt_set(ctx->priv_data, "preset", "veryfast",    0);
-            av_opt_set(ctx->priv_data, "tune",   "zerolatency", 0);
+            av_opt_set(ctx->priv_data, "preset",  "veryfast",    0);
+            av_opt_set(ctx->priv_data, "tune",    "zerolatency", 0);
+            av_opt_set(ctx->priv_data, "profile", "main",        0);
+            ctx->level = 41;
         } else if (strcmp(name, "h264_videotoolbox") == 0) {
             // YouTube requires a declared H.264 profile; VideoToolbox defaults
             // to High which some ingest servers (YouTube, Twitch) reject silently.
@@ -235,6 +289,14 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
         return false;
     }
 
+    // Open silent AAC audio encoder — YouTube won't publish without audio
+    if (!openAudioEncoder()) {
+        fprintf(stderr, "StreamOutput: failed to open AAC audio encoder\n");
+        avcodec_free_context(&m_codecCtx);
+        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_vaapi = false; }
+        return false;
+    }
+
     // Open each enabled destination sink
     int connected = 0;
     for (auto& sp : m_sinks)
@@ -286,17 +348,38 @@ void StreamOutput::stop() {
         av_packet_unref(m_pkt);
     }
 
+    // Drain and free audio encoder
+    if (m_audioCtx) {
+        avcodec_send_frame(m_audioCtx, nullptr);
+        while (avcodec_receive_packet(m_audioCtx, m_pkt) == 0) {
+            for (auto& sp : m_sinks) {
+                if (!sp->connected || !sp->audioStream) continue;
+                AVPacket* clone = av_packet_clone(m_pkt);
+                av_packet_rescale_ts(clone, m_audioCtx->time_base,
+                                     sp->audioStream->time_base);
+                clone->stream_index = sp->audioStream->index;
+                std::lock_guard<std::mutex> lk(sp->mtx);
+                sp->queue.push(clone);
+                sp->cv.notify_one();
+            }
+            av_packet_unref(m_pkt);
+        }
+    }
+
     for (auto& sp : m_sinks) closeSink(*sp);
 
-    if (m_swsCtx)       { sws_freeContext(m_swsCtx);      m_swsCtx   = nullptr; }
-    if (m_hwFrame)      { av_frame_free(&m_hwFrame);                              }
-    if (m_frame)        { av_frame_free(&m_frame);                                }
-    if (m_hwDeviceCtx)  { av_buffer_unref(&m_hwDeviceCtx);                        }
-    if (m_codecCtx)     { avcodec_free_context(&m_codecCtx);                      }
+    if (m_swsCtx)       { sws_freeContext(m_swsCtx);        m_swsCtx   = nullptr; }
+    if (m_hwFrame)      { av_frame_free(&m_hwFrame);                                }
+    if (m_frame)        { av_frame_free(&m_frame);                                  }
+    if (m_audioFrame)   { av_frame_free(&m_audioFrame);      m_audioFrame = nullptr; }
+    if (m_audioCtx)     { avcodec_free_context(&m_audioCtx); m_audioCtx   = nullptr; }
+    if (m_hwDeviceCtx)  { av_buffer_unref(&m_hwDeviceCtx);                           }
+    if (m_codecCtx)     { avcodec_free_context(&m_codecCtx);                         }
     m_vaapi     = false;
     m_streaming = false;
     m_swsInW    = 0;
     m_swsInH    = 0;
+    m_audioPts  = 0;
 }
 
 // ── per-frame path ─────────────────────────────────────────────────────────────
@@ -339,6 +422,19 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
         m_frame->pts = m_pts++;
         encodeAndDistribute(m_frame);
     }
+
+    // Push silent audio frames to stay in sync with video.
+    // Audio must be interleaved before video time catches up — YouTube rejects
+    // streams where audio and video timestamps diverge by more than ~500 ms.
+    if (m_audioCtx && m_audioFrame) {
+        // How many audio samples should have been sent by this video frame
+        int64_t targetSamples = m_pts * (int64_t)m_audioCtx->sample_rate / fps;
+        while (m_audioPts < targetSamples) {
+            m_audioFrame->pts = m_audioPts;
+            m_audioPts += m_audioSamplesPerFrame;
+            encodeAndDistributeAudio(m_audioFrame);
+        }
+    }
 }
 
 void StreamOutput::encodeAndDistribute(AVFrame* frame) {
@@ -361,4 +457,23 @@ void StreamOutput::encodeAndDistribute(AVFrame* frame) {
         }
         av_packet_unref(m_pkt);
     }
+}
+
+void StreamOutput::encodeAndDistributeAudio(AVFrame* frame) {
+    if (avcodec_send_frame(m_audioCtx, frame) < 0) return;
+    AVPacket* apkt = av_packet_alloc();
+    while (avcodec_receive_packet(m_audioCtx, apkt) == 0) {
+        for (auto& sp : m_sinks) {
+            if (!sp->connected || !sp->audioStream) continue;
+            AVPacket* clone = av_packet_clone(apkt);
+            av_packet_rescale_ts(clone, m_audioCtx->time_base,
+                                 sp->audioStream->time_base);
+            clone->stream_index = sp->audioStream->index;
+            std::lock_guard<std::mutex> lk(sp->mtx);
+            sp->queue.push(clone);
+            sp->cv.notify_one();
+        }
+        av_packet_unref(apkt);
+    }
+    av_packet_free(&apkt);
 }

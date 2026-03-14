@@ -23,8 +23,9 @@ struct DestSink {
     bool         connected = false;     // set by StreamOutput::start()
 
     // FFmpeg mux context for this destination (one per sink)
-    AVFormatContext* fmtCtx   = nullptr;
-    AVStream*        avStream = nullptr;
+    AVFormatContext* fmtCtx        = nullptr;
+    AVStream*        avStream      = nullptr;  // video
+    AVStream*        audioStream   = nullptr;  // audio (AAC silent track)
 
     // Background send thread + packet queue (so a slow sink can't stall others)
     std::thread             thread;
@@ -81,9 +82,17 @@ private:
     AVFrame*     m_hwFrame     = nullptr;  // VAAPI hw-side upload frame
     bool         m_vaapi       = false;
 
+    // Silent AAC audio encoder (YouTube requires audio to publish the stream)
+    AVCodecContext* m_audioCtx            = nullptr;
+    AVFrame*        m_audioFrame          = nullptr;
+    int64_t         m_audioPts            = 0;
+    int             m_audioSamplesPerFrame = 1024;
+
     bool tryOpenEncoder(const char* name, bool vaapi, int width, int height);
+    bool openAudioEncoder();
     bool openSink(DestSink& s);
     void closeSink(DestSink& s);
     void sinkThreadFunc(DestSink& s);
     void encodeAndDistribute(AVFrame* frame);
+    void encodeAndDistributeAudio(AVFrame* frame);
 };

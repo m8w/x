@@ -468,27 +468,92 @@ static const ServicePreset kPresets[] = {
 };
 static const int kNumPresets = 7;
 
+// Returns the RTMP base prefix for a known service, nullptr for Custom/unknown.
+static const char* matchServiceBase(const std::string& url) {
+    for (int i = 0; i < kNumPresets - 1; ++i) { // skip "Custom" (last)
+        const char* base = kPresets[i].rtmpBase;
+        if (base[0] && url.rfind(base, 0) == 0) return base;
+    }
+    return nullptr;
+}
+
+// True if this destination is the permanent Restream entry.
+static bool isRestreamDest(const DestSink& s) {
+    return s.name == "Restream" ||
+           s.url.rfind("rtmp://live.restream.io/live/", 0) == 0;
+}
+
 void EquationEditor::drawStreamPanel() {
+    // ── Bitrate / Resolution ──────────────────────────────────────────────────
     ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 16000);
-    ImGui::SameLine();
-    ImGui::TextDisabled("(Restream: ≤4500 for 1080p30, ≤8000 for 1080p60)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Restream: up to 4500 for 1080p30, 8000 for 1080p60");
     ImGui::Combo("Resolution", &m_resIndex, kResLabels, 4);
     ImGui::Separator();
 
-    // ── Destination list ──────────────────────────────────────────────────────
-    ImGui::Text("Destinations (%d)", m_streamOut.destCount());
-    ImGui::Spacing();
+    // ── Restream pinned entry (always at top, always present) ─────────────────
+    // Find it, create it if missing.
+    int restreamIdx = -1;
+    for (int i = 0; i < m_streamOut.destCount(); i++)
+        if (isRestreamDest(m_streamOut.dest(i))) { restreamIdx = i; break; }
+    if (restreamIdx < 0) {
+        m_streamOut.addDestination("Restream", "rtmp://live.restream.io/live/");
+        restreamIdx = m_streamOut.destCount() - 1;
+    }
+    {
+        DestSink& rs = m_streamOut.dest(restreamIdx);
+        ImGui::PushID("restream_pin");
 
+        // Status indicator
+        if (m_streamOut.isStreaming() && rs.connected)
+            ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE");
+        else if (m_streamOut.isStreaming() && !rs.connected)
+            ImGui::TextColored({1.0f,0.4f,0.1f,1.0f}, "● ERR ");
+        else
+            ImGui::TextDisabled("○     ");
+        ImGui::SameLine();
+        ImGui::Checkbox("##en", &rs.enabled);
+        ImGui::SameLine();
+        ImGui::TextColored({0.4f,0.85f,1.0f,1.0f}, "Restream");
+
+        // Stream key on its own line — full width, plain text so it's easy to paste
+        const char* base = "rtmp://live.restream.io/live/";
+        char keyBuf[256] = {};
+        if (rs.url.size() > strlen(base))
+            strncpy(keyBuf, rs.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##rskey", keyBuf, sizeof(keyBuf)))
+            rs.url = std::string(base) + keyBuf;
+        if (ImGui::IsItemHovered() || rs.url == base || rs.url.empty())
+            ImGui::SetTooltip("Paste your Restream stream key here\n"
+                              "(Dashboard → Stream Setup → Stream Key)");
+        if (rs.url == base || rs.url.empty())
+            ImGui::TextDisabled("  ^ paste your Restream stream key above");
+
+        ImGui::PopID();
+    }
+
+    // ── Other destinations ────────────────────────────────────────────────────
     int removeIdx = -1;
+    bool hasOthers = false;
+    for (int i = 0; i < m_streamOut.destCount(); i++)
+        if (!isRestreamDest(m_streamOut.dest(i))) { hasOthers = true; break; }
+
+    if (hasOthers) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextDisabled("Additional destinations");
+        ImGui::Spacing();
+    }
+
     for (int i = 0; i < m_streamOut.destCount(); i++) {
         DestSink& s = m_streamOut.dest(i);
-        ImGui::PushID(i);
+        if (isRestreamDest(s)) continue; // already drawn above
 
-        // Enable toggle
+        ImGui::PushID(i);
         ImGui::Checkbox("##en", &s.enabled);
         ImGui::SameLine();
 
-        // Live status dot
         if (m_streamOut.isStreaming() && s.connected)
             ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "[LIVE]");
         else if (m_streamOut.isStreaming() && !s.connected)
@@ -497,15 +562,31 @@ void EquationEditor::drawStreamPanel() {
             ImGui::TextDisabled("[    ]");
         ImGui::SameLine();
 
-        // Editable URL (password field to hide stream key embedded in URL)
-        char urlBuf[512];
-        snprintf(urlBuf, sizeof(urlBuf), "%s", s.url.c_str());
-        ImGui::SetNextItemWidth(180);
-        if (ImGui::InputText("##url", urlBuf, sizeof(urlBuf),
-                             ImGuiInputTextFlags_Password))
-            s.url = urlBuf;
+        // Name label (fixed width)
+        ImGui::Text("%-10s", s.name.c_str());
         ImGui::SameLine();
-        ImGui::TextUnformatted(s.name.c_str());
+
+        // Key or full URL input
+        const char* base = matchServiceBase(s.url);
+        char keyBuf[512] = {};
+        if (base) {
+            // Known service — show only the stream key (plain text)
+            strncpy(keyBuf, s.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
+            ImGui::SetNextItemWidth(-30);
+            if (ImGui::InputText("##key", keyBuf, sizeof(keyBuf)))
+                s.url = std::string(base) + keyBuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Stream key — prepended with:\n%s", base);
+        } else {
+            // Custom — show full URL, password-masked
+            strncpy(keyBuf, s.url.c_str(), sizeof(keyBuf) - 1);
+            ImGui::SetNextItemWidth(-30);
+            if (ImGui::InputText("##url", keyBuf, sizeof(keyBuf),
+                                 ImGuiInputTextFlags_Password))
+                s.url = keyBuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Full RTMP URL (masked)");
+        }
         ImGui::SameLine();
         if (ImGui::SmallButton("X")) removeIdx = i;
 
@@ -516,22 +597,37 @@ void EquationEditor::drawStreamPanel() {
     // ── Add destination ───────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::Text("Add destination:");
+    ImGui::TextDisabled("Add another destination:");
 
-    // Preset buttons
+    // Service quick-pick buttons (skip Restream — it's always pinned above)
     for (int p = 0; p < kNumPresets; p++) {
+        if (strcmp(kPresets[p].label, "Restream") == 0) continue;
         if (p > 0) ImGui::SameLine();
         if (ImGui::SmallButton(kPresets[p].label)) {
             snprintf(m_newName, sizeof(m_newName), "%s", kPresets[p].label);
             snprintf(m_newUrl,  sizeof(m_newUrl),  "%s", kPresets[p].rtmpBase);
         }
     }
-    ImGui::SetNextItemWidth(80);
+
+    ImGui::SetNextItemWidth(70);
     ImGui::InputText("Name##new", m_newName, sizeof(m_newName));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(220);
-    ImGui::InputText("URL/Key##new", m_newUrl, sizeof(m_newUrl),
-                     ImGuiInputTextFlags_Password);
+
+    // For the add row, detect if a known base has been pre-filled
+    {
+        const char* addBase = matchServiceBase(std::string(m_newUrl));
+        if (addBase) {
+            // Show only the key part
+            char keyBuf[256] = {};
+            strncpy(keyBuf, m_newUrl + strlen(addBase), sizeof(keyBuf) - 1);
+            ImGui::SetNextItemWidth(-50);
+            if (ImGui::InputText("Key##new", keyBuf, sizeof(keyBuf)))
+                snprintf(m_newUrl, sizeof(m_newUrl), "%s%s", addBase, keyBuf);
+        } else {
+            ImGui::SetNextItemWidth(-50);
+            ImGui::InputText("URL##new", m_newUrl, sizeof(m_newUrl));
+        }
+    }
     ImGui::SameLine();
     if (ImGui::Button("Add") && m_newName[0] && m_newUrl[0]) {
         m_streamOut.addDestination(m_newName, m_newUrl);
@@ -542,19 +638,25 @@ void EquationEditor::drawStreamPanel() {
     // ── Start / Stop ──────────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
+
+    // Check if Restream has a key set
+    const DestSink& rs = m_streamOut.dest(restreamIdx);
+    const char* rsBase = "rtmp://live.restream.io/live/";
+    bool rsKeySet = rs.url.size() > strlen(rsBase);
+
     if (!m_streamOut.isStreaming()) {
-        bool hasAny = false;
-        for (int i = 0; i < m_streamOut.destCount(); i++)
-            if (m_streamOut.dest(i).enabled) { hasAny = true; break; }
-        if (!hasAny) ImGui::BeginDisabled();
-        if (ImGui::Button("Start Stream  ▶")) {
-            m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
-                              m_bitrateKbps, 30);
-        }
-        if (!hasAny) {
-            ImGui::EndDisabled();
+        if (!rsKeySet) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f,0.3f,0.1f,1.0f));
+            if (ImGui::Button("Start Stream  ▶"))
+                m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
+                                  m_bitrateKbps, 30);
+            ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextDisabled("(add a destination first)");
+            ImGui::TextColored({1.0f,0.8f,0.2f,1.0f}, "⚠ No Restream key set");
+        } else {
+            if (ImGui::Button("Start Stream  ▶"))
+                m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
+                                  m_bitrateKbps, 30);
         }
     } else {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f,0.1f,0.1f,1.0f));
@@ -1825,6 +1927,18 @@ void EquationEditor::loadSettings(const std::string& path) {
             }
         }
     }
+
+    // Ensure the Restream destination is always present (user's primary service)
+    bool hasRestream = false;
+    for (int i = 0; i < m_streamOut.destCount(); i++) {
+        const auto& d = m_streamOut.dest(i);
+        if (d.name == "Restream" ||
+            d.url.rfind("rtmp://live.restream.io/live/", 0) == 0) {
+            hasRestream = true; break;
+        }
+    }
+    if (!hasRestream)
+        m_streamOut.addDestination("Restream", "rtmp://live.restream.io/live/");
 }
 
 // ── Presets panel ─────────────────────────────────────────────────────────────

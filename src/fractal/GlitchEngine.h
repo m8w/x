@@ -33,8 +33,8 @@ public:
 
     // ── Event timing ─────────────────────────────────────────────────────────
     float glitchRateHz  = 0.5f;   // average glitch events per second
-    float glitchDurMin  = 0.05f;  // minimum glitch duration (seconds)
-    float glitchDurMax  = 0.30f;  // maximum glitch duration (seconds)
+    float glitchDurMin  = 1.0f;   // minimum glitch duration (seconds)
+    float glitchDurMax  = 3.0f;   // maximum glitch duration (seconds)
 
     // ── Intensity ─────────────────────────────────────────────────────────────
     float intensity     = 0.6f;   // 0=subtle  1=extreme

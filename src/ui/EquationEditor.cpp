@@ -1109,9 +1109,10 @@ void EquationEditor::drawGlitchPanel() {
         ImGui::SetTooltip("Average number of glitch events per second.\n"
                           "0.1 = rare  0.5 = occasional  2.0 = frantic  5.0 = chaos");
 
-    ImGui::SliderFloat("Min duration (s)", &G.glitchDurMin, 0.01f, 0.5f, "%.2f");
+    ImGui::SliderFloat("Min duration (s)", &G.glitchDurMin, 0.1f, 5.0f, "%.2f");
+    if (G.glitchDurMin > G.glitchDurMax) G.glitchDurMax = G.glitchDurMin;
     ImGui::SliderFloat("Max duration (s)", &G.glitchDurMax,
-                       G.glitchDurMin, 1.0f, "%.2f");
+                       G.glitchDurMin, 5.0f, "%.2f");
 
     // ── Intensity ─────────────────────────────────────────────────────────────
     ImGui::Separator();
@@ -1165,7 +1166,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::TextDisabled("Presets");
     if (ImGui::SmallButton("Subtle")) {
         G.glitchRateHz = 0.2f; G.intensity = 0.3f;
-        G.glitchDurMin = 0.05f; G.glitchDurMax = 0.15f;
+        G.glitchDurMin = 1.0f; G.glitchDurMax = 2.0f;
         G.doJuliaJump = true;  G.doFormulaFlash = false;
         G.doZoomPunch = false; G.doBlendScatter = false;
         G.doPowerSpike= false; G.doOffsetShift  = false;
@@ -1174,7 +1175,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Moderate")) {
         G.glitchRateHz = 0.5f; G.intensity = 0.5f;
-        G.glitchDurMin = 0.08f; G.glitchDurMax = 0.25f;
+        G.glitchDurMin = 1.5f; G.glitchDurMax = 3.5f;
         G.doJuliaJump = true;  G.doFormulaFlash = true;
         G.doZoomPunch = false; G.doBlendScatter = true;
         G.doPowerSpike= false; G.doOffsetShift  = false;
@@ -1183,7 +1184,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Extreme")) {
         G.glitchRateHz = 2.0f; G.intensity = 0.9f;
-        G.glitchDurMin = 0.05f; G.glitchDurMax = 0.4f;
+        G.glitchDurMin = 2.0f; G.glitchDurMax = 5.0f;
         G.doJuliaJump = true;  G.doFormulaFlash = true;
         G.doZoomPunch = true;  G.doBlendScatter = true;
         G.doPowerSpike= true;  G.doOffsetShift  = true;

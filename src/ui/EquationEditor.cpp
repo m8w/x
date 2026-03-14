@@ -944,8 +944,11 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SameLine();
         ImGui::TextColored({0.7f,0.5f,1,1}, "Vel %3d", G.liveVel);
         ImGui::SameLine();
-        if (G.liveProg >= 0)
-            ImGui::TextColored({0.2f,0.9f,0.7f,1}, "PC %2d", G.liveProg);
+        if (G.liveProg >= 128)
+            ImGui::TextColored({0.2f,0.9f,0.7f,1}, "PC bank%d p%d",
+                               G.liveProg/128, G.liveProg%128);
+        else if (G.liveProg >= 0)
+            ImGui::TextColored({0.2f,0.9f,0.7f,1}, "PC %d", G.liveProg);
         else
             ImGui::TextDisabled("PC —");
 
@@ -1024,20 +1027,61 @@ void EquationEditor::drawMidiWindow() {
         ImGui::Separator();
 
         // ── Auto program change ───────────────────────────────────────────────
-        ImGui::TextDisabled("Auto Program Change  →  maps to formula / any PC-mapped param");
+        ImGui::TextDisabled("Auto Program Change");
+        ImGui::SameLine();
+        ImGui::TextDisabled("— Surge XT / any synth  (values >127 send Bank Select CC0 + PC)");
         ImGui::Checkbox("Enable PC##G", &G.pgEnabled);
         if (G.pgEnabled) {
-            ImGui::SetNextItemWidth(80);
-            ImGui::InputInt("Every N steps##G", &G.pgEvery);
+            // Every N steps — full available width
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderInt("Every N steps##G", &G.pgEvery, 1, 64);
             G.pgEvery = std::max(1, G.pgEvery);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How many steps between each patch change");
+
+            // Patch min/max — full width, no 127 cap
+            // Ctrl+click on any slider to type an exact number
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderInt("Patch min##G", &G.pgMin, 0, 16383);
+            G.pgMin = std::max(0, std::min(G.pgMin, G.pgMax - 1));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Ctrl+click to type exact value\n"
+                                  "Surge XT: bank×128 + patch_index");
+
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderInt("Patch max##G", &G.pgMax, 1, 16383);
+            G.pgMax = std::max(G.pgMin + 1, G.pgMax);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Ctrl+click to type exact value");
+
+            // Live display of current bank+patch when > 127
+            if (G.pgMin > 127 || G.pgMax > 127) {
+                ImGui::TextColored({0.4f,0.9f,0.6f,1},
+                    "Bank %d patch %d  →  Bank %d patch %d",
+                    G.pgMin/128, G.pgMin%128, G.pgMax/128, G.pgMax%128);
+            } else {
+                ImGui::TextDisabled("Range: %d – %d  (map PC→FormulaA to drive formula changes)",
+                                    G.pgMin, G.pgMax);
+            }
+
+            // Quick range presets for Surge XT
+            ImGui::Spacing();
+            ImGui::TextDisabled("Quick range:");
+            if (ImGui::SmallButton("Formula (0-10)"))    { G.pgMin=0;   G.pgMax=10;   }
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(60); ImGui::InputInt("PC min##G", &G.pgMin);
-            G.pgMin = std::max(0,   std::min(G.pgMin, G.pgMax-1));
+            if (ImGui::SmallButton("PC 0-127"))          { G.pgMin=0;   G.pgMax=127;  }
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(60); ImGui::InputInt("PC max##G", &G.pgMax);
-            G.pgMax = std::max(G.pgMin+1, std::min(127, G.pgMax));
-            ImGui::TextDisabled("PC %d–%d  (map PC→FormulaA in table below to drive formula changes)",
-                                G.pgMin, G.pgMax);
+            if (ImGui::SmallButton("Surge Bank 0"))      { G.pgMin=0;   G.pgMax=127;  }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Surge Bank 1"))      { G.pgMin=128; G.pgMax=255;  }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Surge Bank 2"))      { G.pgMin=256; G.pgMax=383;  }
+
+            if (ImGui::SmallButton("Banks 0-3"))         { G.pgMin=0;   G.pgMax=511;  }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Banks 0-7"))         { G.pgMin=0;   G.pgMax=1023; }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Banks 0-15"))        { G.pgMin=0;   G.pgMax=2047; }
         }
 
         if (!G.enabled) { ImGui::EndDisabled(); }

@@ -174,7 +174,17 @@ std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
     if (pgEnabled && m_stepsSincePg >= pgEvery) {
         std::uniform_int_distribution<int> pgRoll(pgMin, pgMax);
         int pg = pgRoll(m_rng);
-        out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)pg, 0});
+
+        if (pg >= 128) {
+            // Extended range: emit Bank Select MSB (CC0) then PC
+            // Surge XT / most GM synths: bank = pg/128, patch = pg%128
+            int bank  = pg / 128;
+            int patch = pg % 128;
+            out.push_back({(uint8_t)(0xB0 | ch0), 0, (uint8_t)bank});   // CC0
+            out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)patch, 0}); // PC
+        } else {
+            out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)pg, 0});
+        }
         liveProg = pg;
         m_stepsSincePg = 0;
     }

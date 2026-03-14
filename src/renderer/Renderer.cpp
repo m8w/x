@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 // SHADERS_DIR is defined by CMake
@@ -8,6 +9,7 @@
 #endif
 
 Renderer::~Renderer() {
+    if (m_pbo[0]) glDeleteBuffers(2, m_pbo);
     if (m_vao)    glDeleteVertexArrays(1, &m_vao);
     if (m_fbo)    glDeleteFramebuffers(1, &m_fbo);
     if (m_fboTex) glDeleteTextures(1, &m_fboTex);
@@ -148,8 +150,43 @@ void Renderer::render(int width, int height, float time,
 }
 
 const uint8_t* Renderer::fboPixels(int width, int height) {
+    int byteSize = width * height * 3;
+
+    // (Re)allocate both PBOs whenever the resolution changes
+    if (width != m_pboW || height != m_pboH) {
+        if (m_pbo[0]) glDeleteBuffers(2, m_pbo);
+        glGenBuffers(2, m_pbo);
+        for (int i = 0; i < 2; i++) {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[i]);
+            glBufferData(GL_PIXEL_PACK_BUFFER, byteSize, nullptr, GL_STREAM_READ);
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        m_pixels.resize(byteSize);
+        m_pboW   = width;
+        m_pboH   = height;
+        m_pboIdx = 0;
+    }
+
+    int writeIdx = m_pboIdx;
+    int readIdx  = 1 - m_pboIdx;
+
+    // Queue async readback into writeIdx — GPU DMA, returns immediately
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_fbo);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, m_pixels.data());
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[writeIdx]);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE,
+                 nullptr);  // nullptr = write into PBO at offset 0
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // Map readIdx PBO — this is the *previous* frame, DMA is already complete
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[readIdx]);
+    void* ptr = glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+    if (ptr) {
+        memcpy(m_pixels.data(), ptr, byteSize);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    m_pboIdx = readIdx;  // ping-pong for next call
     return m_pixels.data();
 }

@@ -34,6 +34,12 @@ private:
     int           m_fboH      = 0;
     std::vector<uint8_t> m_pixels;
 
+    // Double-buffered PBOs for async glReadPixels (no GPU pipeline stall)
+    GLuint m_pbo[2]  = {0, 0};
+    int    m_pboIdx  = 0;
+    int    m_pboW    = 0;
+    int    m_pboH    = 0;
+
     void ensureFBO(int w, int h);
     void uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                         const FractalEngine& engine,

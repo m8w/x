@@ -33,7 +33,7 @@ private:
     MidiGenerator&   m_midiGen;
 
     // Stream panel state
-    int  m_bitrateKbps = 4000;
+    int  m_bitrateKbps = 2500;
     int  m_resIndex    = 1;
     char m_videoPath[512] = "";
 

@@ -463,7 +463,9 @@ static const ServicePreset kPresets[] = {
 static const int kNumPresets = 7;
 
 void EquationEditor::drawStreamPanel() {
-    ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 40000);
+    ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 8000);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Restream: ≤4500 for 1080p30)");
     ImGui::Combo("Resolution", &m_resIndex, kResLabels, 4);
     ImGui::Separator();
 

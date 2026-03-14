@@ -400,7 +400,8 @@ bool StreamOutput::tryOpenEncoder(const char* name, bool vaapi, int w, int h) {
     ctx->bit_rate     = bitrate_kbps * 1000;
     ctx->time_base    = {1, fps};
     ctx->framerate    = {fps, 1};
-    ctx->gop_size     = fps * 2;
+    ctx->gop_size     = fps * 2;   // 2-second keyframe interval
+    ctx->keyint_min   = fps * 2;   // prevent shorter intervals from scene-cut detection
     ctx->max_b_frames = 0;
     ctx->flags       |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
@@ -430,28 +431,27 @@ bool StreamOutput::tryOpenEncoder(const char* name, bool vaapi, int w, int h) {
     } else {
         ctx->pix_fmt = AV_PIX_FMT_YUV420P;
         if (strcmp(name, "h264_nvenc") == 0) {
-            av_opt_set(ctx->priv_data, "preset",  "p4",  0);
-            av_opt_set(ctx->priv_data, "tune",    "ll",  0);
-            av_opt_set(ctx->priv_data, "rc",      "cbr", 0);
-            av_opt_set(ctx->priv_data, "profile", "main", 0);
+            av_opt_set(ctx->priv_data, "preset",       "p4",  0);
+            av_opt_set(ctx->priv_data, "tune",         "ll",  0);
+            av_opt_set(ctx->priv_data, "rc",           "cbr", 0);
+            av_opt_set(ctx->priv_data, "profile",      "main", 0);
+            av_opt_set(ctx->priv_data, "no-scenecut",  "1",   0);  // lock keyframe interval
             ctx->level = 41;
         } else if (strcmp(name, "h264_amf") == 0) {
-            av_opt_set(ctx->priv_data, "usage",   "ultralowlatency", 0);
-            av_opt_set(ctx->priv_data, "rc",      "cbr",             0);
-            av_opt_set(ctx->priv_data, "profile", "main",            0);
+            av_opt_set(ctx->priv_data, "usage",        "ultralowlatency", 0);
+            av_opt_set(ctx->priv_data, "rc",           "cbr",             0);
+            av_opt_set(ctx->priv_data, "profile",      "main",            0);
             ctx->level = 41;
         } else if (strcmp(name, "libx264") == 0) {
-            av_opt_set(ctx->priv_data, "preset",  "veryfast",    0);
-            av_opt_set(ctx->priv_data, "tune",    "zerolatency", 0);
-            av_opt_set(ctx->priv_data, "profile", "main",        0);
+            av_opt_set(ctx->priv_data, "preset",       "veryfast",    0);
+            av_opt_set(ctx->priv_data, "tune",         "zerolatency", 0);
+            av_opt_set(ctx->priv_data, "profile",      "main",        0);
+            av_opt_set(ctx->priv_data, "sc_threshold", "0",           0);  // disable scene cuts
             ctx->level = 41;
         } else if (strcmp(name, "h264_videotoolbox") == 0) {
-            // YouTube requires a declared H.264 profile; VideoToolbox defaults
-            // to High which some ingest servers (YouTube, Twitch) reject silently.
-            // realtime=1 disables frame-reordering for low-latency RTMP output.
-            av_opt_set(ctx->priv_data, "profile", "main", 0);
-            av_opt_set(ctx->priv_data, "realtime", "1",   0);
-            ctx->level = 41;   // H.264 Level 4.1 — required for 1080p
+            av_opt_set(ctx->priv_data, "profile",      "main", 0);
+            av_opt_set(ctx->priv_data, "realtime",     "1",    0);
+            ctx->level = 41;
         }
     }
 

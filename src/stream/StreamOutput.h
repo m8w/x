@@ -72,6 +72,9 @@ private:
     bool            m_streaming = false;
     int             m_width     = 0;
     int             m_height    = 0;
+    // Track SwsContext input dimensions — recreate if window size changes
+    int             m_swsInW    = 0;
+    int             m_swsInH    = 0;
 
     // m_hwDeviceCtx is non-null only when using VAAPI
     AVBufferRef* m_hwDeviceCtx = nullptr;

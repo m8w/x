@@ -41,7 +41,13 @@ void StreamOutput::sinkThreadFunc(DestSink& s) {
             AVPacket* pkt = s.queue.front();
             s.queue.pop();
             lock.unlock();
-            av_interleaved_write_frame(s.fmtCtx, pkt);
+            int wret = av_interleaved_write_frame(s.fmtCtx, pkt);
+            if (wret < 0) {
+                char errbuf[128];
+                av_strerror(wret, errbuf, sizeof(errbuf));
+                fprintf(stderr, "[sink:%s] write error: %s\n",
+                        s.name.c_str(), errbuf);
+            }
             av_packet_free(&pkt);
             lock.lock();
         }
@@ -289,12 +295,29 @@ void StreamOutput::stop() {
     if (m_codecCtx)     { avcodec_free_context(&m_codecCtx);                      }
     m_vaapi     = false;
     m_streaming = false;
+    m_swsInW    = 0;
+    m_swsInH    = 0;
 }
 
 // ── per-frame path ─────────────────────────────────────────────────────────────
 
 void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
     if (!m_streaming) return;
+
+    // Recreate SwsContext if the window framebuffer size differs from stream
+    // resolution — the window can be any size/DPI but we always encode at
+    // m_width × m_height.  sws_scale will rescale accordingly.
+    if (width != m_swsInW || height != m_swsInH) {
+        if (m_swsCtx) sws_freeContext(m_swsCtx);
+        AVPixelFormat swFmt = m_vaapi ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+        m_swsCtx = sws_getContext(width, height, AV_PIX_FMT_RGB24,
+                                   m_width, m_height, swFmt,
+                                   SWS_BILINEAR, nullptr, nullptr, nullptr);
+        m_swsInW = width;
+        m_swsInH = height;
+        fprintf(stderr, "StreamOutput: sws %dx%d→%dx%d\n",
+                width, height, m_width, m_height);
+    }
 
     // glReadPixels returns bottom-up rows — flip vertically
     const int stride = width * 3;
@@ -319,7 +342,13 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
 }
 
 void StreamOutput::encodeAndDistribute(AVFrame* frame) {
-    if (avcodec_send_frame(m_codecCtx, frame) < 0) return;
+    int ret = avcodec_send_frame(m_codecCtx, frame);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        fprintf(stderr, "StreamOutput: avcodec_send_frame failed: %s\n", errbuf);
+        return;
+    }
     while (avcodec_receive_packet(m_codecCtx, m_pkt) == 0) {
         for (auto& sp : m_sinks) {
             if (!sp->connected) continue;

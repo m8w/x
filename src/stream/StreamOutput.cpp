@@ -175,8 +175,14 @@ bool StreamOutput::tryOpenEncoder(const char* name, bool vaapi, int w, int h) {
         } else if (strcmp(name, "libx264") == 0) {
             av_opt_set(ctx->priv_data, "preset", "veryfast",    0);
             av_opt_set(ctx->priv_data, "tune",   "zerolatency", 0);
+        } else if (strcmp(name, "h264_videotoolbox") == 0) {
+            // YouTube requires a declared H.264 profile; VideoToolbox defaults
+            // to High which some ingest servers (YouTube, Twitch) reject silently.
+            // realtime=1 disables frame-reordering for low-latency RTMP output.
+            av_opt_set(ctx->priv_data, "profile", "main", 0);
+            av_opt_set(ctx->priv_data, "realtime", "1",   0);
+            ctx->level = 41;   // H.264 Level 4.1 — required for 1080p
         }
-        // h264_videotoolbox: default options are fine for streaming
     }
 
     if (avcodec_open2(ctx, codec, nullptr) < 0) {

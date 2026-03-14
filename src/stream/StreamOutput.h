@@ -3,7 +3,10 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/audio_fifo.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include <libavdevice/avdevice.h>
 }
 #include <string>
 #include <vector>
@@ -58,8 +61,11 @@ public:
     void pushFrame(const uint8_t* rgbData, int width, int height);
 
     // Settings (apply before start())
-    int bitrate_kbps = 4000;
-    int fps          = 30;
+    int         bitrate_kbps = 4000;
+    int         fps          = 30;
+    // Audio capture device (macOS avfoundation name, e.g. "BlackHole 2ch").
+    // Set to "" to fall back to a silent AAC track.
+    std::string audioDevice  = "BlackHole 2ch";
 
 private:
     std::vector<std::unique_ptr<DestSink>> m_sinks;
@@ -82,14 +88,25 @@ private:
     AVFrame*     m_hwFrame     = nullptr;  // VAAPI hw-side upload frame
     bool         m_vaapi       = false;
 
-    // Silent AAC audio encoder (YouTube requires audio to publish the stream)
+    // AAC encoder (shared — encodes either silence or captured audio)
     AVCodecContext* m_audioCtx            = nullptr;
-    AVFrame*        m_audioFrame          = nullptr;
+    AVFrame*        m_audioFrame          = nullptr;   // silence fallback frame
     int64_t         m_audioPts            = 0;
     int             m_audioSamplesPerFrame = 1024;
 
+    // avfoundation audio capture (macOS — BlackHole 2ch or any input device)
+    AVFormatContext* m_captureFmtCtx      = nullptr;
+    AVCodecContext*  m_captureCodecCtx    = nullptr;
+    SwrContext*      m_swrCtx             = nullptr;
+    int              m_captureStreamIdx   = -1;
+    std::thread      m_audioCaptureThread;
+    std::atomic<bool> m_audioCaptureRunning{false};
+
     bool tryOpenEncoder(const char* name, bool vaapi, int width, int height);
     bool openAudioEncoder();
+    bool openAudioCapture(const std::string& device);
+    void audioCaptureLoop();
+    void closeAudioCapture();
     bool openSink(DestSink& s);
     void closeSink(DestSink& s);
     void sinkThreadFunc(DestSink& s);

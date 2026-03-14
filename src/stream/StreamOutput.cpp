@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
+#include <chrono>
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
@@ -167,6 +168,152 @@ bool StreamOutput::openAudioEncoder() {
     return true;
 }
 
+// ── avfoundation audio capture (BlackHole 2ch → decode → resample → AAC) ─────
+
+bool StreamOutput::openAudioCapture(const std::string& device) {
+    if (!openAudioEncoder()) return false;   // always need the AAC encoder
+    if (device.empty()) return true;         // silence mode — done
+
+    avdevice_register_all();
+
+    const AVInputFormat* ifmt = av_find_input_format("avfoundation");
+    if (!ifmt) {
+        fprintf(stderr, "StreamOutput: avfoundation not available — using silence\n");
+        return true;
+    }
+
+    // Colon prefix selects audio-only (no video index before the colon)
+    std::string inputStr = ":" + device;
+    AVDictionary* opts = nullptr;
+    if (avformat_open_input(&m_captureFmtCtx, inputStr.c_str(),
+                            const_cast<AVInputFormat*>(ifmt), &opts) < 0) {
+        fprintf(stderr, "StreamOutput: cannot open '%s' — using silence\n",
+                device.c_str());
+        av_dict_free(&opts);
+        return true;  // non-fatal
+    }
+    av_dict_free(&opts);
+
+    avformat_find_stream_info(m_captureFmtCtx, nullptr);
+
+    for (int i = 0; i < (int)m_captureFmtCtx->nb_streams; i++) {
+        if (m_captureFmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            m_captureStreamIdx = i;
+            break;
+        }
+    }
+    if (m_captureStreamIdx < 0) {
+        avformat_close_input(&m_captureFmtCtx);
+        return true;
+    }
+
+    auto* par = m_captureFmtCtx->streams[m_captureStreamIdx]->codecpar;
+    const AVCodec* dec = avcodec_find_decoder(par->codec_id);
+    m_captureCodecCtx  = avcodec_alloc_context3(dec);
+    avcodec_parameters_to_context(m_captureCodecCtx, par);
+    if (avcodec_open2(m_captureCodecCtx, dec, nullptr) < 0) {
+        avcodec_free_context(&m_captureCodecCtx);
+        avformat_close_input(&m_captureFmtCtx);
+        return true;
+    }
+
+    // Resampler: whatever avfoundation delivers → FLTP 44100 Hz stereo
+    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+    swr_alloc_set_opts2(&m_swrCtx,
+                        &stereo,                          AV_SAMPLE_FMT_FLTP, 44100,
+                        &m_captureCodecCtx->ch_layout,    m_captureCodecCtx->sample_fmt,
+                        m_captureCodecCtx->sample_rate,
+                        0, nullptr);
+    swr_init(m_swrCtx);
+
+    m_audioCaptureRunning = true;
+    m_audioCaptureThread  = std::thread(&StreamOutput::audioCaptureLoop, this);
+    fprintf(stderr, "StreamOutput: audio capture '%s' %d Hz %dch\n",
+            device.c_str(), m_captureCodecCtx->sample_rate,
+            m_captureCodecCtx->ch_layout.nb_channels);
+    return true;
+}
+
+void StreamOutput::audioCaptureLoop() {
+    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+    AVAudioFifo* fifo = av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP, 2,
+                                             m_audioSamplesPerFrame * 8);
+    AVPacket* pkt = av_packet_alloc();
+    AVFrame*  dec = av_frame_alloc();
+    AVFrame*  res = av_frame_alloc();
+
+    while (m_audioCaptureRunning) {
+        int ret = av_read_frame(m_captureFmtCtx, pkt);
+        if (ret == AVERROR(EAGAIN)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        if (ret < 0) break;
+
+        if (pkt->stream_index != m_captureStreamIdx) {
+            av_packet_unref(pkt);
+            continue;
+        }
+
+        avcodec_send_packet(m_captureCodecCtx, pkt);
+        av_packet_unref(pkt);
+
+        while (avcodec_receive_frame(m_captureCodecCtx, dec) == 0) {
+            // How many output samples will the resampler produce?
+            int outSamples = (int)av_rescale_rnd(
+                swr_get_delay(m_swrCtx, m_captureCodecCtx->sample_rate) + dec->nb_samples,
+                44100, m_captureCodecCtx->sample_rate, AV_ROUND_UP);
+
+            res->format      = AV_SAMPLE_FMT_FLTP;
+            res->sample_rate = 44100;
+            res->nb_samples  = outSamples;
+            av_channel_layout_copy(&res->ch_layout, &stereo);
+            av_frame_get_buffer(res, 0);
+
+            int converted = swr_convert(m_swrCtx,
+                                        res->data, outSamples,
+                                        (const uint8_t**)dec->data, dec->nb_samples);
+            if (converted > 0)
+                av_audio_fifo_write(fifo, (void**)res->data, converted);
+
+            av_frame_unref(res);
+            av_frame_unref(dec);
+
+            // Encode full AAC frames as they become available
+            while (av_audio_fifo_size(fifo) >= m_audioSamplesPerFrame) {
+                AVFrame* enc = av_frame_alloc();
+                enc->format      = AV_SAMPLE_FMT_FLTP;
+                enc->sample_rate = 44100;
+                enc->nb_samples  = m_audioSamplesPerFrame;
+                av_channel_layout_copy(&enc->ch_layout, &stereo);
+                av_frame_get_buffer(enc, 0);
+                av_audio_fifo_read(fifo, (void**)enc->data, m_audioSamplesPerFrame);
+                enc->pts  = m_audioPts;
+                m_audioPts += m_audioSamplesPerFrame;
+                encodeAndDistributeAudio(enc);
+                av_frame_free(&enc);
+            }
+        }
+    }
+
+    av_audio_fifo_free(fifo);
+    av_frame_free(&res);
+    av_frame_free(&dec);
+    av_packet_free(&pkt);
+}
+
+void StreamOutput::closeAudioCapture() {
+    if (m_audioCaptureRunning) {
+        m_audioCaptureRunning = false;
+        if (m_audioCaptureThread.joinable())
+            m_audioCaptureThread.join();
+    }
+    if (m_swrCtx)          { swr_free(&m_swrCtx);                     m_swrCtx          = nullptr; }
+    if (m_captureCodecCtx) { avcodec_free_context(&m_captureCodecCtx); m_captureCodecCtx = nullptr; }
+    if (m_captureFmtCtx)   { avformat_close_input(&m_captureFmtCtx);   m_captureFmtCtx   = nullptr; }
+    m_captureStreamIdx = -1;
+}
+
 // ── encoder selection ─────────────────────────────────────────────────────────
 //
 // Priority order — none of these encoders carry a GPL license:
@@ -289,9 +436,10 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
         return false;
     }
 
-    // Open silent AAC audio encoder — YouTube won't publish without audio
-    if (!openAudioEncoder()) {
-        fprintf(stderr, "StreamOutput: failed to open AAC audio encoder\n");
+    // Open audio (BlackHole capture if available, silence fallback).
+    // YouTube won't publish without an audio track.
+    if (!openAudioCapture(audioDevice)) {
+        fprintf(stderr, "StreamOutput: failed to open audio encoder\n");
         avcodec_free_context(&m_codecCtx);
         if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_vaapi = false; }
         return false;
@@ -333,6 +481,9 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
 
 void StreamOutput::stop() {
     if (!m_streaming) return;
+
+    // Stop capture thread before draining the shared AAC encoder
+    closeAudioCapture();
 
     avcodec_send_frame(m_codecCtx, nullptr);
     while (avcodec_receive_packet(m_codecCtx, m_pkt) == 0) {
@@ -423,11 +574,9 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
         encodeAndDistribute(m_frame);
     }
 
-    // Push silent audio frames to stay in sync with video.
-    // Audio must be interleaved before video time catches up — YouTube rejects
-    // streams where audio and video timestamps diverge by more than ~500 ms.
-    if (m_audioCtx && m_audioFrame) {
-        // How many audio samples should have been sent by this video frame
+    // Push silent audio only when there is no live capture thread.
+    // When BlackHole is running, audioCaptureLoop() drives audio independently.
+    if (!m_audioCaptureRunning && m_audioCtx && m_audioFrame) {
         int64_t targetSamples = m_pts * (int64_t)m_audioCtx->sample_rate / fps;
         while (m_audioPts < targetSamples) {
             m_audioFrame->pts = m_audioPts;

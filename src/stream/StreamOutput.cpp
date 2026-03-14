@@ -37,6 +37,11 @@ void StreamOutput::removeDestination(int idx) {
 // ── per-sink background thread ────────────────────────────────────────────────
 
 void StreamOutput::sinkThreadFunc(DestSink& s) {
+    // Record wall-clock origin at thread start — pts=0 corresponds to this instant.
+    // Every packet is paced against this baseline so the RTMP socket never receives
+    // data faster than realtime (the root cause of YouTube "faster than realtime" errors).
+    auto sinkStart = std::chrono::steady_clock::now();
+
     while (s.running) {
         std::unique_lock<std::mutex> lock(s.mtx);
         s.cv.wait(lock, [&]{ return !s.queue.empty() || !s.running; });
@@ -44,6 +49,27 @@ void StreamOutput::sinkThreadFunc(DestSink& s) {
             AVPacket* pkt = s.queue.front();
             s.queue.pop();
             lock.unlock();
+
+            // Pace to realtime: sleep until the packet's DTS wall-clock moment.
+            // Use DTS (decode time) rather than PTS so that B-frame reordering
+            // never causes negative sleeps.
+            if (pkt->dts != AV_NOPTS_VALUE) {
+                AVStream* st = nullptr;
+                if (s.avStream    && pkt->stream_index == s.avStream->index)
+                    st = s.avStream;
+                else if (s.audioStream && pkt->stream_index == s.audioStream->index)
+                    st = s.audioStream;
+                if (st) {
+                    double pktSec = pkt->dts * av_q2d(st->time_base);
+                    auto target   = sinkStart +
+                                    std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                        std::chrono::duration<double>(pktSec));
+                    auto now = std::chrono::steady_clock::now();
+                    if (now < target)
+                        std::this_thread::sleep_until(target);
+                }
+            }
+
             int wret = av_interleaved_write_frame(s.fmtCtx, pkt);
             if (wret < 0) {
                 char errbuf[128];

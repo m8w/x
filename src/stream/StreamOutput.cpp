@@ -90,7 +90,10 @@ void StreamOutput::sinkThreadFunc(DestSink& s) {
 
 bool StreamOutput::openSink(DestSink& s) {
     s.connected = false;
-    if (avformat_alloc_output_context2(&s.fmtCtx, nullptr, "flv",
+    // Auto-detect format: "flv" for rtmp(s)://, mp4/mkv/etc. for local paths.
+    const bool isLocalFile = s.url.find("://") == std::string::npos;
+    if (avformat_alloc_output_context2(&s.fmtCtx, nullptr,
+                                       isLocalFile ? nullptr : "flv",
                                        s.url.c_str()) < 0) {
         fprintf(stderr, "[sink:%s] cannot alloc output context\n", s.name.c_str());
         return false;

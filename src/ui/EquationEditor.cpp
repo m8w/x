@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
+#include <ctime>
 
 static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440", "3840x2160 (4K)"};
 static const int   kResW[]      = {1280, 1920, 2560, 3840};
@@ -477,6 +478,11 @@ static const char* matchServiceBase(const std::string& url) {
     return nullptr;
 }
 
+// True if url is a local filesystem path (no ://)
+static bool isLocalPath(const std::string& url) {
+    return url.find("://") == std::string::npos;
+}
+
 // True if this destination is the permanent Restream entry.
 static bool isRestreamDest(const DestSink& s) {
     return s.name == "Restream" ||
@@ -521,12 +527,18 @@ void EquationEditor::drawStreamPanel() {
         char keyBuf[256] = {};
         if (rs.url.size() > strlen(base))
             strncpy(keyBuf, rs.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
-        ImGui::SetNextItemWidth(-1);
+        ImGui::SetNextItemWidth(-28);
         if (ImGui::InputText("##rskey", keyBuf, sizeof(keyBuf)))
             rs.url = std::string(base) + keyBuf;
         if (ImGui::IsItemHovered() || rs.url == base || rs.url.empty())
             ImGui::SetTooltip("Paste your Restream stream key here\n"
                               "(Dashboard → Stream Setup → Stream Key)");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("×##rsclr")) {
+            rs.url = base;   // wipe back to bare base URL — key is gone
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Clear stream key and reset URL");
         if (rs.url == base || rs.url.empty())
             ImGui::TextDisabled("  ^ paste your Restream stream key above");
 
@@ -569,7 +581,15 @@ void EquationEditor::drawStreamPanel() {
         // Key or full URL input
         const char* base = matchServiceBase(s.url);
         char keyBuf[512] = {};
-        if (base) {
+        if (isLocalPath(s.url)) {
+            // Local recording path — show plainly, no masking
+            strncpy(keyBuf, s.url.c_str(), sizeof(keyBuf) - 1);
+            ImGui::SetNextItemWidth(-30);
+            if (ImGui::InputText("##lpath", keyBuf, sizeof(keyBuf)))
+                s.url = keyBuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Local recording path (.mp4 / .mkv)");
+        } else if (base) {
             // Known service — show only the stream key (plain text)
             strncpy(keyBuf, s.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
             ImGui::SetNextItemWidth(-30);
@@ -608,6 +628,22 @@ void EquationEditor::drawStreamPanel() {
             snprintf(m_newUrl,  sizeof(m_newUrl),  "%s", kPresets[p].rtmpBase);
         }
     }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Local file")) {
+        // Generate a timestamped filename in the user's home directory
+        const char* home = getenv("HOME");
+        if (!home || !home[0]) home = ".";
+        time_t now = time(nullptr);
+        struct tm* t = localtime(&now);
+        snprintf(m_newName, sizeof(m_newName), "Recording");
+        snprintf(m_newUrl, sizeof(m_newUrl), "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
+                 home, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                 t->tm_hour, t->tm_min, t->tm_sec);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Record locally to an MP4 file.\n"
+                          "The filename is auto-stamped with the current date/time.\n"
+                          "Starts/stops together with the stream.");
 
     ImGui::SetNextItemWidth(70);
     ImGui::InputText("Name##new", m_newName, sizeof(m_newName));

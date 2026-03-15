@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <ctime>
+#include <sys/stat.h>
 
 static const char* kResLabels[] = {"1280x720", "1920x1080", "2560x1440", "3840x2160 (4K)"};
 static const int   kResW[]      = {1280, 1920, 2560, 3840};
@@ -630,20 +631,27 @@ void EquationEditor::drawStreamPanel() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Local file")) {
-        // Generate a timestamped filename in the user's home directory
-        const char* home = getenv("HOME");
+        // Default to Seagate drive → fractal stream/part 1/
+        // Falls back to home dir if the drive isn't mounted.
+        const char* seagate = "/Volumes/Seagate/fractal stream/part 1";
+        const char* home    = getenv("HOME");
         if (!home || !home[0]) home = ".";
+        // Pick the Seagate path if the drive is mounted, else home
+        struct stat st{};
+        const char* dir = (stat("/Volumes/Seagate", &st) == 0) ? seagate : home;
         time_t now = time(nullptr);
         struct tm* t = localtime(&now);
         snprintf(m_newName, sizeof(m_newName), "Recording");
-        snprintf(m_newUrl, sizeof(m_newUrl), "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
-                 home, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+        snprintf(m_newUrl, sizeof(m_newUrl),
+                 "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
+                 dir, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
                  t->tm_hour, t->tm_min, t->tm_sec);
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Record locally to an MP4 file.\n"
-                          "The filename is auto-stamped with the current date/time.\n"
-                          "Starts/stops together with the stream.");
+                          "Saves to: /Volumes/Seagate/fractal stream/part 1/\n"
+                          "(falls back to home dir if drive not mounted)\n"
+                          "Filename is auto-stamped. Starts/stops with stream.");
 
     ImGui::SetNextItemWidth(70);
     ImGui::InputText("Name##new", m_newName, sizeof(m_newName));

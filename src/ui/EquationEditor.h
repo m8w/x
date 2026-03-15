@@ -51,8 +51,11 @@ private:
     bool                     m_presetListDirty = true;
 
     // Surge XT browser state
-    int  m_surgeBank  = 0;
-    int  m_surgePatch = 0;
+    int   m_surgeBank        = 0;
+    int   m_surgePatch       = 0;
+    bool  m_surgeAutoAdvance = false;
+    float m_surgeAdvanceSecs = 4.0f;
+    float m_surgeLastAdvance = 0.0f;  // ImGui time of last auto-step
 
     void applyDefaultSurgeMappings();
     void drawBlendPanel();

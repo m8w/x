@@ -1800,7 +1800,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
             m_bitrateKbps, m_resIndex,
             m_streamOut.audioDevice.c_str(), m_videoPath);
-    fprintf(f, "surge_bank=%d\nsurge_patch=%d\n", m_surgeBank, m_surgePatch);
+    fprintf(f, "surge_bank=%d\nsurge_patch=%d\nsurge_auto=%d\nsurge_adv_secs=%.2f\n",
+            m_surgeBank, m_surgePatch, (int)m_surgeAutoAdvance, m_surgeAdvanceSecs);
     int ndest = m_streamOut.destCount();
     fprintf(f, "dest_count=%d\n", ndest);
     for (int i = 0; i < ndest; i++) {
@@ -1953,8 +1954,10 @@ void EquationEditor::loadSettings(const std::string& path) {
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);
     m_resIndex    = ini_i(m, "stream.res_index",    m_resIndex);
-    m_surgeBank   = ini_i(m, "stream.surge_bank",   m_surgeBank);
-    m_surgePatch  = ini_i(m, "stream.surge_patch",  m_surgePatch);
+    m_surgeBank         = ini_i(m, "stream.surge_bank",      m_surgeBank);
+    m_surgePatch        = ini_i(m, "stream.surge_patch",     m_surgePatch);
+    m_surgeAutoAdvance  = ini_i(m, "stream.surge_auto",      (int)m_surgeAutoAdvance);
+    m_surgeAdvanceSecs  = ini_f(m, "stream.surge_adv_secs",  m_surgeAdvanceSecs);
     {
         std::string dev = ini_s(m, "stream.audio_device", m_streamOut.audioDevice);
         m_streamOut.audioDevice = dev;
@@ -2149,22 +2152,57 @@ void EquationEditor::drawSurgeXTSection() {
         ImGui::SetTooltip("Ctrl+click to type exact patch number\n"
                           "Combined index: %d", m_surgeBank * 128 + m_surgePatch);
 
-    // Navigation buttons + combined index display
+    // ── Auto-advance timer ────────────────────────────────────────────────────
+    float now = (float)ImGui::GetTime();
+    if (m_surgeAutoAdvance && m_midiOut.isOpen()) {
+        if (now - m_surgeLastAdvance >= m_surgeAdvanceSecs) {
+            m_surgeLastAdvance = now;
+            if (m_surgePatch < 127) { m_surgePatch++; }
+            else                    { m_surgeBank++;  m_surgePatch = 0; }
+            sendNow();
+        }
+    }
+
+    // Auto-advance checkbox + interval
+    if (ImGui::Checkbox("Auto-advance##surge", &m_surgeAutoAdvance)) {
+        m_surgeLastAdvance = now;   // reset timer on toggle
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Automatically step to the next patch every N seconds.\n"
+                          "Wraps to next bank at patch 127.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(70);
+    ImGui::InputFloat("s##surgeadv", &m_surgeAdvanceSecs, 0.5f, 2.0f, "%.1f");
+    m_surgeAdvanceSecs = std::max(0.1f, m_surgeAdvanceSecs);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Seconds between automatic patch advances");
+
+    // Progress bar showing time until next auto-step
+    if (m_surgeAutoAdvance) {
+        float pct = std::min(1.0f, (now - m_surgeLastAdvance) / m_surgeAdvanceSecs);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1);
+        ImGui::ProgressBar(pct, {-1, 0}, "");
+    }
+
+    // Manual navigation + send
     if (ImGui::ArrowButton("##surgeprev", ImGuiDir_Left)) {
         if (m_surgePatch > 0)      { m_surgePatch--; }
         else if (m_surgeBank > 0)  { m_surgeBank--;  m_surgePatch = 127; }
+        m_surgeLastAdvance = now;
         sendNow();
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Previous patch");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Previous patch (resets auto timer)");
     ImGui::SameLine();
     if (ImGui::ArrowButton("##surgenext", ImGuiDir_Right)) {
         if (m_surgePatch < 127) { m_surgePatch++; }
         else                    { m_surgeBank++;  m_surgePatch = 0; }
+        m_surgeLastAdvance = now;
         sendNow();
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Next patch");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Next patch (resets auto timer)");
     ImGui::SameLine();
-    if (ImGui::Button("Send Now")) sendNow();
+    if (ImGui::Button("Send Now")) { m_surgeLastAdvance = now; sendNow(); }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Send CC0 bank=%d + PC %d  (combined index %d)",
                           m_surgeBank, m_surgePatch, m_surgeBank*128 + m_surgePatch);

@@ -65,8 +65,8 @@ public:
     int         bitrate_kbps = 4000;
     int         fps          = 30;
     // Audio capture device (macOS avfoundation name, e.g. "BlackHole 2ch").
-    // Set to "" to fall back to a silent AAC track.
-    std::string audioDevice  = "BlackHole 2ch";
+    // Default "" = silent AAC track (safe on machines without BlackHole).
+    std::string audioDevice  = "";
 
 private:
     std::vector<std::unique_ptr<DestSink>> m_sinks;

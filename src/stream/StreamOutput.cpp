@@ -240,6 +240,18 @@ bool StreamOutput::openAudioCapture(const std::string& device) {
         return true;  // non-fatal — silence fallback
     }
 
+    // avfoundation's read_header populates nb_streams immediately.
+    // If it is still 0 the device name was accepted by the driver but no
+    // audio is actually available (e.g. BlackHole not installed).  Calling
+    // avformat_find_stream_info on such a context dereferences streams[0]
+    // which is NULL, crashing at address 0x3c — guard against it here.
+    if (m_captureFmtCtx->nb_streams == 0) {
+        fprintf(stderr, "StreamOutput: audio device '%s' has no streams — using silence\n",
+                device.c_str());
+        avformat_close_input(&m_captureFmtCtx);
+        return true;
+    }
+
     avformat_find_stream_info(m_captureFmtCtx, nullptr);
 
     for (int i = 0; i < (int)m_captureFmtCtx->nb_streams; i++) {

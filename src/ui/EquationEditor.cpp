@@ -531,12 +531,15 @@ void EquationEditor::drawStreamPanel() {
         ImGui::SetNextItemWidth(-28);
         if (ImGui::InputText("##rskey", keyBuf, sizeof(keyBuf)))
             rs.url = std::string(base) + keyBuf;
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            saveSettings(AppSettings::lastPath());   // persist key immediately
         if (ImGui::IsItemHovered() || rs.url == base || rs.url.empty())
             ImGui::SetTooltip("Paste your Restream stream key here\n"
                               "(Dashboard → Stream Setup → Stream Key)");
         ImGui::SameLine();
         if (ImGui::SmallButton("×##rsclr")) {
             rs.url = base;   // wipe back to bare base URL — key is gone
+            saveSettings(AppSettings::lastPath());   // persist the clear too
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Clear stream key and reset URL");

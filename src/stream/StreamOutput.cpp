@@ -72,13 +72,22 @@ void StreamOutput::sinkThreadFunc(DestSink& s) {
             }
 
             int wret = av_interleaved_write_frame(s.fmtCtx, pkt);
+            av_packet_free(&pkt);
             if (wret < 0) {
                 char errbuf[128];
                 av_strerror(wret, errbuf, sizeof(errbuf));
-                fprintf(stderr, "[sink:%s] write error: %s\n",
+                fprintf(stderr, "[sink:%s] write error: %s — disconnecting\n",
                         s.name.c_str(), errbuf);
+                // Mark disconnected so the UI shows ERR and we stop sending.
+                s.connected = false;
+                // Drain and discard any queued packets to unblock producers.
+                lock.lock();
+                while (!s.queue.empty()) {
+                    av_packet_free(&s.queue.front());
+                    s.queue.pop();
+                }
+                return;
             }
-            av_packet_free(&pkt);
             lock.lock();
         }
     }

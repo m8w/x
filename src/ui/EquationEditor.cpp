@@ -682,6 +682,24 @@ void EquationEditor::drawStreamPanel() {
         m_newUrl[0]  = '\0';
     }
 
+    // ── Audio capture device ──────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("Audio source (macOS loopback)");
+    {
+        char audioBuf[256] = {};
+        strncpy(audioBuf, m_streamOut.audioDevice.c_str(), sizeof(audioBuf) - 1);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##audiodev", audioBuf, sizeof(audioBuf)))
+            m_streamOut.audioDevice = audioBuf;
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            saveSettings(AppSettings::lastPath());
+        if (ImGui::IsItemHovered() || m_streamOut.audioDevice.empty())
+            ImGui::SetTooltip("Leave blank for silent audio track.\n"
+                              "Set to a loopback device name to capture system audio,\n"
+                              "e.g. \"BlackHole 2ch\" (must be installed separately).");
+    }
+
     // ── Start / Stop ──────────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();

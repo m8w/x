@@ -525,12 +525,26 @@ void EquationEditor::drawStreamPanel() {
 
         // Stream key on its own line — full width, plain text so it's easy to paste
         const char* base = "rtmp://live.restream.io/live/";
+        const size_t baseLen = strlen(base);
+        // Extract key: skip past any accidentally doubled base prefixes in the
+        // stored URL (happens when the user pastes the full URL instead of
+        // just the key — the field then shows and saves the correct key only).
+        const char* keyStart = rs.url.c_str();
+        while (strncmp(keyStart, base, baseLen) == 0) keyStart += baseLen;
+        // Persist the normalised URL immediately so the bad doubled value is gone
+        if (rs.url != std::string(base) + keyStart) {
+            rs.url = std::string(base) + keyStart;
+            saveSettings(AppSettings::lastPath());
+        }
         char keyBuf[256] = {};
-        if (rs.url.size() > strlen(base))
-            strncpy(keyBuf, rs.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
+        strncpy(keyBuf, keyStart, sizeof(keyBuf) - 1);
         ImGui::SetNextItemWidth(-28);
-        if (ImGui::InputText("##rskey", keyBuf, sizeof(keyBuf)))
-            rs.url = std::string(base) + keyBuf;
+        if (ImGui::InputText("##rskey", keyBuf, sizeof(keyBuf))) {
+            // Strip any base prefix the user may have accidentally pasted
+            const char* k = keyBuf;
+            while (strncmp(k, base, baseLen) == 0) k += baseLen;
+            rs.url = std::string(base) + k;
+        }
         if (ImGui::IsItemDeactivatedAfterEdit())
             saveSettings(AppSettings::lastPath());   // persist key immediately
         if (ImGui::IsItemHovered() || rs.url == base || rs.url.empty())

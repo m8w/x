@@ -230,14 +230,15 @@ bool StreamOutput::openAudioCapture(const std::string& device) {
     // Colon prefix selects audio-only (no video index before the colon)
     std::string inputStr = ":" + device;
     AVDictionary* opts = nullptr;
-    if (avformat_open_input(&m_captureFmtCtx, inputStr.c_str(),
-                            const_cast<AVInputFormat*>(ifmt), &opts) < 0) {
-        fprintf(stderr, "StreamOutput: cannot open '%s' — using silence\n",
-                device.c_str());
-        av_dict_free(&opts);
-        return true;  // non-fatal
-    }
+    int openRet = avformat_open_input(&m_captureFmtCtx, inputStr.c_str(),
+                                      const_cast<AVInputFormat*>(ifmt), &opts);
     av_dict_free(&opts);
+    if (openRet < 0 || !m_captureFmtCtx) {
+        fprintf(stderr, "StreamOutput: cannot open audio device '%s' — using silence\n",
+                device.c_str());
+        m_captureFmtCtx = nullptr;
+        return true;  // non-fatal — silence fallback
+    }
 
     avformat_find_stream_info(m_captureFmtCtx, nullptr);
 

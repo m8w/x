@@ -175,6 +175,10 @@ void StreamOutput::closeSink(DestSink& s) {
 // ── audio encoder (silent AAC — required by YouTube RTMP ingest) ─────────────
 
 bool StreamOutput::openAudioEncoder() {
+    // Free any leftover context from a previous failed start() attempt
+    if (m_audioFrame) { av_frame_free(&m_audioFrame); m_audioFrame = nullptr; }
+    if (m_audioCtx)   { avcodec_free_context(&m_audioCtx); m_audioCtx = nullptr; }
+
     const AVCodec* acodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
     if (!acodec) {
         fprintf(stderr, "StreamOutput: AAC encoder not found\n");
@@ -547,6 +551,9 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
 
     if (connected == 0) {
         fprintf(stderr, "StreamOutput: no destinations connected — add at least one\n");
+        closeAudioCapture();
+        if (m_audioFrame) { av_frame_free(&m_audioFrame); m_audioFrame = nullptr; }
+        if (m_audioCtx)   { avcodec_free_context(&m_audioCtx); m_audioCtx = nullptr; }
         avcodec_free_context(&m_codecCtx);
         if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_vaapi = false; }
         return false;

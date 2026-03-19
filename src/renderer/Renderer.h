@@ -17,6 +17,7 @@ public:
                 const FractalEngine& engine,
                 const BlendController& blend,
                 const VideoTexture& videoTex,
+                const VideoTexture& overlayTex,
                 const ColorSynth& colorSynth);
 
     // Read back FBO pixels (RGB24) for RTMP encoding.

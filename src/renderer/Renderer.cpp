@@ -92,6 +92,8 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat ("u_chaos_scale",     eng.chaosScale);
     prog.setFloat ("u_chaos_speed",     eng.chaosSpeed);
     prog.setInt   ("u_video_tex",       0);  // texture unit 0
+    prog.setInt   ("u_overlay_tex",     1);  // texture unit 1
+    prog.setFloat ("u_overlay_blend",   eng.overlayBlend);
 
     // ── Color Synthesizer ─────────────────────────────────────────────────────
     prog.setBool  ("u_cs_enabled",    cs.enabled);
@@ -107,6 +109,7 @@ void Renderer::render(int width, int height, float time,
                        const FractalEngine& engine,
                        const BlendController& blend,
                        const VideoTexture& videoTex,
+                       const VideoTexture& overlayTex,
                        const ColorSynth& colorSynth) {
     ensureFBO(width, height);
 
@@ -136,6 +139,10 @@ void Renderer::render(int width, int height, float time,
     } else {
         uploadUniforms(*prog, width, height, time, engine, blend, colorSynth);
         videoTex.bind(0);
+        overlayTex.bind(1);
+        // Suppress overlay blend when no real overlay is loaded (1×1 white fallback)
+        if (overlayTex.width() <= 1 && overlayTex.height() <= 1)
+            prog->setFloat("u_overlay_blend", 0.0f);
     }
 
     glBindVertexArray(m_vao);

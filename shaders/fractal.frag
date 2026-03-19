@@ -33,6 +33,8 @@ uniform int   u_geo_kaleid;        // 0=off  N=number of kaleidoscope segments (
 uniform int   u_layer_count;       // 1–4: spatial layer repetition
 uniform float u_layer_offset;      // gap between layers
 uniform sampler2D u_video_tex;
+uniform sampler2D u_overlay_tex;   // second video layer
+uniform float     u_overlay_blend; // 0=fractal only  1=overlay only  0.5=50/50
 
 // ── Chaos Effects ─────────────────────────────────────────────────────────────
 uniform int   u_chaos_mode;     // 0=off  1=turbulence  2=logistic  3=henon  4=shred
@@ -550,6 +552,12 @@ void main() {
 
     vec3 color  = mix(baseColor, video, 0.65+0.35*escape);
     color *= step(0.001, escape)*0.95 + 0.05;
+
+    // ── Overlay video layer (50 % blend by default) ───────────────────────────
+    if (u_overlay_blend > 0.0) {
+        vec3 overlay = texture(u_overlay_tex, v_uv).rgb;
+        color = mix(color, overlay, u_overlay_blend);
+    }
 
     fragColor = vec4(color, 1.0);
 }

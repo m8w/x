@@ -16,7 +16,8 @@ class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
                    GlitchEngine& glitch, ColorSynth& colorSynth,
-                   VideoInput& videoIn, StreamOutput& streamOut,
+                   VideoInput& videoIn, VideoInput& overlayIn,
+                   StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
                    MidiMapper& midiMapper, MidiGenerator& midiGen);
     void draw();   // Call once per frame after ImGui::NewFrame()
@@ -31,6 +32,7 @@ private:
     GlitchEngine&    m_glitch;
     ColorSynth&      m_colorSynth;
     VideoInput&      m_videoIn;
+    VideoInput&      m_overlayIn;
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
     MidiOutput&      m_midiOut;
@@ -40,7 +42,8 @@ private:
     // Stream panel state
     int  m_bitrateKbps = 2500;
     int  m_resIndex    = 1;
-    char m_videoPath[512] = "";
+    char m_videoPath[512]   = "";
+    char m_overlayPath[512] = "";
 
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";

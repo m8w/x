@@ -69,8 +69,10 @@ int main(int argc, char** argv) {
     FractalEngine  engine;
     BlendController blend;
     VideoTexture   videoTex;
+    VideoTexture   overlayTex;
     Renderer       renderer;
     VideoInput     videoIn;
+    VideoInput     overlayIn;
     StreamOutput   streamOut;
     MidiInput      midiIn;
     MidiOutput     midiOut;
@@ -79,7 +81,7 @@ int main(int argc, char** argv) {
     GlitchEngine   glitchEng;
     ColorSynth     colorSynth;
     EquationEditor ui(engine, blend, glitchEng, colorSynth,
-                      videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
+                      videoIn, overlayIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -167,11 +169,20 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Decode next overlay frame if ready
+        if (overlayIn.isOpen()) {
+            AVFrame* frame = overlayIn.nextFrame();
+            if (frame) {
+                overlayTex.upload(frame);
+                overlayIn.releaseFrame(frame);
+            }
+        }
+
         // Render fractal + video blend
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
 
-        renderer.render(fw, fh, t, engine, blend, videoTex, colorSynth);
+        renderer.render(fw, fh, t, engine, blend, videoTex, overlayTex, colorSynth);
 
         // Encode frame for RTMP if streaming
         if (streamOut.isStreaming()) {

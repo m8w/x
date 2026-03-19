@@ -67,6 +67,10 @@ public:
     // Audio capture device (macOS avfoundation name, e.g. "BlackHole 2ch").
     // Default "" = silent AAC track (safe on machines without BlackHole).
     std::string audioDevice  = "";
+    // Overlay video file: audio track is decoded and mixed into the stream.
+    // Set before start(); changing while streaming restarts the overlay decoder.
+    std::string overlayAudioPath  = "";
+    float       overlayAudioBlend = 0.5f; // 0=no overlay  1=overlay only
 
 private:
     std::vector<std::unique_ptr<DestSink>> m_sinks;
@@ -106,11 +110,26 @@ private:
     std::thread      m_audioCaptureThread;
     std::atomic<bool> m_audioCaptureRunning{false};
 
+    // Overlay audio: decode a video file's audio track, mix into the stream
+    AVFormatContext* m_overlayFmtCtx      = nullptr;
+    AVCodecContext*  m_overlayCodecCtx    = nullptr;
+    SwrContext*      m_overlaySwrCtx      = nullptr;
+    int              m_overlayStreamIdx   = -1;
+    AVAudioFifo*     m_overlayFifo        = nullptr;
+    std::mutex       m_overlayFifoMtx;
+    std::thread      m_overlayAudioThread;
+    std::atomic<bool> m_overlayAudioRunning{false};
+
     bool tryOpenEncoder(const char* name, bool vaapi, int width, int height);
     bool openAudioEncoder();
     bool openAudioCapture(const std::string& device);
     void audioCaptureLoop();
     void closeAudioCapture();
+    bool openOverlayAudio(const std::string& path);
+    void overlayAudioLoop();
+    void closeOverlayAudio();
+    // Mix overlay samples (FLTP stereo) into dst in-place, scaled by overlayAudioBlend
+    void applyOverlayMix(float** dst, int nbSamples);
     bool openSink(DestSink& s);
     void closeSink(DestSink& s);
     void sinkThreadFunc(DestSink& s);

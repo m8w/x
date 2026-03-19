@@ -85,6 +85,10 @@ struct FractalEngine {
     float chaosScale    = 2.0f;   // spatial frequency (0.5–8)
     float chaosSpeed    = 1.0f;   // time modulation rate (0–3)
 
+    // ── Overlay video blend ───────────────────────────────────────────────────
+    // 0 = fractal only  1 = overlay only  0.5 = 50/50 mix (visual + audio)
+    float overlayBlend    = 0.5f;
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.

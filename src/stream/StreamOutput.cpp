@@ -398,6 +398,7 @@ void StreamOutput::audioCaptureLoop() {
                 av_audio_fifo_read(fifo, (void**)enc->data, m_audioSamplesPerFrame);
                 enc->pts  = m_audioPts;
                 m_audioPts += m_audioSamplesPerFrame;
+                applyOverlayMix((float**)enc->data, m_audioSamplesPerFrame);
                 encodeAndDistributeAudio(enc);
                 av_frame_free(&enc);
             }
@@ -420,6 +421,161 @@ void StreamOutput::closeAudioCapture() {
     if (m_captureCodecCtx) { avcodec_free_context(&m_captureCodecCtx); m_captureCodecCtx = nullptr; }
     if (m_captureFmtCtx)   { avformat_close_input(&m_captureFmtCtx);   m_captureFmtCtx   = nullptr; }
     m_captureStreamIdx = -1;
+}
+
+// ── overlay audio (video file → decode → resample → mix into AAC) ─────────────
+
+bool StreamOutput::openOverlayAudio(const std::string& path) {
+    if (path.empty()) return false;
+
+    if (avformat_open_input(&m_overlayFmtCtx, path.c_str(), nullptr, nullptr) < 0) {
+        fprintf(stderr, "StreamOutput: cannot open overlay audio '%s'\n", path.c_str());
+        return false;
+    }
+    avformat_find_stream_info(m_overlayFmtCtx, nullptr);
+
+    for (int i = 0; i < (int)m_overlayFmtCtx->nb_streams; i++) {
+        if (m_overlayFmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            m_overlayStreamIdx = i;
+            break;
+        }
+    }
+    if (m_overlayStreamIdx < 0) {
+        fprintf(stderr, "StreamOutput: no audio stream in overlay '%s'\n", path.c_str());
+        avformat_close_input(&m_overlayFmtCtx);
+        return false;
+    }
+
+    auto* par = m_overlayFmtCtx->streams[m_overlayStreamIdx]->codecpar;
+    const AVCodec* dec = avcodec_find_decoder(par->codec_id);
+    if (!dec) {
+        avformat_close_input(&m_overlayFmtCtx);
+        return false;
+    }
+    m_overlayCodecCtx = avcodec_alloc_context3(dec);
+    avcodec_parameters_to_context(m_overlayCodecCtx, par);
+    if (m_overlayCodecCtx->sample_rate <= 0)  m_overlayCodecCtx->sample_rate = 44100;
+    if (m_overlayCodecCtx->ch_layout.nb_channels <= 0) {
+        AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+        av_channel_layout_copy(&m_overlayCodecCtx->ch_layout, &stereo);
+    }
+    if (avcodec_open2(m_overlayCodecCtx, dec, nullptr) < 0) {
+        avcodec_free_context(&m_overlayCodecCtx);
+        avformat_close_input(&m_overlayFmtCtx);
+        m_overlayStreamIdx = -1;
+        return false;
+    }
+
+    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+    int sret = swr_alloc_set_opts2(&m_overlaySwrCtx,
+                    &stereo,                              AV_SAMPLE_FMT_FLTP, 44100,
+                    &m_overlayCodecCtx->ch_layout,        m_overlayCodecCtx->sample_fmt,
+                    m_overlayCodecCtx->sample_rate,
+                    0, nullptr);
+    if (sret < 0 || swr_init(m_overlaySwrCtx) < 0) {
+        if (m_overlaySwrCtx) { swr_free(&m_overlaySwrCtx); m_overlaySwrCtx = nullptr; }
+        avcodec_free_context(&m_overlayCodecCtx);
+        avformat_close_input(&m_overlayFmtCtx);
+        m_overlayStreamIdx = -1;
+        return false;
+    }
+
+    m_overlayFifo = av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP, 2, m_audioSamplesPerFrame * 8);
+
+    m_overlayAudioRunning = true;
+    m_overlayAudioThread  = std::thread(&StreamOutput::overlayAudioLoop, this);
+    fprintf(stderr, "StreamOutput: overlay audio '%s' %dHz %dch\n",
+            path.c_str(), m_overlayCodecCtx->sample_rate,
+            m_overlayCodecCtx->ch_layout.nb_channels);
+    return true;
+}
+
+void StreamOutput::overlayAudioLoop() {
+    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+    AVPacket* pkt = av_packet_alloc();
+    AVFrame*  dec = av_frame_alloc();
+    AVFrame*  res = av_frame_alloc();
+
+    while (m_overlayAudioRunning) {
+        int ret = av_read_frame(m_overlayFmtCtx, pkt);
+        if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
+            if (ret == AVERROR_EOF) {
+                // Loop: seek back to the beginning
+                av_seek_frame(m_overlayFmtCtx, m_overlayStreamIdx, 0, AVSEEK_FLAG_BACKWARD);
+                avcodec_flush_buffers(m_overlayCodecCtx);
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            continue;
+        }
+        if (ret < 0) break;
+        if (pkt->stream_index != m_overlayStreamIdx) { av_packet_unref(pkt); continue; }
+
+        avcodec_send_packet(m_overlayCodecCtx, pkt);
+        av_packet_unref(pkt);
+
+        while (avcodec_receive_frame(m_overlayCodecCtx, dec) == 0) {
+            if (dec->nb_samples <= 0) { av_frame_unref(dec); continue; }
+
+            int64_t delay = swr_get_delay(m_overlaySwrCtx, m_overlayCodecCtx->sample_rate);
+            int outSamples = (int)av_rescale_rnd(delay + dec->nb_samples,
+                44100, m_overlayCodecCtx->sample_rate, AV_ROUND_UP);
+            if (outSamples <= 0) { av_frame_unref(dec); continue; }
+
+            res->format      = AV_SAMPLE_FMT_FLTP;
+            res->sample_rate = 44100;
+            res->nb_samples  = outSamples;
+            av_channel_layout_copy(&res->ch_layout, &stereo);
+            if (av_frame_get_buffer(res, 0) < 0) { av_frame_unref(dec); continue; }
+
+            int converted = swr_convert(m_overlaySwrCtx,
+                                        res->data, outSamples,
+                                        (const uint8_t**)dec->data, dec->nb_samples);
+            if (converted > 0) {
+                // Throttle: don't let the FIFO grow beyond 2 seconds of audio
+                while (m_overlayAudioRunning &&
+                       av_audio_fifo_size(m_overlayFifo) > 44100 * 2) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                std::lock_guard<std::mutex> lk(m_overlayFifoMtx);
+                av_audio_fifo_write(m_overlayFifo, (void**)res->data, converted);
+            }
+            av_frame_unref(res);
+            av_frame_unref(dec);
+        }
+    }
+
+    av_frame_free(&res);
+    av_frame_free(&dec);
+    av_packet_free(&pkt);
+}
+
+void StreamOutput::closeOverlayAudio() {
+    if (m_overlayAudioRunning) {
+        m_overlayAudioRunning = false;
+        if (m_overlayAudioThread.joinable()) m_overlayAudioThread.join();
+    }
+    if (m_overlayFifo)       { av_audio_fifo_free(m_overlayFifo);        m_overlayFifo      = nullptr; }
+    if (m_overlaySwrCtx)     { swr_free(&m_overlaySwrCtx);               m_overlaySwrCtx    = nullptr; }
+    if (m_overlayCodecCtx)   { avcodec_free_context(&m_overlayCodecCtx); m_overlayCodecCtx  = nullptr; }
+    if (m_overlayFmtCtx)     { avformat_close_input(&m_overlayFmtCtx);   m_overlayFmtCtx    = nullptr; }
+    m_overlayStreamIdx = -1;
+}
+
+void StreamOutput::applyOverlayMix(float** dst, int nbSamples) {
+    if (!m_overlayFifo || overlayAudioBlend <= 0.0f) return;
+    std::vector<float> tmpL(nbSamples, 0.0f), tmpR(nbSamples, 0.0f);
+    float* tmp[2] = { tmpL.data(), tmpR.data() };
+    int got;
+    {
+        std::lock_guard<std::mutex> lk(m_overlayFifoMtx);
+        got = av_audio_fifo_read(m_overlayFifo, (void**)tmp, nbSamples);
+    }
+    float b = overlayAudioBlend, a = 1.0f - b;
+    for (int i = 0; i < got; i++) {
+        dst[0][i] = dst[0][i] * a + tmpL[i] * b;
+        dst[1][i] = dst[1][i] * a + tmpR[i] * b;
+    }
 }
 
 // ── encoder selection ─────────────────────────────────────────────────────────
@@ -553,6 +709,10 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
         return false;
     }
 
+    // Open overlay audio from the video file (non-fatal if unavailable)
+    if (!overlayAudioPath.empty())
+        openOverlayAudio(overlayAudioPath);
+
     // Open each enabled destination sink
     int connected = 0;
     for (auto& sp : m_sinks)
@@ -596,8 +756,9 @@ bool StreamOutput::start(int width, int height, int bitrate_kbps_, int fps_) {
 void StreamOutput::stop() {
     if (!m_streaming) return;
 
-    // Stop capture thread before draining the shared AAC encoder
+    // Stop capture and overlay threads before draining the shared AAC encoder
     closeAudioCapture();
+    closeOverlayAudio();
 
     avcodec_send_frame(m_codecCtx, nullptr);
     while (avcodec_receive_packet(m_codecCtx, m_pkt) == 0) {
@@ -702,13 +863,18 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
         encodeAndDistribute(m_frame);
     }
 
-    // Push silent audio only when there is no live capture thread.
+    // Push audio only when there is no live capture thread.
     // When BlackHole is running, audioCaptureLoop() drives audio independently.
     if (!m_audioCaptureRunning && m_audioCtx && m_audioFrame) {
         int64_t targetSamples = m_pts * (int64_t)m_audioCtx->sample_rate / fps;
         while (m_audioPts < targetSamples) {
             m_audioFrame->pts = m_audioPts;
             m_audioPts += m_audioSamplesPerFrame;
+            // Silence frame: overlay mix writes overlay audio (or stays silent)
+            av_samples_set_silence(m_audioFrame->data, 0, m_audioFrame->nb_samples,
+                                   m_audioCtx->ch_layout.nb_channels,
+                                   (AVSampleFormat)m_audioFrame->format);
+            applyOverlayMix((float**)m_audioFrame->data, m_audioFrame->nb_samples);
             encodeAndDistributeAudio(m_audioFrame);
         }
     }

@@ -15,6 +15,8 @@ public:
     void bind(int unit = 0) const;
     GLuint id() const { return m_texId; }
     bool   valid() const { return m_texId != 0; }
+    int    width()  const { return m_w; }
+    int    height() const { return m_h; }
 
 private:
     GLuint m_texId = 0;

@@ -19,11 +19,12 @@ static const char* kShapeLabels[] = {"Circle", "Polygon", "Star", "Grid"};
 
 EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
                                 GlitchEngine& glitch, ColorSynth& colorSynth,
-                                VideoInput& videoIn, StreamOutput& streamOut,
+                                VideoInput& videoIn, VideoInput& overlayIn,
+                                StreamOutput& streamOut,
                                 MidiInput& midiIn, MidiOutput& midiOut,
                                 MidiMapper& midiMapper, MidiGenerator& midiGen)
     : m_engine(engine), m_blend(blend), m_glitch(glitch), m_colorSynth(colorSynth),
-      m_videoIn(videoIn), m_streamOut(streamOut),
+      m_videoIn(videoIn), m_overlayIn(overlayIn), m_streamOut(streamOut),
       m_midiIn(midiIn), m_midiOut(midiOut),
       m_midiMapper(midiMapper), m_midiGen(midiGen) {}
 
@@ -455,6 +456,43 @@ void EquationEditor::drawVideoPanel() {
                            m_videoIn.path().c_str());
     else
         ImGui::TextDisabled("No video loaded — click Browse to choose a file");
+
+    // ── Overlay video layer ───────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextUnformatted("Overlay Video Layer");
+    ImGui::SliderFloat("Blend##overlay", &m_engine.overlayBlend, 0.0f, 1.0f,
+                       "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 = fractal only   0.5 = 50/50   1 = overlay only\n"
+                          "Audio is mixed at the same ratio when streaming.");
+    if (ImGui::Button("Browse##ovr")) {
+        std::string picked = pickVideoFile();
+        if (!picked.empty()) {
+            snprintf(m_overlayPath, sizeof(m_overlayPath), "%s", picked.c_str());
+            m_overlayIn.open(picked);
+            m_streamOut.overlayAudioPath = picked;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Close##ovr")) {
+        m_overlayIn.close();
+        m_streamOut.overlayAudioPath = "";
+        m_overlayPath[0] = '\0';
+    }
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::InputText("##overlaypath", m_overlayPath, sizeof(m_overlayPath),
+                         ImGuiInputTextFlags_EnterReturnsTrue)) {
+        if (m_overlayPath[0] != '\0') {
+            m_overlayIn.open(m_overlayPath);
+            m_streamOut.overlayAudioPath = m_overlayPath;
+        }
+    }
+    if (m_overlayIn.isOpen())
+        ImGui::TextColored({0.4f,0.85f,1.0f,1.0f}, "Overlay: %dx%d  %s",
+                           m_overlayIn.width(), m_overlayIn.height(),
+                           m_overlayIn.path().c_str());
+    else
+        ImGui::TextDisabled("No overlay loaded — click Browse to choose a file");
 }
 
 // Common service presets: { display label, RTMP base URL }
@@ -1879,6 +1917,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
             m_bitrateKbps, m_resIndex,
             m_streamOut.audioDevice.c_str(), m_videoPath);
+    fprintf(f, "overlay_path=%s\noverlay_blend=%.3f\n",
+            m_overlayPath, m_engine.overlayBlend);
     fprintf(f, "surge_bank=%d\nsurge_patch=%d\nsurge_auto=%d\nsurge_adv_secs=%.2f\n",
             m_surgeBank, m_surgePatch, (int)m_surgeAutoAdvance, m_surgeAdvanceSecs);
     int ndest = m_streamOut.destCount();
@@ -2047,6 +2087,15 @@ void EquationEditor::loadSettings(const std::string& path) {
             strncpy(m_videoPath, vp.c_str(), sizeof(m_videoPath) - 1);
             m_videoIn.open(vp);
         }
+    }
+    {
+        std::string op = ini_s(m, "stream.overlay_path", "");
+        if (!op.empty()) {
+            strncpy(m_overlayPath, op.c_str(), sizeof(m_overlayPath) - 1);
+            m_overlayIn.open(op);
+            m_streamOut.overlayAudioPath = op;
+        }
+        m_engine.overlayBlend = ini_f(m, "stream.overlay_blend", m_engine.overlayBlend);
     }
     int ndest = ini_i(m, "stream.dest_count", 0);
     if (ndest > 0) {

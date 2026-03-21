@@ -107,6 +107,9 @@ endif()
 
 list(APPEND SOURCES
     src/audio/BeatDetector.cpp
+    src/milkdrop/MilkDropPreset.cpp
+    src/milkdrop/PresetParser.cpp
+    src/milkdrop/PresetManager.cpp
 )
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})

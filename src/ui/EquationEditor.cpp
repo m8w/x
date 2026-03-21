@@ -614,6 +614,7 @@ void EquationEditor::drawStreamPanel() {
         ImGui::Spacing();
     }
 
+    ImGui::PushID("stream_dests");
     for (int i = 0; i < m_streamOut.destCount(); i++) {
         DestSink& s = m_streamOut.dest(i);
         if (isRestreamDest(s)) continue; // already drawn above
@@ -668,6 +669,7 @@ void EquationEditor::drawStreamPanel() {
 
         ImGui::PopID();
     }
+    ImGui::PopID(); // "stream_dests"
     if (removeIdx >= 0) m_streamOut.removeDestination(removeIdx);
 
     // ── Add destination ───────────────────────────────────────────────────────
@@ -2179,6 +2181,7 @@ void EquationEditor::drawPresetsPanel() {
     }
 
     int deleteIdx = -1;
+    ImGui::PushID("preset_list");
     for (int i = 0; i < (int)m_presetList.size(); i++) {
         ImGui::PushID(i);
         if (ImGui::SmallButton("Load")) {
@@ -2192,6 +2195,7 @@ void EquationEditor::drawPresetsPanel() {
         ImGui::TextUnformatted(m_presetList[i].c_str());
         ImGui::PopID();
     }
+    ImGui::PopID(); // "preset_list"
 
     if (deleteIdx >= 0) {
         std::string p = AppSettings::presetPath(m_presetList[deleteIdx]);

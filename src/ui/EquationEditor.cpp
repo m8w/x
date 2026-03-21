@@ -776,13 +776,31 @@ void EquationEditor::drawStreamPanel() {
                                   m_bitrateKbps, 30);
         }
     } else {
+        // Record start time on the first frame we see streaming=true
+        if (!m_wasStreaming) {
+            m_streamStartTime = std::chrono::steady_clock::now();
+            m_wasStreaming = true;
+        }
+
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f,0.1f,0.1f,1.0f));
         if (ImGui::Button("Stop Stream  ■")) m_streamOut.stop();
         ImGui::PopStyleColor();
         ImGui::SameLine();
-        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE to %d destination(s)",
-                           m_streamOut.destCount());
+
+        // Elapsed time HH:MM:SS
+        auto elapsed = std::chrono::steady_clock::now() - m_streamStartTime;
+        int totalSec = (int)std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        int hh = totalSec / 3600;
+        int mm = (totalSec % 3600) / 60;
+        int ss = totalSec % 60;
+
+        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE  %02d:%02d:%02d  (%d dest)",
+                           hh, mm, ss, m_streamOut.destCount());
     }
+
+    // Reset timer state when not streaming
+    if (!m_streamOut.isStreaming())
+        m_wasStreaming = false;
 }
 
 // ── Animation Panel ───────────────────────────────────────────────────────────

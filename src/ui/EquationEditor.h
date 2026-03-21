@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
 #include "fractal/GlitchEngine.h"
@@ -47,6 +48,10 @@ private:
 
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";
+
+    // Stream timer
+    std::chrono::steady_clock::time_point m_streamStartTime;
+    bool m_wasStreaming = false;
 
     // Preset panel state
     char                     m_presetName[64] = "";

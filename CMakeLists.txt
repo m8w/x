@@ -100,7 +100,14 @@ set(SOURCES
 
 if(APPLE)
     list(APPEND SOURCES src/ui/FilePicker.mm)
+    list(APPEND SOURCES src/audio/AudioCapture_mac.mm)
+else()
+    list(APPEND SOURCES src/audio/AudioCapture_portaudio.cpp)
 endif()
+
+list(APPEND SOURCES
+    src/audio/BeatDetector.cpp
+)
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})
 
@@ -139,6 +146,8 @@ if(APPLE)
         "-framework CoreAudio"
         "-framework CoreFoundation"
         "-framework UniformTypeIdentifiers"
+        "-framework AVFoundation"
+        "-framework Accelerate"
         glfw
         ${FFMPEG_LIBRARIES}
         ${RTMIDI_LINK_LIBS}

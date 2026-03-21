@@ -120,6 +120,7 @@ list(APPEND SOURCES
     src/milkdrop/PresetParser.cpp
     src/milkdrop/PresetManager.cpp
     src/milkdrop/EquationEvaluator.cpp
+    src/milkdrop/MilkDropGLRenderer.cpp
 )
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})

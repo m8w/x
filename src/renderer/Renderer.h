@@ -23,6 +23,9 @@ public:
     // Returns pointer to internal buffer (valid until next call).
     const uint8_t* fboPixels(int width, int height);
 
+    // Expose the fractal FBO texture for MilkDropGLRenderer composite pass.
+    GLuint fboTexture() const { return m_fboTex; }
+
 private:
     ShaderProgram m_shaderBlend;      // fractal.vert + fractal.frag
     ShaderProgram m_shaderBulb;       // fractal.vert + mandelbulb.frag

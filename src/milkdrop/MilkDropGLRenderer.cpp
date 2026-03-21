@@ -470,3 +470,11 @@ void MilkDropGLRenderer::renderBlendPass() {
     std::swap(m_outputTex, m_blendTex);
     std::swap(m_outFbo,    m_blendFbo);
 }
+
+const uint8_t* MilkDropGLRenderer::readPixels(int w, int h) {
+    m_readPixBuf.resize((size_t)w * h * 3);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_outFbo);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, m_readPixBuf.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    return m_readPixBuf.data();
+}

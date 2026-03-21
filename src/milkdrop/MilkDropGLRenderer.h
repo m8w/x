@@ -5,6 +5,8 @@
 #include "EquationEvaluator.h"
 #include "../audio/IAudioCapture.h"
 #include <string>
+#include <vector>
+#include <cstdint>
 
 // ---------------------------------------------------------------------------
 // MilkDropGLRenderer — OpenGL port of MilkDropRenderer.swift (Metal)
@@ -47,6 +49,10 @@ public:
 
     // Output texture (the final composite — bind as input to RTMP readback).
     GLuint outputTexture() const { return m_outputTex; }
+
+    // CPU readback of the output FBO for RTMP encode.
+    // Returns a pointer to an internal RGB buffer (valid until next call).
+    const uint8_t* readPixels(int w, int h);
 
     // True once init() succeeded.
     bool isReady() const { return m_ready; }
@@ -110,4 +116,7 @@ private:
     bool m_ready = false;
 
     std::string m_shadersDir;
+
+    // CPU readback buffer (resized on demand)
+    std::vector<uint8_t> m_readPixBuf;
 };

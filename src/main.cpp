@@ -19,6 +19,10 @@
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include "midi/MidiOutput.h"
+#include "audio/IAudioCapture.h"
+#include "audio/BeatDetector.h"
+#include "milkdrop/PresetManager.h"
+#include "milkdrop/MilkDropGLRenderer.h"
 
 #include <cstdio>
 #include <string>
@@ -81,6 +85,12 @@ int main(int argc, char** argv) {
     EquationEditor ui(engine, blend, glitchEng, colorSynth,
                       videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
 
+    // MilkDrop subsystems
+    auto           audioCapture = createAudioCapture();
+    BeatDetector   beatDet;
+    PresetManager  presetMgr;
+    MilkDropGLRenderer mdRenderer;
+
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
     if (remote.start(7777)) {
@@ -101,6 +111,15 @@ int main(int argc, char** argv) {
     }
 
     renderer.init();
+
+    // MilkDrop init (must happen after GL context is current)
+    mdRenderer.init(std::string(SHADERS_DIR));
+    presetMgr.loadAll();
+    presetMgr.onPresetChanged = [&](MilkDropPreset& p, TransitionType t) {
+        mdRenderer.beginTransition(p, (int)t, 2.5f);
+    };
+    audioCapture->start();
+    ui.setMilkDrop(&presetMgr, &mdRenderer, audioCapture.get(), &beatDet);
 
     // Restore last session (before argv override so explicit path wins)
     ui.loadSettings(AppSettings::lastPath());
@@ -167,15 +186,34 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Poll audio + detect beats
+        AudioData audio = audioCapture->poll();
+        beatDet.process(audio);
+
         // Render fractal + video blend
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
 
         renderer.render(fw, fh, t, engine, blend, videoTex, colorSynth);
 
+        // Render MilkDrop frame (if ready)
+        if (mdRenderer.isReady()) {
+            mdRenderer.resize(fw, fh);
+            GLuint fracTex = ui.streamMilkDrop() ? 0 : renderer.fboTexture();
+            mdRenderer.render(t, dt, audio, fracTex, ui.mdFractalBlend());
+
+            // Hardcut-triggered preset advance
+            if (beatDet.hardcutFired && presetMgr.totalCount() > 0)
+                presetMgr.randomPreset(TransitionType::Hardcut);
+        }
+
         // Encode frame for RTMP if streaming
         if (streamOut.isStreaming()) {
-            streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
+            if (mdRenderer.isReady() && ui.streamMilkDrop()) {
+                streamOut.pushFrame(mdRenderer.readPixels(fw, fh), fw, fh);
+            } else {
+                streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
+            }
         }
 
         // ImGui overlay

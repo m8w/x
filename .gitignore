@@ -1,0 +1,14 @@
+# Build output
+build/
+
+# Third-party submodules (managed via git submodule)
+third_party/glm/
+third_party/imgui/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+*.xcodeproj/
+*.xcworkspace/

@@ -1886,6 +1886,36 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 i, mm.minVal, i, mm.maxVal, i, mm.label);
     }
 
+    // [milkdrop]
+    fprintf(f, "\n[milkdrop]\n");
+    fprintf(f, "stream_milkdrop=%d\n", (int)m_streamMilkDrop);
+    fprintf(f, "fractal_overlay=%d\nfractal_blend=%f\n",
+            (int)m_mdFractalOverlay, m_mdFractalBlend);
+    fprintf(f, "blend_type=%d\n", m_mdBlendType);
+    fprintf(f, "auto_advance=%d\npreset_duration=%f\n",
+            (int)m_mdAutoAdvance, m_mdPresetDuration);
+    // Persist the current preset path so we can restore it on next launch
+    if (m_presetMgr) {
+        const auto* cur = m_presetMgr->current();
+        fprintf(f, "last_preset=%s\n", cur ? cur->path.c_str() : "");
+    }
+
+    // [beatdetector]
+    fprintf(f, "\n[beatdetector]\n");
+    if (m_beatDet) {
+        fprintf(f, "mode=%d\n", (int)m_beatDet->hardcutMode);
+        fprintf(f, "low_thresh=%f\nhigh_thresh=%f\nmin_delay=%f\n",
+                m_beatDet->hardcutLowThreshold,
+                m_beatDet->hardcutHighThreshold,
+                (float)m_beatDet->hardcutMinDelay);
+    }
+
+    // [audio]
+    fprintf(f, "\n[audio]\n");
+    if (m_audio) {
+        fprintf(f, "device=%s\n", m_audio->currentDevice().c_str());
+    }
+
     // [stream]
     fprintf(f, "\n[stream]\n");
     fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
@@ -2039,6 +2069,44 @@ void EquationEditor::loadSettings(const std::string& path) {
             std::string lbl = ini_s(m, pfx + "_label", "");
             strncpy(mm.label, lbl.c_str(), sizeof(mm.label) - 1);
             m_midiMapper.add(mm);
+        }
+    }
+
+    // [milkdrop]
+    m_streamMilkDrop   = ini_b(m, "milkdrop.stream_milkdrop",  m_streamMilkDrop);
+    m_mdFractalOverlay = ini_b(m, "milkdrop.fractal_overlay",  m_mdFractalOverlay);
+    m_mdFractalBlend   = ini_f(m, "milkdrop.fractal_blend",    m_mdFractalBlend);
+    m_mdBlendType      = ini_i(m, "milkdrop.blend_type",       m_mdBlendType);
+    m_mdAutoAdvance    = ini_b(m, "milkdrop.auto_advance",     m_mdAutoAdvance);
+    m_mdPresetDuration = ini_f(m, "milkdrop.preset_duration",  m_mdPresetDuration);
+    if (m_mdRenderer)
+        m_mdRenderer->fractalEnabled = m_mdFractalOverlay;
+    {
+        std::string lp = ini_s(m, "milkdrop.last_preset", "");
+        if (!lp.empty() && m_presetMgr)
+            m_presetMgr->selectByPath(lp, TransitionType::Instant);
+    }
+
+    // [beatdetector]
+    if (m_beatDet) {
+        m_beatDet->hardcutMode           = (BeatDetector::HardcutMode)
+                                           ini_i(m, "beatdetector.mode",
+                                                 (int)m_beatDet->hardcutMode);
+        m_beatDet->hardcutLowThreshold   = ini_f(m, "beatdetector.low_thresh",
+                                                 m_beatDet->hardcutLowThreshold);
+        m_beatDet->hardcutHighThreshold  = ini_f(m, "beatdetector.high_thresh",
+                                                 m_beatDet->hardcutHighThreshold);
+        m_beatDet->hardcutMinDelay       = (double)ini_f(m, "beatdetector.min_delay",
+                                                 (float)m_beatDet->hardcutMinDelay);
+    }
+
+    // [audio]
+    if (m_audio) {
+        std::string dev = ini_s(m, "audio.device", "");
+        if (!dev.empty()) {
+            m_audio->stop();
+            m_audio->setDevice(dev);
+            m_audio->start();
         }
     }
 

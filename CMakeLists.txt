@@ -18,9 +18,18 @@ if(APPLE)
 endif()
 
 # ── Third-party (submodules + bundled) ───────────────────────────────────────
-set(IMGUI_DIR  ${CMAKE_SOURCE_DIR}/third_party/imgui)
-set(GLM_DIR    ${CMAKE_SOURCE_DIR}/third_party/glm)
-set(RTMIDI_DIR ${CMAKE_SOURCE_DIR}/third_party/rtmidi)
+set(IMGUI_DIR       ${CMAKE_SOURCE_DIR}/third_party/imgui)
+set(GLM_DIR         ${CMAKE_SOURCE_DIR}/third_party/glm)
+set(RTMIDI_DIR      ${CMAKE_SOURCE_DIR}/third_party/rtmidi)
+set(PROJECTM_EVAL_DIR ${CMAKE_SOURCE_DIR}/third_party/projectm-eval)
+
+# ── projectm-eval (MilkDrop expression evaluator) ────────────────────────────
+# Use float (4) instead of double (8) to match our GPU uniform precision.
+set(PROJECTM_EVAL_FLOAT_SIZE "4" CACHE STRING "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(BUILD_NS_EEL_SHIM OFF CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECTM_EVAL_DIR} ${CMAKE_BINARY_DIR}/projectm-eval EXCLUDE_FROM_ALL)
 
 # ── System packages ───────────────────────────────────────────────────────────
 find_package(OpenGL REQUIRED)
@@ -110,6 +119,7 @@ list(APPEND SOURCES
     src/milkdrop/MilkDropPreset.cpp
     src/milkdrop/PresetParser.cpp
     src/milkdrop/PresetManager.cpp
+    src/milkdrop/EquationEvaluator.cpp
 )
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})
@@ -121,6 +131,7 @@ target_include_directories(fractal_stream PRIVATE
     ${GLM_DIR}
     ${FFMPEG_INCLUDE_DIRS}
     ${RTMIDI_EXTRA_INCLUDES}
+    ${PROJECTM_EVAL_DIR}
 )
 
 target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
@@ -154,6 +165,7 @@ if(APPLE)
         glfw
         ${FFMPEG_LIBRARIES}
         ${RTMIDI_LINK_LIBS}
+        projectM_eval
     )
 else()
     target_link_libraries(fractal_stream PRIVATE
@@ -162,6 +174,7 @@ else()
         glfw
         ${FFMPEG_LIBRARIES}
         ${RTMIDI_LINK_LIBS}
+        projectM_eval
         pthread
     )
 endif()

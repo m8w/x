@@ -1,0 +1,138 @@
+#pragma once
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/audio_fifo.h>
+#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include <libavdevice/avdevice.h>
+}
+#include <string>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+
+// One RTMP destination (YouTube, Twitch, etc.)
+struct DestSink {
+    std::string  name;
+    std::string  url;
+    bool         enabled   = true;
+    bool         connected = false;     // set by StreamOutput::start()
+
+    // FFmpeg mux context for this destination (one per sink)
+    AVFormatContext* fmtCtx        = nullptr;
+    AVStream*        avStream      = nullptr;  // video
+    AVStream*        audioStream   = nullptr;  // audio (AAC silent track)
+
+    // Background send thread + packet queue (so a slow sink can't stall others)
+    std::thread             thread;
+    std::mutex              mtx;
+    std::condition_variable cv;
+    std::queue<AVPacket*>   queue;
+    std::atomic<bool>       running{false};
+};
+
+// Encodes rendered OpenGL frames once, then fans the bitstream out to every
+// enabled DestSink over RTMP simultaneously on per-sink background threads.
+class StreamOutput {
+public:
+    StreamOutput();
+    ~StreamOutput();
+
+    // ── Destination management (safe to call before start() or after stop()) ──
+    void addDestination(const std::string& name, const std::string& url);
+    void removeDestination(int idx);
+    int  destCount() const { return (int)m_sinks.size(); }
+    DestSink&       dest(int i)       { return *m_sinks[i]; }
+    const DestSink& dest(int i) const { return *m_sinks[i]; }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    bool start(int width, int height, int bitrate_kbps = 4000, int fps = 30);
+    void stop();
+    bool isStreaming() const { return m_streaming; }
+
+    // data = packed RGB24 pixels from glReadPixels, row 0 = bottom-left
+    void pushFrame(const uint8_t* rgbData, int width, int height);
+
+    // Settings (apply before start())
+    int         bitrate_kbps = 4000;
+    int         fps          = 30;
+    // Audio capture device (macOS avfoundation name, e.g. "BlackHole 2ch").
+    // Default "" = silent AAC track (safe on machines without BlackHole).
+    std::string audioDevice  = "";
+    // Overlay video file: audio track is decoded and mixed into the stream.
+    // Set before start(); changing while streaming restarts the overlay decoder.
+    std::string overlayAudioPath  = "";
+    float       overlayAudioBlend = 0.5f; // 0=no overlay  1=overlay only
+
+private:
+    std::vector<std::unique_ptr<DestSink>> m_sinks;
+
+    // Shared encoder — encode once, clone packet per sink
+    AVCodecContext* m_codecCtx  = nullptr;
+    SwsContext*     m_swsCtx    = nullptr;
+    AVFrame*        m_frame     = nullptr;
+    AVPacket*       m_pkt       = nullptr;
+    int64_t         m_pts       = 0;
+    bool            m_streaming = false;
+    int             m_width     = 0;
+    int             m_height    = 0;
+    // Track SwsContext input dimensions — recreate if window size changes
+    int             m_swsInW    = 0;
+    int             m_swsInH    = 0;
+
+    // Wall-clock rate limiter — prevents sending faster than realtime
+    std::chrono::steady_clock::time_point m_lastFrameTime{};
+
+    // m_hwDeviceCtx is non-null only when using VAAPI
+    AVBufferRef* m_hwDeviceCtx = nullptr;
+    AVFrame*     m_hwFrame     = nullptr;  // VAAPI hw-side upload frame
+    bool         m_vaapi       = false;
+
+    // AAC encoder (shared — encodes either silence or captured audio)
+    AVCodecContext* m_audioCtx            = nullptr;
+    AVFrame*        m_audioFrame          = nullptr;   // silence fallback frame
+    int64_t         m_audioPts            = 0;
+    int             m_audioSamplesPerFrame = 1024;
+
+    // avfoundation audio capture (macOS — BlackHole 2ch or any input device)
+    AVFormatContext* m_captureFmtCtx      = nullptr;
+    AVCodecContext*  m_captureCodecCtx    = nullptr;
+    SwrContext*      m_swrCtx             = nullptr;
+    int              m_captureStreamIdx   = -1;
+    std::thread      m_audioCaptureThread;
+    std::atomic<bool> m_audioCaptureRunning{false};
+
+    // Overlay audio: decode a video file's audio track, mix into the stream
+    AVFormatContext* m_overlayFmtCtx      = nullptr;
+    AVCodecContext*  m_overlayCodecCtx    = nullptr;
+    SwrContext*      m_overlaySwrCtx      = nullptr;
+    int              m_overlayStreamIdx   = -1;
+    AVAudioFifo*     m_overlayFifo        = nullptr;
+    std::mutex       m_overlayFifoMtx;
+    std::thread      m_overlayAudioThread;
+    std::atomic<bool> m_overlayAudioRunning{false};
+
+    bool tryOpenEncoder(const char* name, bool vaapi, int width, int height);
+    bool openAudioEncoder();
+    bool openAudioCapture(const std::string& device);
+    void audioCaptureLoop();
+    void closeAudioCapture();
+    bool openOverlayAudio(const std::string& path);
+    void overlayAudioLoop();
+    void closeOverlayAudio();
+    // Mix overlay samples (FLTP stereo) into dst in-place, scaled by overlayAudioBlend
+    void applyOverlayMix(float** dst, int nbSamples);
+    bool openSink(DestSink& s);
+    void closeSink(DestSink& s);
+    void sinkThreadFunc(DestSink& s);
+    void encodeAndDistribute(AVFrame* frame);
+    void encodeAndDistributeAudio(AVFrame* frame);
+};

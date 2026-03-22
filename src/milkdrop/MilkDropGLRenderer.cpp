@@ -57,7 +57,9 @@ void MilkDropGLRenderer::init(const std::string& shadersDir) {
     std::string vert = shadersDir + "/fractal.vert";  // reuse existing quad vert
 
     bool ok = true;
-    ok &= m_warpShader     .load(vert, shadersDir + "/milkdrop_warp.frag");
+    // Use new mesh warp vertex shader instead of fractal.vert
+    ok &= m_warpShader     .load(shadersDir + "/milkdrop_warp.vert",
+                                  shadersDir + "/milkdrop_warp.frag");
     ok &= m_waveShader     .load(shadersDir + "/milkdrop_wave.vert",
                                  shadersDir + "/milkdrop_wave.frag");
     ok &= m_shapeShader    .load(shadersDir + "/milkdrop_shapes.vert",
@@ -89,6 +91,17 @@ void MilkDropGLRenderer::init(const std::string& shadersDir) {
     glBindBuffer(GL_ARRAY_BUFFER, m_shapeVBO);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, nullptr);
+    glBindVertexArray(0);
+
+    // Warp mesh VAO/VBO (4 floats per vertex: NDC_x, NDC_y, src_uv_x, src_uv_y)
+    glGenVertexArrays(1, &m_meshVAO);
+    glGenBuffers(1, &m_meshVBO);
+    glBindVertexArray(m_meshVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_meshVBO);
+    glEnableVertexAttribArray(0);  // a_pos
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float)*4, (void*)0);
+    glEnableVertexAttribArray(1);  // a_uv
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float)*4, (void*)(sizeof(float)*2));
     glBindVertexArray(0);
 
     m_ready = true;
@@ -150,6 +163,8 @@ MilkDropGLRenderer::~MilkDropGLRenderer() {
     if (m_waveVAO)  glDeleteVertexArrays(1, &m_waveVAO);
     if (m_shapeVBO) glDeleteBuffers(1, &m_shapeVBO);
     if (m_shapeVAO) glDeleteVertexArrays(1, &m_shapeVAO);
+    if (m_meshVBO)  glDeleteBuffers(1, &m_meshVBO);
+    if (m_meshVAO)  glDeleteVertexArrays(1, &m_meshVAO);
 }
 
 void MilkDropGLRenderer::resize(int w, int h) {
@@ -254,7 +269,6 @@ void MilkDropGLRenderer::render(float time, float dt,
     // Restore framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
 
-    (void)readTex; (void)writeFBO; // suppress unused warnings
 }
 
 // ---------------------------------------------------------------------------
@@ -265,30 +279,95 @@ void MilkDropGLRenderer::renderWarpPass(float time) {
     GLuint readTex  = m_pingPong ? m_warpTexA : m_warpTexB;  // note: already toggled
     GLuint writeFbo = m_pingPong ? m_warpFboB : m_warpFboA;
 
+    // ── Build displaced mesh on CPU ───────────────────────────────────────
+    float aspect = (m_h > 0) ? (float)m_w / (float)m_h : 1.f;
+
+    // Compute per-vertex source UVs: MESH_W * MESH_H grid
+    // Each vertex: [NDC_x, NDC_y, src_u, src_v]
+    static thread_local std::vector<float> meshVerts;
+    const int GW = MESH_W, GH = MESH_H;
+    const int quadCount = (GW-1) * (GH-1);
+    meshVerts.resize(quadCount * 6 * 4);  // 6 verts/quad (2 triangles), 4 floats/vert
+
+    // Per-vertex UV helper — computes source UV from (possibly preset-modified) params
+    auto computeSrcUV = [&](float vx, float vy, const EquationEvaluator::VertexParams& p)
+        -> std::pair<float,float>
+    {
+        float cx  = p.cx, cy  = p.cy;
+        float zoom = std::max(p.zoom, 0.001f);
+        float dx  = p.dx, dy  = p.dy;
+        float sx  = p.sx, sy  = p.sy;
+        float rot  = p.rot;
+        float warp = std::max(p.warp, 0.5f);
+
+        float uvCx = (vx - cx) * aspect;
+        float uvCy = (vy - cy);
+        uvCx /= zoom; uvCy /= zoom;
+        float c = cosf(rot), s = sinf(rot);
+        float rx = uvCx*c - uvCy*s, ry = uvCx*s + uvCy*c;
+        uvCx = rx; uvCy = ry;
+        uvCx *= sx; uvCy *= sy;
+        uvCx += dx * 2.0f; uvCy += dy * 2.0f;
+        float t2 = time * warp * 0.5f;
+        uvCx += sinf(t2*1.11f + uvCy*3.0f) * warp * 0.03f;
+        uvCy += cosf(t2*0.93f + uvCx*2.5f) * warp * 0.03f;
+        return { uvCx / aspect + cx, uvCy + cy };
+    };
+
+    // Build 2D grid first, then triangulate
+    struct V4 { float px, py, ux, uy; };
+    static thread_local std::vector<V4> grid;
+    grid.resize(GW * GH);
+    for (int r = 0; r < GH; ++r) {
+        for (int c = 0; c < GW; ++c) {
+            float vx = (float)c / (float)(GW-1);
+            float vy = (float)r / (float)(GH-1);
+            EquationEvaluator::VertexParams vp;
+            m_evaluator.evaluateVertex(vx, vy, m_uniforms, vp);
+            auto [su, sv] = computeSrcUV(vx, vy, vp);
+            grid[r*GW+c] = { vx*2.f-1.f, vy*2.f-1.f, su, sv };
+        }
+    }
+    // Triangulate (2 triangles per quad)
+    int idx = 0;
+    for (int r = 0; r < GH-1; ++r) {
+        for (int c = 0; c < GW-1; ++c) {
+            V4* vs[4] = {
+                &grid[ r   *GW+c],   // TL
+                &grid[(r+1)*GW+c],   // BL
+                &grid[ r   *GW+c+1], // TR
+                &grid[(r+1)*GW+c+1]  // BR
+            };
+            // Tri 1: TL, BL, TR
+            // Tri 2: BL, BR, TR
+            for (auto* v : {vs[0],vs[1],vs[2], vs[1],vs[3],vs[2]}) {
+                meshVerts[idx++] = v->px;
+                meshVerts[idx++] = v->py;
+                meshVerts[idx++] = v->ux;
+                meshVerts[idx++] = v->uy;
+            }
+        }
+    }
+
+    // ── Upload and render ─────────────────────────────────────────────────
     glBindFramebuffer(GL_FRAMEBUFFER, writeFbo);
     glViewport(0, 0, m_w, m_h);
 
     m_warpShader.use();
-    m_warpShader.setFloat("u_time",   time);
-    m_warpShader.setFloat("u_zoom",   m_uniforms.zoom);
-    m_warpShader.setFloat("u_rot",    m_uniforms.rot);
-    m_warpShader.setFloat("u_warp",   m_uniforms.warp);
-    m_warpShader.setFloat("u_cx",     m_uniforms.cx);
-    m_warpShader.setFloat("u_cy",     m_uniforms.cy);
-    m_warpShader.setFloat("u_dx",     m_uniforms.dx);
-    m_warpShader.setFloat("u_dy",     m_uniforms.dy);
-    m_warpShader.setFloat("u_sx",     m_uniforms.sx);
-    m_warpShader.setFloat("u_sy",     m_uniforms.sy);
-    m_warpShader.setFloat("u_decay",  m_uniforms.decay);
-    m_warpShader.setFloat("u_gamma",  m_uniforms.gamma);
-    float aspect = (m_h > 0) ? (float)m_w / (float)m_h : 1.f;
-    m_warpShader.setFloat("u_aspect", aspect);
+    m_warpShader.setFloat("u_decay", m_uniforms.decay);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, readTex);
     m_warpShader.setInt("u_prev", 0);
 
-    renderFullscreenQuad();
+    glBindVertexArray(m_meshVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_meshVBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 (GLsizeiptr)(meshVerts.size() * sizeof(float)),
+                 meshVerts.data(), GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(meshVerts.size() / 4));
+    glBindVertexArray(0);
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 

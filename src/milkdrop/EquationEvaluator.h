@@ -76,6 +76,18 @@ public:
     // True once loadPreset() has successfully compiled at least one equation.
     bool isReady() const { return m_ready; }
 
+    // Evaluate per-vertex equations for one mesh point.
+    // vx, vy in [0,1] screen UV space.
+    // Outputs the (possibly preset-modified) warp parameters for this vertex.
+    // If no per_pixel equations, output = copy of globals.
+    struct VertexParams {
+        float zoom, rot, warp;
+        float cx, cy, dx, dy, sx, sy;
+    };
+    void evaluateVertex(float vx, float vy,
+                        const MilkDropUniforms& globals,
+                        VertexParams& out);
+
 private:
     void destroyContext();
     void buildContext(const PresetParameters& params);
@@ -106,6 +118,15 @@ private:
     float* m_frame = nullptr; float* m_progress = nullptr;
     // q-variables
     float* m_q[32]{};
+
+    // Per-vertex position inputs (written before each vertex eval)
+    float* m_x   = nullptr;
+    float* m_y   = nullptr;
+    float* m_rad = nullptr;
+    float* m_ang = nullptr;
+
+    // Per-vertex equations
+    struct projectm_eval_code* m_perVertex = nullptr;
 
     bool m_ready = false;
     bool m_initRan = false;   // per_frame_init runs exactly once per loadPreset()

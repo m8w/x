@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <sstream>
 
 // Required stubs — single-threaded, no locking needed
@@ -20,6 +21,7 @@ EquationEvaluator::EquationEvaluator()  = default;
 EquationEvaluator::~EquationEvaluator() { destroyContext(); }
 
 void EquationEvaluator::destroyContext() {
+    if (m_perVertex) { projectm_eval_code_destroy(m_perVertex); m_perVertex = nullptr; }
     if (m_perFrame) { projectm_eval_code_destroy(m_perFrame); m_perFrame = nullptr; }
     if (m_init)     { projectm_eval_code_destroy(m_init);     m_init     = nullptr; }
     if (m_ctx)      { projectm_eval_context_destroy(m_ctx);   m_ctx      = nullptr; }
@@ -99,7 +101,22 @@ void EquationEvaluator::buildContext(const PresetParameters& params) {
         }
     }
 
-    m_ready = (m_init != nullptr || m_perFrame != nullptr);
+    // per_pixel (per-vertex) — runs once per mesh vertex
+    std::string perVertexCode = joinEqs(params.perVertex);
+    if (!perVertexCode.empty()) {
+        m_perVertex = projectm_eval_code_compile(m_ctx, perVertexCode.c_str());
+        if (!m_perVertex) {
+            int line, col;
+            fprintf(stderr, "[EquationEvaluator] per_pixel compile error: %s (L%d C%d)\n",
+                    projectm_eval_get_error(m_ctx, &line, &col), line, col);
+        }
+    }
+    // Register per-vertex position variables
+    m_x   = reg(m_ctx, "x");
+    m_y   = reg(m_ctx, "y");
+    m_rad = reg(m_ctx, "rad");
+    m_ang = reg(m_ctx, "ang");
+    m_ready = (m_init != nullptr || m_perFrame != nullptr || m_perVertex != nullptr);
 }
 
 void EquationEvaluator::loadPreset(const MilkDropPreset& preset) {
@@ -188,4 +205,51 @@ void EquationEvaluator::evaluate(MilkDropUniforms& u,
     u.bass   = audio.bass;  u.mid    = audio.mid;
     u.treble = audio.treble; u.vol   = audio.rms;
     u.time   = time;  u.fps = fps;  u.frame = frame;
+}
+
+// ---------------------------------------------------------------------------
+// evaluateVertex — run per_pixel equations for one mesh vertex
+// ---------------------------------------------------------------------------
+
+void EquationEvaluator::evaluateVertex(float vx, float vy,
+                                        const MilkDropUniforms& globals,
+                                        VertexParams& out) {
+    // Always start with globals
+    out = { globals.zoom, globals.rot, globals.warp,
+            globals.cx,   globals.cy,  globals.dx,
+            globals.dy,   globals.sx,  globals.sy  };
+
+    if (!m_ctx || !m_perVertex) return;
+
+    // Seed view variables to per-frame values so equations start from there
+    if (m_zoom) *m_zoom = globals.zoom;
+    if (m_rot)  *m_rot  = globals.rot;
+    if (m_warp) *m_warp = globals.warp;
+    if (m_cx)   *m_cx   = globals.cx;
+    if (m_cy)   *m_cy   = globals.cy;
+    if (m_dx)   *m_dx   = globals.dx;
+    if (m_dy)   *m_dy   = globals.dy;
+    if (m_sx)   *m_sx   = globals.sx;
+    if (m_sy)   *m_sy   = globals.sy;
+
+    // Set per-vertex position inputs (MilkDrop convention: [-1,1])
+    float x = vx * 2.0f - 1.0f;
+    float y = vy * 2.0f - 1.0f;
+    if (m_x)   *m_x   = x;
+    if (m_y)   *m_y   = y;
+    if (m_rad) *m_rad = sqrtf(x*x + y*y);
+    if (m_ang) *m_ang = atan2f(y, x);
+
+    projectm_eval_code_execute(m_perVertex);
+
+    // Read back modified values
+    if (m_zoom) out.zoom = *m_zoom;
+    if (m_rot)  out.rot  = *m_rot;
+    if (m_warp) out.warp = *m_warp;
+    if (m_cx)   out.cx   = *m_cx;
+    if (m_cy)   out.cy   = *m_cy;
+    if (m_dx)   out.dx   = *m_dx;
+    if (m_dy)   out.dy   = *m_dy;
+    if (m_sx)   out.sx   = *m_sx;
+    if (m_sy)   out.sy   = *m_sy;
 }

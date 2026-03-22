@@ -97,12 +97,20 @@ private:
     GLuint m_blendFbo = 0, m_blendTex  = 0;
     bool   m_pingPong = false;
 
+    // Warp mesh dimensions
+    static constexpr int MESH_W = 32;
+    static constexpr int MESH_H = 24;
+
     // Empty VAO for fullscreen quad passes (core profile requires a VAO bound)
     GLuint m_quadVAO = 0;
 
     // Wave / shape geometry VAO + VBO (dynamic vertex data)
     GLuint m_waveVAO = 0, m_waveVBO = 0;
     GLuint m_shapeVAO = 0, m_shapeVBO = 0;
+
+    // Warp mesh VAO/VBO (rebuilt each frame with per-vertex displaced UVs)
+    GLuint m_meshVAO = 0;
+    GLuint m_meshVBO = 0;
 
     // Equation evaluator
     EquationEvaluator m_evaluator;

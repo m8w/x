@@ -136,7 +136,29 @@ PresetParameters PresetParser::parse(const std::string& text) {
                  key == "fvideoechozoom")             params.videoEchoAlpha      = get(0);
         else if (key == "fvideoechodecayzoom")       params.videoEchoZoom       = get(1);
         else if (key == "ivideoechodecayorientation")params.videoEchoOrientation = geti(0);
-        // (legacy keys silently ignored)
+        // Legacy top-level scalars (no "f" prefix — initial values for equations)
+        else if (key == "zoom")                      params.zoomAmount          = get(1);
+        else if (key == "rot")                       params.rotatAmount         = get(0);
+        else if (key == "warp")                      params.warpScale           = get(0);
+        else if (key == "decay")                     params.decay               = get(0.98f);
+        else if (key == "cx")                        params.centreX             = get(0.5f);
+        else if (key == "cy")                        params.centreY             = get(0.5f);
+        else if (key == "dx")                        params.warpX               = get(0);
+        else if (key == "dy")                        params.warpY               = get(0);
+        else if (key == "sx")                        params.szx                 = get(1);
+        else if (key == "sy")                        params.szy                 = get(1);
+        // Legacy global wave (nWaveMode format)
+        else if (key == "nwavemode")                 params.legacyWaveMode      = geti(0);
+        else if (key == "fwavealpha")                params.legacyWaveA         = get(0.8f);
+        else if (key == "fwavescale")                params.legacyWaveScale     = get(1);
+        else if (key == "fwavesmoothing")            params.legacyWaveSmooth    = get(0.5f);
+        else if (key == "fwaver")                    params.legacyWaveR         = get(1);
+        else if (key == "fwaveg")                    params.legacyWaveG         = get(1);
+        else if (key == "fwaveb")                    params.legacyWaveB         = get(1);
+        else if (key == "badditivewave" ||
+                 key == "badditivewaves")             params.legacyWaveAdditive  = geti(0) == 1;
+        else if (key == "bwavedots")                 params.legacyWaveDots      = geti(0) == 1;
+        // (other legacy keys silently ignored)
     }
 
     // ── Build wave objects ────────────────────────────────────────────────

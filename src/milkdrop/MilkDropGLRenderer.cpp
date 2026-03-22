@@ -43,8 +43,9 @@ void MilkDropGLRenderer::clearFBO(GLuint fbo, float r, float g, float b, float a
 }
 
 void MilkDropGLRenderer::renderFullscreenQuad() {
-    // fractal.vert generates positions from gl_VertexID — no VAO needed
-    glDrawArrays(GL_TRIANGLES, 0, 3);  // one oversized triangle covers the screen
+    glBindVertexArray(m_quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);  // fullscreen quad via gl_VertexID
+    glBindVertexArray(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,9 @@ void MilkDropGLRenderer::init(const std::string& shadersDir) {
         fprintf(stderr, "[MilkDropGLRenderer] Shader compilation failed\n");
         return;
     }
+
+    // Empty VAO for fullscreen quad passes (core profile requires a bound VAO)
+    glGenVertexArrays(1, &m_quadVAO);
 
     // Wave VAO / VBO (dynamic, will be orphaned each frame)
     glGenVertexArrays(1, &m_waveVAO);
@@ -121,9 +125,10 @@ void MilkDropGLRenderer::createFBOs(int w, int h) {
 
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    // Black-fill both ping-pong warp buffers so first frame isn't garbage
-    clearFBO(m_warpFboA, 0, 0, 0, 1);
-    clearFBO(m_warpFboB, 0, 0, 0, 1);
+    // Seed with dim grey so the feedback loop has something to evolve from.
+    // Black * decay = black forever, so we must start with non-zero content.
+    clearFBO(m_warpFboA, 0.15f, 0.15f, 0.15f, 1.f);
+    clearFBO(m_warpFboB, 0.15f, 0.15f, 0.15f, 1.f);
 }
 
 void MilkDropGLRenderer::destroyFBOs() {
@@ -140,6 +145,7 @@ void MilkDropGLRenderer::destroyFBOs() {
 
 MilkDropGLRenderer::~MilkDropGLRenderer() {
     destroyFBOs();
+    if (m_quadVAO)  glDeleteVertexArrays(1, &m_quadVAO);
     if (m_waveVBO)  glDeleteBuffers(1, &m_waveVBO);
     if (m_waveVAO)  glDeleteVertexArrays(1, &m_waveVAO);
     if (m_shapeVBO) glDeleteBuffers(1, &m_shapeVBO);
@@ -172,6 +178,13 @@ void MilkDropGLRenderer::loadPreset(const MilkDropPreset& preset) {
     m_uniforms.sy    = p.szy;
     m_uniforms.decay = p.decay;
     m_uniforms.gamma = p.gamma;
+
+    // Seed warp FBOs with a dim white so the feedback loop has something
+    // to evolve from on the first frame (black * decay = black forever).
+    if (m_warpFboA && m_warpFboB) {
+        clearFBO(m_warpFboA, 0.12f, 0.12f, 0.12f, 1.f);
+        clearFBO(m_warpFboB, 0.12f, 0.12f, 0.12f, 1.f);
+    }
 }
 
 void MilkDropGLRenderer::beginTransition(const MilkDropPreset& next,
@@ -226,7 +239,7 @@ void MilkDropGLRenderer::render(float time, float dt,
     m_pingPong = !m_pingPong;
 
     renderWarpPass(time);           // uses readTex, writes to writeFBO
-    renderWavePass(audio);
+    renderWavePass(audio, time);
     renderShapePass();
     renderComposite(fractalTex, fractalBlend);
 
@@ -283,51 +296,135 @@ void MilkDropGLRenderer::renderWarpPass(float time) {
 // Wave pass
 // ---------------------------------------------------------------------------
 
-void MilkDropGLRenderer::renderWavePass(const AudioData& audio) {
+// Build a thick ribbon (GL_TRIANGLE_STRIP) from a poly-line.
+// macOS core profile doesn't support glLineWidth > 1, so we extrude manually.
+static std::vector<float> buildRibbon(const float* pts, int count, float halfW) {
+    std::vector<float> ribbon;
+    ribbon.reserve(count * 4);
+    for (int i = 0; i < count; ++i) {
+        int p = std::max(0, i - 1);
+        int n = std::min(count - 1, i + 1);
+        float tx = pts[n * 2] - pts[p * 2];
+        float ty = pts[n * 2 + 1] - pts[p * 2 + 1];
+        float len = sqrtf(tx * tx + ty * ty);
+        float nx = (len > 1e-6f) ? -ty / len : 0.f;
+        float ny = (len > 1e-6f) ?  tx / len : 1.f;
+        ribbon.push_back(pts[i * 2]     + nx * halfW);
+        ribbon.push_back(pts[i * 2 + 1] + ny * halfW);
+        ribbon.push_back(pts[i * 2]     - nx * halfW);
+        ribbon.push_back(pts[i * 2 + 1] - ny * halfW);
+    }
+    return ribbon;
+}
+
+void MilkDropGLRenderer::renderWavePass(const AudioData& audio, float time) {
     clearFBO(m_waveFbo, 0, 0, 0, 0);  // transparent black
     glBindFramebuffer(GL_FRAMEBUFFER, m_waveFbo);
     glViewport(0, 0, m_w, m_h);
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    if (!m_hasPreset) goto wave_done;
+    // Write raw RGBA directly — no alpha blending.
+    // With SRC_ALPHA/ONE_MINUS_SRC_ALPHA the stored alpha gets squared
+    // (0.28² ≈ 0.08), making waves invisible in the composite pass.
+    // composite.frag does the final mix(warp, wave.rgb, wave.a) itself.
+    glDisable(GL_BLEND);
 
     {
+        // Always generate an animated synth waveform and add it to the real
+        // audio signal (boosted to a visible scale).  Real mic audio is often
+        // in the 0.001 – 0.01 range which looks like a flat line, so we
+        // normalise it to ±0.25 and layer the synth on top for constant motion.
+        float boosted[512];
+        float gain = (audio.rms > 1e-5f) ? std::min(0.25f / audio.rms, 30.f) : 0.f;
+        for (int i = 0; i < 512; ++i) {
+            float tt = (float)i / 511.f;
+            float s = sinf(time * 1.7f + tt * 6.2832f *  2.f) * 0.18f
+                    + sinf(time * 1.1f + tt * 6.2832f *  5.f) * 0.09f
+                    + sinf(time * 2.3f + tt * 6.2832f * 11.f) * 0.04f;
+            boosted[i] = s + audio.waveform[i] * gain;
+        }
+        const float* waveData = boosted;
+
         m_waveShader.use();
         glBindVertexArray(m_waveVAO);
         glBindBuffer(GL_ARRAY_BUFFER, m_waveVBO);
 
         const auto& params = m_current.params;
+
+        // ── New-style wave_N objects ─────────────────────────────────────────
         for (const auto& wave : params.waves) {
             if (!wave.enabled) continue;
             int count = std::min(wave.samples, 512);
             if (count < 2) continue;
 
-            // Build vertex positions
-            std::vector<float> verts(count * 2);
+            std::vector<float> pts(count * 2);
             for (int i = 0; i < count; ++i) {
                 float t   = (float)i / (float)(count - 1);
-                float amp = audio.waveform[i] * wave.scaling;
-                verts[i * 2 + 0] = t;
-                verts[i * 2 + 1] = 0.5f + amp * 0.3f;
+                float amp = waveData[i] * wave.scaling;
+                pts[i * 2]     = t;
+                pts[i * 2 + 1] = 0.5f + amp * 0.3f;
             }
 
-            glBufferData(GL_ARRAY_BUFFER,
-                         (GLsizeiptr)(verts.size() * sizeof(float)),
-                         verts.data(), GL_STREAM_DRAW);
+            m_waveShader.setVec4("u_wave_color", wave.r, wave.g, wave.b, wave.a);
 
-            m_waveShader.setVec4("u_wave_color",
-                                  wave.r, wave.g, wave.b, wave.a);
-
-            GLenum prim = wave.useDots ? GL_POINTS : GL_LINE_STRIP;
-            glDrawArrays(prim, 0, count);
+            if (wave.useDots) {
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(pts.size() * sizeof(float)),
+                             pts.data(), GL_STREAM_DRAW);
+                glDrawArrays(GL_POINTS, 0, count);
+            } else {
+                auto ribbon = buildRibbon(pts.data(), count, 0.022f);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(ribbon.size() * sizeof(float)),
+                             ribbon.data(), GL_STREAM_DRAW);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, count * 2);
+            }
         }
+
+        // ── Legacy global wave (classic .milk presets without wave_N) ────────
+        // Always render: if the preset has waves disabled (legacyWaveA==0) and no
+        // wave_N objects, fall back to a dim white oscilloscope so there is always
+        // visible content for the warp feedback loop to evolve.
+        if (params.waves.empty()) {
+            const auto& p = params;
+            float waveA = (p.legacyWaveA > 0.01f) ? p.legacyWaveA : 0.55f;
+            float waveR = (p.legacyWaveA > 0.01f) ? p.legacyWaveR : 1.0f;
+            float waveG = (p.legacyWaveA > 0.01f) ? p.legacyWaveG : 1.0f;
+            float waveB = (p.legacyWaveA > 0.01f) ? p.legacyWaveB : 1.0f;
+            int count = 512;
+            std::vector<float> pts(count * 2);
+
+            float scale = (p.legacyWaveScale > 0.f) ? p.legacyWaveScale : 1.f;
+            for (int i = 0; i < count; ++i) {
+                float t   = (float)i / (float)(count - 1);
+                float amp = waveData[i] * scale;
+                if (p.legacyWaveMode >= 4) {
+                    float angle = t * 6.2831853f;
+                    float r     = 0.35f + amp * 0.10f;
+                    pts[i * 2]     = 0.5f + r * cosf(angle);
+                    pts[i * 2 + 1] = 0.5f + r * sinf(angle);
+                } else {
+                    // Oscilloscope — synth keeps it animated, warp smears it into patterns
+                    pts[i * 2]     = t;
+                    pts[i * 2 + 1] = 0.5f + amp * 0.35f;
+                }
+            }
+
+            m_waveShader.setVec4("u_wave_color", waveR, waveG, waveB, waveA);
+
+            if (p.legacyWaveDots) {
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(pts.size() * sizeof(float)),
+                             pts.data(), GL_STREAM_DRAW);
+                glDrawArrays(GL_POINTS, 0, count);
+            } else {
+                auto ribbon = buildRibbon(pts.data(), count, 0.022f);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(ribbon.size() * sizeof(float)),
+                             ribbon.data(), GL_STREAM_DRAW);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, count * 2);
+            }
+
+        }
+
         glBindVertexArray(0);
     }
 
-wave_done:
-    glDisable(GL_BLEND);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -401,8 +498,11 @@ void MilkDropGLRenderer::renderComposite(GLuint fractalTex, float fractalBlend) 
     glBindFramebuffer(GL_FRAMEBUFFER, m_outFbo);
     glViewport(0, 0, m_w, m_h);
 
-    // Select which warp texture is the "latest" composite
-    GLuint warpResult = m_pingPong ? m_warpTexA : m_warpTexB;
+    // Select the texture that was just written by renderWarpPass.
+    // pingPong was already toggled before the passes ran:
+    //   pingPong=true  → warp wrote to warpFboB → read warpTexB
+    //   pingPong=false → warp wrote to warpFboA → read warpTexA
+    GLuint warpResult = m_pingPong ? m_warpTexB : m_warpTexA;
 
     m_compositeShader.use();
 
@@ -431,9 +531,10 @@ void MilkDropGLRenderer::renderComposite(GLuint fractalTex, float fractalBlend) 
     renderFullscreenQuad();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // Copy composite back into the warp feedback loop (next frame warp reads this)
+    // Copy composite back into the same slot warp just wrote — so next frame's
+    // warp reads this composite (not the raw warp output which would skip the overlay).
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_outFbo);
-    GLuint feedbackFbo = m_pingPong ? m_warpFboA : m_warpFboB;
+    GLuint feedbackFbo = m_pingPong ? m_warpFboB : m_warpFboA;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, feedbackFbo);
     glBlitFramebuffer(0, 0, m_w, m_h, 0, 0, m_w, m_h,
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
@@ -477,4 +578,13 @@ const uint8_t* MilkDropGLRenderer::readPixels(int w, int h) {
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, m_readPixBuf.data());
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     return m_readPixBuf.data();
+}
+
+void MilkDropGLRenderer::blitToScreen(int w, int h) {
+    if (!m_outFbo) return;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_outFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, m_w, m_h, 0, 0, w, h,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

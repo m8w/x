@@ -116,7 +116,10 @@ int main(int argc, char** argv) {
     mdRenderer.init(std::string(SHADERS_DIR));
     presetMgr.loadAll();
     presetMgr.onPresetChanged = [&](MilkDropPreset& p, TransitionType t) {
-        mdRenderer.beginTransition(p, (int)t, 2.5f);
+        if (!mdRenderer.hasPreset() || t == TransitionType::Instant)
+            mdRenderer.loadPreset(p);
+        else
+            mdRenderer.beginTransition(p, (int)t, 2.5f);
     };
     audioCapture->start();
     ui.setMilkDrop(&presetMgr, &mdRenderer, audioCapture.get(), &beatDet);
@@ -196,20 +199,27 @@ int main(int argc, char** argv) {
 
         renderer.render(fw, fh, t, engine, blend, videoTex, colorSynth);
 
-        // Render MilkDrop frame (if ready)
+        // Render MilkDrop frame (if ready) then blit to window
         if (mdRenderer.isReady()) {
             mdRenderer.resize(fw, fh);
-            GLuint fracTex = ui.streamMilkDrop() ? 0 : renderer.fboTexture();
+            // Only composite the fractal into MilkDrop when the overlay is explicitly on
+            GLuint fracTex = ui.mdFractalOverlay() ? renderer.fboTexture() : 0;
             mdRenderer.render(t, dt, audio, fracTex, ui.mdFractalBlend());
+
+            // Blit MilkDrop output over the fractal (full window)
+            if (mdRenderer.hasPreset())
+                mdRenderer.blitToScreen(fw, fh);
 
             // Hardcut-triggered preset advance
             if (beatDet.hardcutFired && presetMgr.totalCount() > 0)
                 presetMgr.randomPreset(TransitionType::Hardcut);
         }
 
-        // Encode frame for RTMP if streaming
+        // Encode frame for RTMP if streaming.
+        // Stream source follows the UI toggle: MilkDrop output when toggled on
+        // AND a preset is active, otherwise the fractal FBO.
         if (streamOut.isStreaming()) {
-            if (mdRenderer.isReady() && ui.streamMilkDrop()) {
+            if (mdRenderer.isReady() && mdRenderer.hasPreset() && ui.streamMilkDrop()) {
                 streamOut.pushFrame(mdRenderer.readPixels(fw, fh), fw, fh);
             } else {
                 streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);

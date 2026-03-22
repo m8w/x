@@ -26,8 +26,9 @@ public:
     void draw();   // Call once per frame after ImGui::NewFrame()
 
     // Accessors queried by main.cpp each frame
-    bool  streamMilkDrop()  const { return m_streamMilkDrop; }
-    float mdFractalBlend()  const { return m_mdFractalBlend; }
+    bool  streamMilkDrop()   const { return m_streamMilkDrop; }
+    float mdFractalBlend()   const { return m_mdFractalBlend; }
+    bool  mdFractalOverlay() const { return m_mdFractalOverlay; }
 
     // Wire in MilkDrop subsystems (call after construction, before first draw()).
     void setMilkDrop(PresetManager* pm, MilkDropGLRenderer* md,
@@ -75,7 +76,7 @@ private:
     float m_mdPresetDuration    = 12.0f;
     bool  m_mdAutoAdvance       = false;
     bool  m_mdFractalOverlay    = false;
-    bool  m_streamMilkDrop      = false;  // stream MD output instead of fractal
+    bool  m_streamMilkDrop      = true;   // stream MD output when active (default on)
     int   m_mdBlendType         = 0;      // transition type
     float m_mdAutoTimer         = 0.f;
     // Hardcut config exposed in UI

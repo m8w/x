@@ -36,8 +36,23 @@ void EquationEditor::setMilkDrop(PresetManager* pm, MilkDropGLRenderer* md,
 }
 
 void EquationEditor::draw() {
+    // ── Window 1: MilkDrop & Broadcast ───────────────────────────────────────
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
-    ImGui::SetNextWindowSize({360, 980}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({360, 620}, ImGuiCond_Once);
+    ImGui::Begin("MilkDrop & Broadcast");
+
+    if (m_mdRenderer && ImGui::CollapsingHeader("MilkDrop", ImGuiTreeNodeFlags_DefaultOpen))
+        drawMilkDropPanel();
+    if (m_audio && ImGui::CollapsingHeader("Audio"))
+        drawAudioPanel();
+    if (ImGui::CollapsingHeader("Stream Output", ImGuiTreeNodeFlags_DefaultOpen))
+        drawStreamPanel();
+
+    ImGui::End();
+
+    // ── Window 2: Fractal Controls ────────────────────────────────────────────
+    ImGui::SetNextWindowPos({10, 640}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({360, 700}, ImGuiCond_Once);
     ImGui::Begin("Fractal Stream Controls");
 
     if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen))
@@ -58,16 +73,10 @@ void EquationEditor::draw() {
         drawChaosPanel();
     if (ImGui::CollapsingHeader("Distortion / Metaballs"))
         drawDistortionPanel();
-    if (ImGui::CollapsingHeader("Stream Output"))
-        drawStreamPanel();
-    if (m_mdRenderer && ImGui::CollapsingHeader("MilkDrop"))
-        drawMilkDropPanel();
-    if (m_audio && ImGui::CollapsingHeader("Audio"))
-        drawAudioPanel();
 
     ImGui::End();
 
-    // UI2 — MIDI Mapper (separate window)
+    // ── Window 3: MIDI Mapper + Glitch (separate windows) ────────────────────
     drawMidiWindow();
     drawGlitchPanel();
 }
@@ -638,7 +647,9 @@ void EquationEditor::drawStreamPanel() {
                 ImGui::SetTooltip("Full RTMP URL (masked)");
         }
         ImGui::SameLine();
-        if (ImGui::SmallButton("X")) removeIdx = i;
+        char xLabel[16];
+        snprintf(xLabel, sizeof(xLabel), "X##del%d", i);
+        if (ImGui::SmallButton(xLabel)) removeIdx = i;
 
         ImGui::PopID();
     }
@@ -2481,6 +2492,13 @@ void EquationEditor::drawMilkDropPanel() {
 
     // ── Navigation ─────────────────────────────────────────────────────────
     ImGui::Separator();
+    if (ImGui::Button("Refresh##mdreload")) {
+        m_presetMgr->loadAll();
+        m_mdSelectedIdx = m_presetMgr->currentIndex();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rescan ~/.fractal_stream/milkdrop/ for new .milk files");
+    ImGui::SameLine();
     // m_mdBlendType 0 = Hard cut → Hardcut, else Smooth
     TransitionType navT = (m_mdBlendType == 0) ? TransitionType::Hardcut : TransitionType::Smooth;
     if (ImGui::Button("< Prev"))  m_presetMgr->prevPreset(navT);
@@ -2549,17 +2567,22 @@ void EquationEditor::drawAudioPanel() {
     if (!m_audio) return;
 
     // ── Device selector ─────────────────────────────────────────────────────
-    auto devices = m_audio->listDevices();
+    // Cache device list — listDevices() calls AVCaptureDeviceDiscoverySession
+    // which is expensive; only refresh when the combo opens.
+    static std::vector<std::string> s_devices;
+    static bool s_devDirty = true;
     std::string curDev = m_audio->currentDevice();
     ImGui::TextDisabled("Input device");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::BeginCombo("##audiodev", curDev.empty() ? "System default" : curDev.c_str())) {
+        if (s_devDirty) { s_devices = m_audio->listDevices(); s_devDirty = false; }
         if (ImGui::Selectable("System default", curDev.empty())) {
             if (m_audio->isRunning()) m_audio->stop();
             m_audio->setDevice("");
             m_audio->start();
+            s_devDirty = true;
         }
-        for (auto& dev : devices) {
+        for (auto& dev : s_devices) {
             bool sel = (dev == curDev);
             if (ImGui::Selectable(dev.c_str(), sel)) {
                 if (m_audio->isRunning()) m_audio->stop();

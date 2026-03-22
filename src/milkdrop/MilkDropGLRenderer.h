@@ -49,6 +49,13 @@ public:
 
     // Output texture (the final composite — bind as input to RTMP readback).
     GLuint outputTexture() const { return m_outputTex; }
+    GLuint outputFbo()     const { return m_outFbo; }
+
+    // Blit the output FBO directly to the default framebuffer (the window).
+    void blitToScreen(int w, int h);
+
+    // True if at least one preset has been loaded.
+    bool hasPreset() const { return m_hasPreset; }
 
     // CPU readback of the output FBO for RTMP encode.
     // Returns a pointer to an internal RGB buffer (valid until next call).
@@ -69,7 +76,7 @@ private:
     void   clearFBO(GLuint fbo, float r, float g, float b, float a);
 
     void renderWarpPass   (float time);
-    void renderWavePass   (const AudioData& audio);
+    void renderWavePass   (const AudioData& audio, float time);
     void renderShapePass  ();
     void renderComposite  (GLuint fractalTex, float fractalBlend);
     void renderBlendPass  ();
@@ -89,6 +96,9 @@ private:
     GLuint m_outFbo   = 0, m_outputTex = 0;
     GLuint m_blendFbo = 0, m_blendTex  = 0;
     bool   m_pingPong = false;
+
+    // Empty VAO for fullscreen quad passes (core profile requires a VAO bound)
+    GLuint m_quadVAO = 0;
 
     // Wave / shape geometry VAO + VBO (dynamic vertex data)
     GLuint m_waveVAO = 0, m_waveVBO = 0;

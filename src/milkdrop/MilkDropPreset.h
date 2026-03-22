@@ -87,6 +87,17 @@ struct PresetParameters {
     std::string              warpHLSL;    // MilkDrop 2+ warp pixel shader (stored, not executed)
     std::string              compHLSL;    // MilkDrop 2+ composite pixel shader (stored, not executed)
 
+    // Legacy global wave (nWaveMode format used by classic presets)
+    int   legacyWaveMode    = 0;     // 0-7
+    float legacyWaveR       = 1.f;
+    float legacyWaveG       = 1.f;
+    float legacyWaveB       = 1.f;
+    float legacyWaveA       = 0.8f;  // MilkDrop default alpha
+    float legacyWaveScale   = 1.f;
+    float legacyWaveSmooth  = 0.5f;
+    bool  legacyWaveAdditive = false;
+    bool  legacyWaveDots    = false;
+
     // Waves / shapes
     std::vector<PresetWave>  waves;
     std::vector<PresetShape> shapes;

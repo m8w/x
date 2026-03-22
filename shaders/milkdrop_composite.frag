@@ -15,6 +15,7 @@ uniform float u_gamma;
 uniform float u_time;
 uniform float u_fractal_blend;
 uniform int   u_fractal_enabled; // 0 = off, 1 = on
+uniform vec4  u_ambient;         // preset per-frame r,g,b,a background color
 
 void main() {
     vec2 uv = v_uv;
@@ -23,26 +24,18 @@ void main() {
     vec4 waves  = texture(u_wave_tex,  uv);
     vec4 shapes = texture(u_shape_tex, uv);
 
-    // Animated color floor — gives the warp feedback loop something to work
-    // with even on a cold start or a preset with no geometry of its own.
-    // Three slow-rotating hue bands; amplitude kept low (≤0.18) so it never
-    // overpowers preset colors once the loop has warmed up.
-    vec2 uvC = uv - 0.5;
-    float t  = u_time;
-    float r  = length(uvC);
-    float a  = atan(uvC.y, uvC.x);
-    float floor_r = 0.18 + 0.17 * sin(t * 0.31 + a * 3.0 + r * 6.0);
-    float floor_g = 0.14 + 0.16 * sin(t * 0.23 + a * 2.0 + r * 4.5 + 2.1);
-    float floor_b = 0.22 + 0.18 * sin(t * 0.17 + a * 4.0 + r * 5.0 + 4.2);
-    vec3  colorFloor = vec3(floor_r, floor_g, floor_b);
+    // Preset ambient color — each preset's per_frame equations set r,g,b,a.
+    // Use this as the color floor so presets produce their own color palette.
+    // Fall back to a tiny neutral tint so the feedback loop never goes black.
+    vec3 ambient = u_ambient.rgb * max(u_ambient.a, 0.1);
+    ambient = max(ambient, vec3(0.04, 0.04, 0.06));  // minimum seed, neutral dark blue
 
-    // Composite: animated floor → warp feedback → waves → shapes.
-    // The floor is always mixed in at a low level so the feedback loop
-    // always has colorful content to distort; presets override via their
-    // own brighter wave/shape layers.
+    // Composite: preset ambient → warp feedback → waves → shapes.
+    // Blend ambient into dark areas so the feedback loop has the preset's
+    // own colors to work with. Bright warp content overrides naturally.
     vec4 color = warp;
     float darkness = 1.0 - dot(color.rgb, vec3(0.333));
-    color.rgb = mix(color.rgb, colorFloor, clamp(darkness * 0.55, 0.0, 0.5));
+    color.rgb = mix(color.rgb, ambient, clamp(darkness * 0.6, 0.0, 0.55));
     color.rgb = mix(color.rgb, waves.rgb,  waves.a);
     color.rgb = mix(color.rgb, shapes.rgb, shapes.a);
 

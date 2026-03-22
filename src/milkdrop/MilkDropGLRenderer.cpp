@@ -606,6 +606,10 @@ void MilkDropGLRenderer::renderComposite(GLuint fractalTex, float fractalBlend) 
     m_compositeShader.setFloat("u_time",            m_uniforms.time);
     m_compositeShader.setFloat("u_fractal_blend",   fractalBlend);
     m_compositeShader.setInt  ("u_fractal_enabled", (fractalEnabled && fractalTex > 0) ? 1 : 0);
+    // Preset per-frame ambient color (r,g,b,a computed by per_frame equations)
+    m_compositeShader.setFloat4("u_ambient",
+                                 m_uniforms.r, m_uniforms.g,
+                                 m_uniforms.b, m_uniforms.a);
 
     renderFullscreenQuad();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

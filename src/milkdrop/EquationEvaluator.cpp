@@ -80,7 +80,12 @@ void EquationEvaluator::buildContext(const PresetParameters& params) {
     auto joinEqs = [](const std::vector<std::string>& eqs) -> std::string {
         std::ostringstream ss;
         for (const auto& eq : eqs) {
-            if (!eq.empty()) ss << eq << ";";
+            // Strip trailing whitespace and semicolons — .milk equations already
+            // end with ';', and projectm-eval rejects double semicolons ';;'.
+            std::string e = eq;
+            while (!e.empty() && (e.back() == ';' || e.back() == ' ' || e.back() == '\t'))
+                e.pop_back();
+            if (!e.empty()) ss << e << ";";
         }
         return ss.str();
     };

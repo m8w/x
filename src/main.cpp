@@ -215,15 +215,16 @@ int main(int argc, char** argv) {
                 presetMgr.randomPreset(TransitionType::Hardcut);
         }
 
-        // Encode frame for RTMP if streaming.
-        // Stream source follows the UI toggle: MilkDrop output when toggled on
-        // AND a preset is active, otherwise the fractal FBO.
+        // Encode frame for RTMP: capture the window exactly as it appears
+        // (fractal rendered first, MilkDrop blitted on top) — before ImGui is drawn.
+        // Reading individual FBOs would miss the composited result the user sees.
         if (streamOut.isStreaming()) {
-            if (mdRenderer.isReady() && mdRenderer.hasPreset() && ui.streamMilkDrop()) {
-                streamOut.pushFrame(mdRenderer.readPixels(fw, fh), fw, fh);
-            } else {
-                streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
-            }
+            static std::vector<uint8_t> windowBuf;
+            windowBuf.resize((size_t)fw * fh * 3);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            glReadPixels(0, 0, fw, fh, GL_RGB, GL_UNSIGNED_BYTE, windowBuf.data());
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            streamOut.pushFrame(windowBuf.data(), fw, fh);
         }
 
         // ImGui overlay

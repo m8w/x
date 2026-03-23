@@ -474,10 +474,10 @@ void MilkDropGLRenderer::renderWavePass(const AudioData& audio, float time) {
             // Use per_frame-computed wave color (wave_r/g/b/a set by equations).
             // Fall back to static preset header values if per_frame didn't set them,
             // and ensure a minimum alpha so the wave is always visible.
-            float waveR = m_uniforms.wave_r;
-            float waveG = m_uniforms.wave_g;
-            float waveB = m_uniforms.wave_b;
-            float waveA = std::max(m_uniforms.wave_a, 0.45f);
+            float waveR = std::clamp(m_uniforms.wave_r, 0.0f, 1.0f);
+            float waveG = std::clamp(m_uniforms.wave_g, 0.0f, 1.0f);
+            float waveB = std::clamp(m_uniforms.wave_b, 0.0f, 1.0f);
+            float waveA = std::clamp(std::max(m_uniforms.wave_a, 0.45f), 0.0f, 1.0f);
             // If all channels are near zero (preset never set wave color), use white
             if (waveR < 0.01f && waveG < 0.01f && waveB < 0.01f)
                 waveR = waveG = waveB = 1.0f;

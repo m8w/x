@@ -138,27 +138,47 @@ void EquationEvaluator::loadPreset(const MilkDropPreset& preset) {
 
     buildContext(mutable_preset.params);
 
-    // Seed view variables from preset defaults
+    // Store per-preset defaults for variables reset each frame
     if (m_ctx) {
         const auto& p = mutable_preset.params;
-        if (m_zoom)  *m_zoom  = p.zoomAmount;
-        if (m_rot)   *m_rot   = p.rotatAmount;
-        if (m_warp)  *m_warp  = p.warpScale;
-        if (m_cx)    *m_cx    = p.centreX;
-        if (m_cy)    *m_cy    = p.centreY;
-        if (m_sx)    *m_sx    = p.szx;
-        if (m_sy)    *m_sy    = p.szy;
-        if (m_decay) *m_decay = p.decay;
-        if (m_gamma) *m_gamma = p.gamma;
+
+        // Store defaults used to reset at start of each evaluate()
+        m_def_wave_r = p.legacyWaveR;
+        m_def_wave_g = p.legacyWaveG;
+        m_def_wave_b = p.legacyWaveB;
+        m_def_wave_a = p.legacyWaveA;
+        m_def_zoom   = p.zoomAmount;
+        m_def_rot    = p.rotatAmount;
+        m_def_warp   = p.warpScale;
+        m_def_cx     = p.centreX;
+        m_def_cy     = p.centreY;
+        m_def_dx     = 0.f;
+        m_def_dy     = 0.f;
+        m_def_sx     = p.szx;
+        m_def_sy     = p.szy;
+        m_def_decay  = p.decay;
+        m_def_gamma  = p.gamma;
+
+        // Seed context vars from preset defaults
+        if (m_zoom)  *m_zoom  = m_def_zoom;
+        if (m_rot)   *m_rot   = m_def_rot;
+        if (m_warp)  *m_warp  = m_def_warp;
+        if (m_cx)    *m_cx    = m_def_cx;
+        if (m_cy)    *m_cy    = m_def_cy;
+        if (m_dx)    *m_dx    = m_def_dx;
+        if (m_dy)    *m_dy    = m_def_dy;
+        if (m_sx)    *m_sx    = m_def_sx;
+        if (m_sy)    *m_sy    = m_def_sy;
+        if (m_decay) *m_decay = m_def_decay;
+        if (m_gamma) *m_gamma = m_def_gamma;
         if (m_r)     *m_r     = p.r;
         if (m_g)     *m_g     = p.g;
         if (m_b)     *m_b     = p.b;
         if (m_a)     *m_a     = p.a;
-        // Seed wave color from preset static values so per_frame can accumulate
-        if (m_wave_r) *m_wave_r = p.legacyWaveR;
-        if (m_wave_g) *m_wave_g = p.legacyWaveG;
-        if (m_wave_b) *m_wave_b = p.legacyWaveB;
-        if (m_wave_a) *m_wave_a = p.legacyWaveA;
+        if (m_wave_r) *m_wave_r = m_def_wave_r;
+        if (m_wave_g) *m_wave_g = m_def_wave_g;
+        if (m_wave_b) *m_wave_b = m_def_wave_b;
+        if (m_wave_a) *m_wave_a = m_def_wave_a;
     }
 }
 
@@ -170,6 +190,25 @@ void EquationEvaluator::evaluate(MilkDropUniforms& u,
                                   const AudioData& audio,
                                   float time, float fps, float frame) {
     if (!m_ctx) return;
+
+    // ── Reset per-frame variables to preset defaults ───────────────────────
+    // Real MilkDrop resets wave_r/g/b/a and view vars to header values before
+    // running per_frame each frame — prevents unbounded accumulation.
+    if (m_wave_r) *m_wave_r = m_def_wave_r;
+    if (m_wave_g) *m_wave_g = m_def_wave_g;
+    if (m_wave_b) *m_wave_b = m_def_wave_b;
+    if (m_wave_a) *m_wave_a = m_def_wave_a;
+    if (m_zoom)   *m_zoom   = m_def_zoom;
+    if (m_rot)    *m_rot    = m_def_rot;
+    if (m_warp)   *m_warp   = m_def_warp;
+    if (m_cx)     *m_cx     = m_def_cx;
+    if (m_cy)     *m_cy     = m_def_cy;
+    if (m_dx)     *m_dx     = m_def_dx;
+    if (m_dy)     *m_dy     = m_def_dy;
+    if (m_sx)     *m_sx     = m_def_sx;
+    if (m_sy)     *m_sy     = m_def_sy;
+    if (m_decay)  *m_decay  = m_def_decay;
+    if (m_gamma)  *m_gamma  = m_def_gamma;
 
     // ── Write inputs ──────────────────────────────────────────────────────
     if (m_bass)        *m_bass        = audio.bass;

@@ -76,6 +76,11 @@ public:
     // True once loadPreset() has successfully compiled at least one equation.
     bool isReady() const { return m_ready; }
 
+    // After evaluateVertex() runs for all mesh vertices the context variables
+    // are left in per_pixel's last state.  Call this once after the mesh loop
+    // to restore them to per-frame values so the next evaluate() starts clean.
+    void restoreContextFromUniforms(const MilkDropUniforms& u);
+
     // Evaluate per-vertex equations for one mesh point.
     // vx, vy in [0,1] screen UV space.
     // Outputs the (possibly preset-modified) warp parameters for this vertex.

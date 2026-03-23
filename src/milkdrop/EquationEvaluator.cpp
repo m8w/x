@@ -208,6 +208,29 @@ void EquationEvaluator::evaluate(MilkDropUniforms& u,
 }
 
 // ---------------------------------------------------------------------------
+// restoreContextFromUniforms — called after all mesh vertices are evaluated
+// ---------------------------------------------------------------------------
+
+void EquationEvaluator::restoreContextFromUniforms(const MilkDropUniforms& u) {
+    if (!m_ctx) return;
+    if (m_zoom) *m_zoom = u.zoom;
+    if (m_rot)  *m_rot  = u.rot;
+    if (m_warp) *m_warp = u.warp;
+    if (m_cx)   *m_cx   = u.cx;
+    if (m_cy)   *m_cy   = u.cy;
+    if (m_dx)   *m_dx   = u.dx;
+    if (m_dy)   *m_dy   = u.dy;
+    if (m_sx)   *m_sx   = u.sx;
+    if (m_sy)   *m_sy   = u.sy;
+    if (m_decay)*m_decay= u.decay;
+    if (m_gamma)*m_gamma= u.gamma;
+    if (m_r)    *m_r    = u.r;
+    if (m_g)    *m_g    = u.g;
+    if (m_b)    *m_b    = u.b;
+    if (m_a)    *m_a    = u.a;
+}
+
+// ---------------------------------------------------------------------------
 // evaluateVertex — run per_pixel equations for one mesh vertex
 // ---------------------------------------------------------------------------
 

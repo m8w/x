@@ -328,6 +328,11 @@ void MilkDropGLRenderer::renderWarpPass(float time) {
             grid[r*GW+c] = { vx*2.f-1.f, vy*2.f-1.f, su, sv };
         }
     }
+    // Restore context so next per_frame starts from known-good state.
+    // evaluateVertex leaves the shared context variables in per_pixel's
+    // last-vertex state, which would corrupt the next frame's per_frame run.
+    m_evaluator.restoreContextFromUniforms(m_uniforms);
+
     // Triangulate (2 triangles per quad)
     int idx = 0;
     for (int r = 0; r < GH-1; ++r) {
@@ -341,10 +346,13 @@ void MilkDropGLRenderer::renderWarpPass(float time) {
             // Tri 1: TL, BL, TR
             // Tri 2: BL, BR, TR
             for (auto* v : {vs[0],vs[1],vs[2], vs[1],vs[3],vs[2]}) {
+                // Guard against NaN/Inf — bad preset equations can produce them
+                float ux = std::isfinite(v->ux) ? v->ux : v->px * 0.5f + 0.5f;
+                float uy = std::isfinite(v->uy) ? v->uy : v->py * 0.5f + 0.5f;
                 meshVerts[idx++] = v->px;
                 meshVerts[idx++] = v->py;
-                meshVerts[idx++] = v->ux;
-                meshVerts[idx++] = v->uy;
+                meshVerts[idx++] = ux;
+                meshVerts[idx++] = uy;
             }
         }
     }

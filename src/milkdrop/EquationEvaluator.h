@@ -27,6 +27,11 @@ struct MilkDropUniforms {
     float gamma = 1.0f;
     float r = 0, g = 0, b = 0, a = 0;   // ambient
 
+    // Wave color/position (written by per_frame, used in wave pass)
+    float wave_r = 1.f, wave_g = 1.f, wave_b = 1.f, wave_a = 0.8f;
+    float wave_x = 0.5f, wave_y = 0.5f;
+    float wave_mystery = 0.f;
+
     // Echo
     float videoEchoAlpha       = 0.0f;
     float videoEchoZoom        = 1.0f;
@@ -113,6 +118,11 @@ private:
     float* m_gamma = nullptr;
     float* m_r     = nullptr; float* m_g = nullptr;
     float* m_b     = nullptr; float* m_a = nullptr;
+    // Wave color/position (written by per_frame equations)
+    float* m_wave_r = nullptr; float* m_wave_g = nullptr;
+    float* m_wave_b = nullptr; float* m_wave_a = nullptr;
+    float* m_wave_x = nullptr; float* m_wave_y = nullptr;
+    float* m_wave_mystery = nullptr;
     // Audio (inputs)
     float* m_bass      = nullptr; float* m_mid       = nullptr;
     float* m_treble    = nullptr; float* m_vol       = nullptr;

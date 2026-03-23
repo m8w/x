@@ -471,10 +471,16 @@ void MilkDropGLRenderer::renderWavePass(const AudioData& audio, float time) {
         // visible content for the warp feedback loop to evolve.
         if (params.waves.empty()) {
             const auto& p = params;
-            float waveA = (p.legacyWaveA > 0.01f) ? p.legacyWaveA : 0.55f;
-            float waveR = (p.legacyWaveA > 0.01f) ? p.legacyWaveR : 1.0f;
-            float waveG = (p.legacyWaveA > 0.01f) ? p.legacyWaveG : 1.0f;
-            float waveB = (p.legacyWaveA > 0.01f) ? p.legacyWaveB : 1.0f;
+            // Use per_frame-computed wave color (wave_r/g/b/a set by equations).
+            // Fall back to static preset header values if per_frame didn't set them,
+            // and ensure a minimum alpha so the wave is always visible.
+            float waveR = m_uniforms.wave_r;
+            float waveG = m_uniforms.wave_g;
+            float waveB = m_uniforms.wave_b;
+            float waveA = std::max(m_uniforms.wave_a, 0.45f);
+            // If all channels are near zero (preset never set wave color), use white
+            if (waveR < 0.01f && waveG < 0.01f && waveB < 0.01f)
+                waveR = waveG = waveB = 1.0f;
             int count = 512;
             std::vector<float> pts(count * 2);
 

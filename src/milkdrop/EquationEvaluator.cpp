@@ -55,6 +55,11 @@ void EquationEvaluator::buildContext(const PresetParameters& params) {
     m_r     = reg(m_ctx, "r");     m_g = reg(m_ctx, "g");
     m_b     = reg(m_ctx, "b");     m_a = reg(m_ctx, "a");
 
+    m_wave_r = reg(m_ctx, "wave_r"); m_wave_g = reg(m_ctx, "wave_g");
+    m_wave_b = reg(m_ctx, "wave_b"); m_wave_a = reg(m_ctx, "wave_a");
+    m_wave_x = reg(m_ctx, "wave_x"); m_wave_y = reg(m_ctx, "wave_y");
+    m_wave_mystery = reg(m_ctx, "wave_mystery");
+
     m_bass       = reg(m_ctx, "bass");      m_mid       = reg(m_ctx, "mid");
     m_treble     = reg(m_ctx, "treble");    m_vol       = reg(m_ctx, "vol");
     m_bass_att   = reg(m_ctx, "bass_att");  m_mid_att   = reg(m_ctx, "mid_att");
@@ -144,6 +149,11 @@ void EquationEvaluator::loadPreset(const MilkDropPreset& preset) {
         if (m_g)     *m_g     = p.g;
         if (m_b)     *m_b     = p.b;
         if (m_a)     *m_a     = p.a;
+        // Seed wave color from preset static values so per_frame can accumulate
+        if (m_wave_r) *m_wave_r = p.legacyWaveR;
+        if (m_wave_g) *m_wave_g = p.legacyWaveG;
+        if (m_wave_b) *m_wave_b = p.legacyWaveB;
+        if (m_wave_a) *m_wave_a = p.legacyWaveA;
     }
 }
 
@@ -198,6 +208,14 @@ void EquationEvaluator::evaluate(MilkDropUniforms& u,
     if (m_b)     u.b     = *m_b;
     if (m_a)     u.a     = *m_a;
 
+    if (m_wave_r) u.wave_r = *m_wave_r;
+    if (m_wave_g) u.wave_g = *m_wave_g;
+    if (m_wave_b) u.wave_b = *m_wave_b;
+    if (m_wave_a) u.wave_a = *m_wave_a;
+    if (m_wave_x) u.wave_x = *m_wave_x;
+    if (m_wave_y) u.wave_y = *m_wave_y;
+    if (m_wave_mystery) u.wave_mystery = *m_wave_mystery;
+
     for (int i = 0; i < 32; ++i)
         if (m_q[i]) u.q[i] = *m_q[i];
 
@@ -228,6 +246,10 @@ void EquationEvaluator::restoreContextFromUniforms(const MilkDropUniforms& u) {
     if (m_g)    *m_g    = u.g;
     if (m_b)    *m_b    = u.b;
     if (m_a)    *m_a    = u.a;
+    if (m_wave_r) *m_wave_r = u.wave_r;
+    if (m_wave_g) *m_wave_g = u.wave_g;
+    if (m_wave_b) *m_wave_b = u.wave_b;
+    if (m_wave_a) *m_wave_a = u.wave_a;
 }
 
 // ---------------------------------------------------------------------------

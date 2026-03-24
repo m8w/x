@@ -87,6 +87,7 @@ private:
     ShaderProgram m_shapeShader;
     ShaderProgram m_compositeShader;
     ShaderProgram m_blendShader;
+    ShaderProgram m_displayShader;   // gamma-only pass at blit-to-screen time
 
     // FBO + texture pairs (ping-pong warp, wave, shape, output, transition)
     GLuint m_warpFboA = 0, m_warpTexA = 0;

@@ -66,6 +66,7 @@ void MilkDropGLRenderer::init(const std::string& shadersDir) {
                                  shadersDir + "/milkdrop_shapes.frag");
     ok &= m_compositeShader.load(vert, shadersDir + "/milkdrop_composite.frag");
     ok &= m_blendShader    .load(vert, shadersDir + "/milkdrop_blend.frag");
+    ok &= m_displayShader  .load(vert, shadersDir + "/milkdrop_display.frag");
 
     if (!ok) {
         fprintf(stderr, "[MilkDropGLRenderer] Shader compilation failed\n");
@@ -438,6 +439,7 @@ void MilkDropGLRenderer::renderWavePass(const AudioData& audio, float time) {
         const auto& params = m_current.params;
 
         // ── New-style wave_N objects ─────────────────────────────────────────
+        bool drewAnyWave = false;
         for (const auto& wave : params.waves) {
             if (!wave.enabled) continue;
             int count = std::min(wave.samples, 512);
@@ -463,13 +465,13 @@ void MilkDropGLRenderer::renderWavePass(const AudioData& audio, float time) {
                              ribbon.data(), GL_STREAM_DRAW);
                 glDrawArrays(GL_TRIANGLE_STRIP, 0, count * 2);
             }
+            drewAnyWave = true;
         }
 
-        // ── Legacy global wave (classic .milk presets without wave_N) ────────
-        // Always render: if the preset has waves disabled (legacyWaveA==0) and no
-        // wave_N objects, fall back to a dim white oscilloscope so there is always
-        // visible content for the warp feedback loop to evolve.
-        if (params.waves.empty()) {
+        // ── Legacy global wave (classic .milk presets, or fallback when all
+        //    wave_N objects exist but are disabled).
+        // Always draw something so the warp feedback loop has colored input.
+        if (!drewAnyWave) {
             const auto& p = params;
             // Use per_frame-computed wave color (wave_r/g/b/a set by equations).
             // Fall back to static preset header values if per_frame didn't set them,
@@ -615,9 +617,6 @@ void MilkDropGLRenderer::renderComposite(GLuint fractalTex, float fractalBlend) 
     glBindTexture(GL_TEXTURE_2D, fractalTex > 0 ? fractalTex : m_shapeTex);
     m_compositeShader.setInt("u_fractal_tex", 3);
 
-    m_compositeShader.setFloat("u_brightness",      1.0f);
-    m_compositeShader.setFloat("u_gamma",           m_uniforms.gamma);
-    m_compositeShader.setFloat("u_time",            m_uniforms.time);
     m_compositeShader.setFloat("u_fractal_blend",   fractalBlend);
     m_compositeShader.setInt  ("u_fractal_enabled", (fractalEnabled && fractalTex > 0) ? 1 : 0);
 
@@ -675,9 +674,19 @@ const uint8_t* MilkDropGLRenderer::readPixels(int w, int h) {
 
 void MilkDropGLRenderer::blitToScreen(int w, int h) {
     if (!m_outFbo) return;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_outFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, m_w, m_h, 0, 0, w, h,
-                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    // Draw to window (FBO 0) using the display shader which applies gamma.
+    // Gamma lives HERE, not in the composite/feedback path, so it cannot compound.
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, w, h);
+
+    m_displayShader.use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_outputTex);
+    m_displayShader.setInt  ("u_tex",   0);
+    m_displayShader.setFloat("u_gamma", std::max(m_uniforms.gamma, 1.0f));
+
+    glDisable(GL_BLEND);
+    glBindVertexArray(m_quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }

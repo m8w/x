@@ -206,8 +206,14 @@ std::vector<MidiInput::Message> GlitchEngine::tick(double time,
     std::vector<MidiInput::Message> out;
     if (!enabled) {
         if (inGlitch) recoverGlitch(eng, blend);
+        // Reset schedule so first glitch after re-enable gets a full random wait
+        m_nextGlitch = 0.0;
         return out;
     }
+
+    // First tick after enabling: schedule initial glitch from now (not from t=0)
+    if (m_nextGlitch == 0.0)
+        scheduleNext(time);
 
     // End active glitch?
     if (inGlitch && time >= m_glitchEnd) {
@@ -225,8 +231,7 @@ std::vector<MidiInput::Message> GlitchEngine::tick(double time,
             int note = randI(noteMin, noteMax);
             int vel  = randI(100, 127);
             out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)note, (uint8_t)vel});
-            // NoteOff ~100ms later via duration — handled externally; send here too
-            // (caller should schedule the NoteOff; we send a brief gate)
+            out.push_back({(uint8_t)(0x80 | ch0), (uint8_t)note, 0});   // NoteOff — prevent hanging note
             inGlitch = false;  // ghost note has no "recovery" — it's just a note
             scheduleNext(time);
         }

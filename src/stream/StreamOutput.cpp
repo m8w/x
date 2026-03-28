@@ -166,13 +166,21 @@ bool StreamOutput::openSink(DestSink& s) {
 }
 
 void StreamOutput::closeSink(DestSink& s) {
-    if (!s.connected) return;
+    // Always stop and join — even if a write error already set connected=false
+    // and the thread exited on its own.  Not joining a joinable thread calls
+    // std::terminate() in the DestSink destructor.
     s.running = false;
     s.cv.notify_all();
     if (s.thread.joinable()) s.thread.join();
 
-    av_interleaved_write_frame(s.fmtCtx, nullptr);
-    av_write_trailer(s.fmtCtx);
+    if (!s.fmtCtx) { s.connected = false; return; }
+
+    // Only flush/trailer if the connection was still up when we decided to stop.
+    // Skip it on write-error paths to avoid a second (also-failing) network write.
+    if (s.connected) {
+        av_interleaved_write_frame(s.fmtCtx, nullptr);
+        av_write_trailer(s.fmtCtx);
+    }
     if (!(s.fmtCtx->oformat->flags & AVFMT_NOFILE))
         avio_closep(&s.fmtCtx->pb);
     avformat_free_context(s.fmtCtx);

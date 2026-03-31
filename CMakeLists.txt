@@ -10,10 +10,12 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ── Apple Silicon / Homebrew paths ────────────────────────────────────────────
+# ── macOS: Homebrew paths + silence OpenGL deprecation warnings ───────────────
 if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
-    set(CMAKE_OSX_ARCHITECTURES arm64)
+    # Homebrew on Apple Silicon installs to /opt/homebrew; Intel Macs use /usr/local
+    list(APPEND CMAKE_PREFIX_PATH /opt/homebrew /usr/local)
+    # Let CMake target the native CPU arch (arm64 on M-series, x86_64 on Intel)
+    # Do NOT hard-code arm64 here — that breaks Intel MacBook builds.
     add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
 

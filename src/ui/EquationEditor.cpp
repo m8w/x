@@ -2097,6 +2097,9 @@ void EquationEditor::loadSettings(const std::string& path) {
     m_surgePatch        = ini_i(m, "stream.surge_patch",     m_surgePatch);
     m_surgeAutoAdvance  = ini_i(m, "stream.surge_auto",      (int)m_surgeAutoAdvance);
     m_surgeAdvanceSecs  = ini_f(m, "stream.surge_adv_secs",  m_surgeAdvanceSecs);
+    // Prevent immediate burst advance if auto-advance was saved as enabled;
+    // reset to current ImGui time so the timer starts fresh from now.
+    m_surgeLastAdvance  = (float)ImGui::GetTime();
     {
         std::string dev = ini_s(m, "stream.audio_device", m_streamOut.audioDevice);
         m_streamOut.audioDevice = dev;
@@ -2270,9 +2273,11 @@ void EquationEditor::drawSurgeXTSection() {
 
     const uint8_t ch0 = (uint8_t)(std::max(1, m_midiGen.channel) - 1);
 
-    // Helper: send CC0 (bank) + PC (patch) to MIDI out immediately
+    // Helper: send CC0 (bank MSB) + CC32 (bank LSB) + PC to MIDI out immediately
     auto sendNow = [&]() {
-        m_midiOut.sendRaw(0xB0 | ch0, 0, (uint8_t)m_surgeBank);   // CC0 bank
+        if (!m_midiOut.isOpen()) return;
+        m_midiOut.sendRaw(0xB0 | ch0, 0,  (uint8_t)m_surgeBank);  // CC0  bank MSB
+        m_midiOut.sendRaw(0xB0 | ch0, 32, 0);                      // CC32 bank LSB
         m_midiOut.sendRaw(0xC0 | ch0, (uint8_t)m_surgePatch);      // PC
     };
 
@@ -2283,7 +2288,7 @@ void EquationEditor::drawSurgeXTSection() {
     // Bank input
     ImGui::SetNextItemWidth(55);
     if (ImGui::InputInt("Bank##surge", &m_surgeBank)) {
-        m_surgeBank = std::max(0, m_surgeBank);
+        m_surgeBank = std::max(0, std::min(127, m_surgeBank));
         sendNow();
     }
     ImGui::SameLine();
@@ -2308,7 +2313,7 @@ void EquationEditor::drawSurgeXTSection() {
         if (now - m_surgeLastAdvance >= m_surgeAdvanceSecs) {
             m_surgeLastAdvance = now;
             if (m_surgePatch < 127) { m_surgePatch++; }
-            else                    { m_surgeBank++;  m_surgePatch = 0; }
+            else if (m_surgeBank < 127) { m_surgeBank++;  m_surgePatch = 0; }
             sendNow();
         }
     }
@@ -2345,8 +2350,8 @@ void EquationEditor::drawSurgeXTSection() {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Previous patch (resets auto timer)");
     ImGui::SameLine();
     if (ImGui::ArrowButton("##surgenext", ImGuiDir_Right)) {
-        if (m_surgePatch < 127) { m_surgePatch++; }
-        else                    { m_surgeBank++;  m_surgePatch = 0; }
+        if (m_surgePatch < 127)     { m_surgePatch++; }
+        else if (m_surgeBank < 127) { m_surgeBank++;  m_surgePatch = 0; }
         m_surgeLastAdvance = now;
         sendNow();
     }

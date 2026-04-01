@@ -1,6 +1,4 @@
-# Fractal Stream
-
-> Prime cypher to find commonality in life codes.
+# Fractal Stream 
 
 A real-time generative video synthesis engine and live streaming tool for macOS (Linux/Windows in progress). It merges a GPU-accelerated fractal renderer and a MilkDrop audio-reactive visualizer into a single unified pipeline that encodes and pushes the result to any number of RTMP destinations simultaneously.
 

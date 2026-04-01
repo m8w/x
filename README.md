@@ -45,7 +45,7 @@ FFmpeg decodes any local video file (MP4, MKV, MOV, etc.) frame-by-frame. Each d
 
 ---
 
-## MilkDrop visualizer
+## MilkDrop visualizer(Was discontinued and removed from fractal stream into separate project)
 
 A complete C++/OpenGL port of the classic Winamp visualizer engine. Runs as a 5-pass GPU pipeline every frame:
 

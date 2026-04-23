@@ -508,6 +508,174 @@ void EquationEditor::drawVideoPanel() {
                            m_overlayIn.path().c_str());
     else
         ImGui::TextDisabled("No overlay loaded — click Browse to choose a file");
+
+    // ── Video Filters ─────────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("── Video Filters (GIMP-inspired) ──────────────────");
+
+    static const char* kColorFilters[] = {
+        "None",
+        "Brightness/Contrast",
+        "Saturation",
+        "Hue Rotate",
+        "Posterize",
+        "Invert",
+        "Sepia",
+        "Threshold",
+        "Solarize",
+        "Warm",
+        "Cool",
+        "Vibrance",
+    };
+    static const char* kSpatialFilters[] = {
+        "None",
+        "Brightness/Contrast",
+        "Saturation",
+        "Hue Rotate",
+        "Posterize",
+        "Invert",
+        "Sepia",
+        "Threshold",
+        "Solarize",
+        "Warm",
+        "Cool",
+        "Vibrance",
+        "Pixelate",
+        "Ripple/Wave",
+        "Edge Detect",
+        "Emboss",
+        "Sharpen",
+        "Bloom/Glow",
+        "Film Grain",
+    };
+    static const char* kBlendModes[] = {
+        "Normal",
+        "Multiply",
+        "Screen",
+        "Overlay",
+        "Soft Light",
+        "Hard Light",
+        "Difference",
+        "Exclusion",
+        "Color Dodge",
+        "Color Burn",
+        "Darken",
+        "Lighten",
+        "Addition",
+    };
+
+    // Primary video filter
+    ImGui::TextDisabled("Primary Video");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::Combo("Filter##vid", &m_engine.vidFilter, kColorFilters, 12);
+    if (m_engine.vidFilter > 0) {
+        switch (m_engine.vidFilter) {
+        case 1:
+            ImGui::SliderFloat("Brightness##vid", &m_engine.vidFilterA, -1.0f, 1.0f);
+            ImGui::SliderFloat("Contrast##vid",   &m_engine.vidFilterB,  0.0f, 3.0f);
+            break;
+        case 2:
+            ImGui::SliderFloat("Saturation##vid", &m_engine.vidFilterA, 0.0f, 3.0f);
+            break;
+        case 3:
+            ImGui::SliderFloat("Hue shift##vid",  &m_engine.vidFilterA, 0.0f, 1.0f);
+            break;
+        case 4:
+            ImGui::SliderFloat("Levels##vid",     &m_engine.vidFilterA, 2.0f, 16.0f, "%.0f");
+            break;
+        case 6:
+            ImGui::SliderFloat("Sepia blend##vid",&m_engine.vidFilterA, 0.0f, 1.0f);
+            break;
+        case 7:
+            ImGui::SliderFloat("Threshold##vid",  &m_engine.vidFilterA, 0.0f, 1.0f);
+            break;
+        case 8:
+            ImGui::SliderFloat("Solarize pt##vid",&m_engine.vidFilterA, 0.0f, 1.0f);
+            break;
+        case 9: case 10:
+            ImGui::SliderFloat("Strength##vid",   &m_engine.vidFilterA, 0.0f, 1.0f);
+            break;
+        case 11:
+            ImGui::SliderFloat("Vibrance##vid",   &m_engine.vidFilterA, 0.0f, 3.0f);
+            break;
+        default: break;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // Blend mode between streams
+    ImGui::TextDisabled("Stream Blend Mode");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::Combo("Blend Mode##stream", &m_engine.streamBlendMode, kBlendModes, 13);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How the fractal+primary video composites with the overlay.\n"
+                          "Blend slider above controls opacity.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // Overlay filter
+    ImGui::TextDisabled("Overlay Video  (spatial filters available)");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::Combo("Filter##ovr", &m_engine.ovrFilter, kSpatialFilters, 19);
+    if (m_engine.ovrFilter > 0) {
+        switch (m_engine.ovrFilter) {
+        case 1:
+            ImGui::SliderFloat("Brightness##ovr", &m_engine.ovrFilterA, -1.0f, 1.0f);
+            ImGui::SliderFloat("Contrast##ovr",   &m_engine.ovrFilterB,  0.0f, 3.0f);
+            break;
+        case 2:
+            ImGui::SliderFloat("Saturation##ovr", &m_engine.ovrFilterA, 0.0f, 3.0f);
+            break;
+        case 3:
+            ImGui::SliderFloat("Hue shift##ovr",  &m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        case 4:
+            ImGui::SliderFloat("Levels##ovr",     &m_engine.ovrFilterA, 2.0f, 16.0f, "%.0f");
+            break;
+        case 6:
+            ImGui::SliderFloat("Sepia blend##ovr",&m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        case 7:
+            ImGui::SliderFloat("Threshold##ovr",  &m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        case 8:
+            ImGui::SliderFloat("Solarize pt##ovr",&m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        case 9: case 10:
+            ImGui::SliderFloat("Strength##ovr",   &m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        case 11:
+            ImGui::SliderFloat("Vibrance##ovr",   &m_engine.ovrFilterA, 0.0f, 3.0f);
+            break;
+        case 12:
+            ImGui::SliderFloat("Block size##ovr", &m_engine.ovrFilterA, 0.001f, 0.1f, "%.3f");
+            break;
+        case 13:
+            ImGui::SliderFloat("Amplitude##ovr",  &m_engine.ovrFilterA, 0.0f, 1.0f);
+            ImGui::SliderFloat("Frequency##ovr",  &m_engine.ovrFilterB, 0.1f, 5.0f);
+            break;
+        case 14:
+            ImGui::SliderFloat("Strength##sovl",  &m_engine.ovrFilterA, 0.5f, 4.0f);
+            break;
+        case 15:
+            ImGui::SliderFloat("Strength##emboss",&m_engine.ovrFilterA, 0.5f, 5.0f);
+            break;
+        case 16:
+            ImGui::SliderFloat("Sharpness##ovr",  &m_engine.ovrFilterA, 0.0f, 3.0f);
+            break;
+        case 17:
+            ImGui::SliderFloat("Threshold##bloom",&m_engine.ovrFilterA, 0.0f, 1.0f);
+            ImGui::SliderFloat("Radius##bloom",   &m_engine.ovrFilterB, 1.0f, 4.0f, "%.0f");
+            break;
+        case 18:
+            ImGui::SliderFloat("Grain##ovr",      &m_engine.ovrFilterA, 0.0f, 1.0f);
+            break;
+        default: break;
+        }
+    }
 }
 
 // Common service presets: { display label, RTMP base URL }
@@ -2039,6 +2207,11 @@ void EquationEditor::saveSettings(const std::string& path) const {
             m_streamOut.audioDevice.c_str(), m_videoPath);
     fprintf(f, "overlay_path=%s\noverlay_blend=%.3f\n",
             m_overlayPath, m_engine.overlayBlend);
+    fprintf(f, "vid_filter=%d\nvid_fa=%.3f\nvid_fb=%.3f\n",
+            m_engine.vidFilter, m_engine.vidFilterA, m_engine.vidFilterB);
+    fprintf(f, "ovr_filter=%d\novr_fa=%.3f\novr_fb=%.3f\nstream_blend_mode=%d\n",
+            m_engine.ovrFilter, m_engine.ovrFilterA, m_engine.ovrFilterB,
+            m_engine.streamBlendMode);
     fprintf(f, "surge_bank=%d\nsurge_patch=%d\nsurge_auto=%d\nsurge_adv_secs=%.2f\n",
             m_surgeBank, m_surgePatch, (int)m_surgeAutoAdvance, m_surgeAdvanceSecs);
     int ndest = m_streamOut.destCount();
@@ -2220,8 +2393,15 @@ void EquationEditor::loadSettings(const std::string& path) {
             m_overlayIn.open(op);
             m_streamOut.overlayAudioPath = op;
         }
-        m_engine.overlayBlend = ini_f(m, "stream.overlay_blend", m_engine.overlayBlend);
+        m_engine.overlayBlend    = ini_f(m, "stream.overlay_blend",    m_engine.overlayBlend);
     }
+    m_engine.vidFilter       = ini_i(m, "stream.vid_filter",        m_engine.vidFilter);
+    m_engine.vidFilterA      = ini_f(m, "stream.vid_fa",            m_engine.vidFilterA);
+    m_engine.vidFilterB      = ini_f(m, "stream.vid_fb",            m_engine.vidFilterB);
+    m_engine.ovrFilter       = ini_i(m, "stream.ovr_filter",        m_engine.ovrFilter);
+    m_engine.ovrFilterA      = ini_f(m, "stream.ovr_fa",            m_engine.ovrFilterA);
+    m_engine.ovrFilterB      = ini_f(m, "stream.ovr_fb",            m_engine.ovrFilterB);
+    m_engine.streamBlendMode = ini_i(m, "stream.stream_blend_mode", m_engine.streamBlendMode);
     int ndest = ini_i(m, "stream.dest_count", 0);
     if (ndest > 0) {
         // Remove existing destinations, then restore saved ones

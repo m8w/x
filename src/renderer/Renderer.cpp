@@ -94,6 +94,14 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setInt   ("u_video_tex",       0);  // texture unit 0
     prog.setInt   ("u_overlay_tex",     1);  // texture unit 1
     prog.setFloat ("u_overlay_blend",   eng.overlayBlend);
+    // Video filters + blend mode
+    prog.setInt   ("u_vid_filter",      eng.vidFilter);
+    prog.setFloat ("u_vid_fa",          eng.vidFilterA);
+    prog.setFloat ("u_vid_fb",          eng.vidFilterB);
+    prog.setInt   ("u_ovr_filter",      eng.ovrFilter);
+    prog.setFloat ("u_ovr_fa",          eng.ovrFilterA);
+    prog.setFloat ("u_ovr_fb",          eng.ovrFilterB);
+    prog.setInt   ("u_stream_blend_mode", eng.streamBlendMode);
 
     // ── Color Synthesizer ─────────────────────────────────────────────────────
     prog.setBool  ("u_cs_enabled",    cs.enabled);
@@ -140,6 +148,7 @@ void Renderer::render(int width, int height, float time,
         uploadUniforms(*prog, width, height, time, engine, blend, colorSynth);
         videoTex.bind(0);
         overlayTex.bind(1);
+        prog->setFloat2("u_overlay_size", (float)overlayTex.width(), (float)overlayTex.height());
         // Suppress overlay blend when no real overlay is loaded (1×1 white fallback)
         if (overlayTex.width() <= 1 && overlayTex.height() <= 1)
             prog->setFloat("u_overlay_blend", 0.0f);

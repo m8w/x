@@ -36,6 +36,24 @@ uniform sampler2D u_video_tex;
 uniform sampler2D u_overlay_tex;   // second video layer
 uniform float     u_overlay_blend; // 0=fractal only  1=overlay only  0.5=50/50
 
+// ── Video filters ─────────────────────────────────────────────────────────────
+// Applied independently to the primary video and the overlay stream.
+// Color filters (IDs 0–11) work on any stream.
+// Spatial filters (IDs 12–18) only applied to overlay (has screen UV).
+uniform int   u_vid_filter;      // primary video filter ID
+uniform float u_vid_fa;          // filter param A
+uniform float u_vid_fb;          // filter param B
+uniform int   u_ovr_filter;      // overlay filter ID
+uniform float u_ovr_fa;          // overlay filter param A
+uniform float u_ovr_fb;          // overlay filter param B
+uniform vec2  u_overlay_size;    // overlay texture size (pixels) for spatial filters
+
+// ── Stream blend mode ─────────────────────────────────────────────────────────
+// How the fractal+primary composite blends with the overlay stream.
+// 0=Normal  1=Multiply  2=Screen  3=Overlay  4=SoftLight  5=HardLight
+// 6=Difference  7=Exclusion  8=ColorDodge  9=ColorBurn  10=Darken  11=Lighten  12=Addition
+uniform int u_stream_blend_mode;
+
 // ── Chaos Effects ─────────────────────────────────────────────────────────────
 uniform int   u_chaos_mode;     // 0=off  1=turbulence  2=logistic  3=henon  4=shred
 uniform float u_chaos_strength; // overall warp amplitude (0–1)
@@ -621,6 +639,199 @@ vec2 apply_chaos(vec2 p, float t) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// VIDEO FILTER LIBRARY  (GIMP-inspired)
+// apply_color_filter: color-only filters, no texture lookups — works on any stream.
+// sample_overlay_filtered: spatial filters for the overlay (needs screen UV).
+// blend_streams: GIMP layer blend modes between two RGB colours.
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── Noise helper for film grain ───────────────────────────────────────────────
+float _grain(vec2 uv, float t) {
+    return fract(sin(dot(uv * 1000.0 + t * 37.3, vec2(12.9898, 78.233))) * 43758.545);
+}
+
+// ── Color-only filter (IDs 0–11) ─────────────────────────────────────────────
+// a, b = filter parameters (see UI labels for meaning per filter).
+vec3 apply_color_filter(vec3 col, int mode, float a, float b) {
+    if (mode == 0) return col;  // 0 — None
+
+    // 1 — Brightness / Contrast
+    // a = brightness offset (-1..1)   b = contrast multiplier (0..2)
+    if (mode == 1) return clamp((col + a) * b, 0.0, 1.0);
+
+    // 2 — Saturation  (a = 0 → greyscale, 1 → normal, 2 → vivid)
+    if (mode == 2) {
+        float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        return clamp(mix(vec3(lum), col, a), 0.0, 1.0);
+    }
+
+    // 3 — Hue Rotate  (a = rotation 0..1 wrapping)
+    if (mode == 3) {
+        vec3 hsl = rgb2hsl(col);
+        hsl.x = fract(hsl.x + a);
+        return hsl2rgb(hsl);
+    }
+
+    // 4 — Posterize  (a = number of levels 2..16)
+    if (mode == 4) {
+        float lvl = max(2.0, a);
+        return floor(col * lvl + 0.5) / lvl;
+    }
+
+    // 5 — Invert
+    if (mode == 5) return 1.0 - col;
+
+    // 6 — Sepia
+    if (mode == 6) {
+        float g = dot(col, vec3(0.299, 0.587, 0.114));
+        vec3 sepia = vec3(g * 1.08, g * 0.88, g * 0.62);
+        return clamp(mix(col, sepia, a), 0.0, 1.0);
+    }
+
+    // 7 — Threshold  (a = split point 0..1)
+    if (mode == 7) {
+        float lum = dot(col, vec3(0.299, 0.587, 0.114));
+        return vec3(step(a, lum));
+    }
+
+    // 8 — Solarize  (partial invert above threshold a)
+    if (mode == 8) {
+        return mix(col, 1.0 - col, step(a, col));
+    }
+
+    // 9 — Warm  (push reds/yellows, a = strength)
+    if (mode == 9) return clamp(col + vec3(a*0.2, a*0.07, -a*0.1), 0.0, 1.0);
+
+    // 10 — Cool  (push blues/cyans, a = strength)
+    if (mode == 10) return clamp(col + vec3(-a*0.1, a*0.04, a*0.2), 0.0, 1.0);
+
+    // 11 — Vibrance  (boost unsaturated colours, leave saturated ones alone)
+    if (mode == 11) {
+        float maxC = max(col.r, max(col.g, col.b));
+        float minC = min(col.r, min(col.g, col.b));
+        float sat = maxC - minC;
+        float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        float boost = a * (1.0 - sat);     // more boost where already desaturated
+        return clamp(mix(vec3(lum), col, 1.0 + boost), 0.0, 1.0);
+    }
+
+    return col;
+}
+
+// ── Spatial filters for overlay (IDs 12–18, require screen UV) ───────────────
+// Samples the overlay texture with spatial operations.
+// texelSz = vec2(1)/u_overlay_size.
+vec3 sample_overlay_filtered(vec2 uv, int mode, float a, float b, vec2 texelSz) {
+    // For non-spatial modes, just sample and let apply_color_filter handle it
+    if (mode < 12) return texture(u_overlay_tex, uv).rgb;
+
+    // 12 — Pixelate / Mosaic  (a = block size in screen fraction)
+    if (mode == 12) {
+        float sz = max(texelSz.x, a * 0.05);
+        vec2 blocked = floor(uv / sz) * sz + sz * 0.5;
+        return texture(u_overlay_tex, blocked).rgb;
+    }
+
+    // 13 — Ripple / Wave  (a = amplitude, b = frequency)
+    if (mode == 13) {
+        vec2 rUV = uv + vec2(
+            sin(uv.y * b * 20.0 + u_time * 3.0) * a * 0.04,
+            cos(uv.x * b * 20.0 + u_time * 2.5) * a * 0.04
+        );
+        return texture(u_overlay_tex, clamp(rUV, 0.0, 1.0)).rgb;
+    }
+
+    // 14 — Edge Detect (Sobel)
+    if (mode == 14) {
+        vec2 t = texelSz;
+        vec3 tl = texture(u_overlay_tex, uv + vec2(-t.x,  t.y)).rgb;
+        vec3 tc = texture(u_overlay_tex, uv + vec2( 0.0,  t.y)).rgb;
+        vec3 tr = texture(u_overlay_tex, uv + vec2( t.x,  t.y)).rgb;
+        vec3 ml = texture(u_overlay_tex, uv + vec2(-t.x,  0.0)).rgb;
+        vec3 mr = texture(u_overlay_tex, uv + vec2( t.x,  0.0)).rgb;
+        vec3 bl = texture(u_overlay_tex, uv + vec2(-t.x, -t.y)).rgb;
+        vec3 bc = texture(u_overlay_tex, uv + vec2( 0.0, -t.y)).rgb;
+        vec3 br = texture(u_overlay_tex, uv + vec2( t.x, -t.y)).rgb;
+        vec3 Gx = -tl + tr - 2.0*ml + 2.0*mr - bl + br;
+        vec3 Gy = -tl - 2.0*tc - tr + bl + 2.0*bc + br;
+        return clamp(sqrt(Gx*Gx + Gy*Gy) * a, 0.0, 1.0);
+    }
+
+    // 15 — Emboss
+    if (mode == 15) {
+        vec2 t = texelSz;
+        vec3 c0 = texture(u_overlay_tex, uv).rgb;
+        vec3 cx = texture(u_overlay_tex, uv + vec2(t.x, t.y)).rgb;
+        return clamp((c0 - cx) * a + 0.5, 0.0, 1.0);
+    }
+
+    // 16 — Sharpen  (a = strength 0..3)
+    if (mode == 16) {
+        vec2 t = texelSz;
+        vec3 c = texture(u_overlay_tex, uv).rgb;
+        vec3 blur = (texture(u_overlay_tex, uv + vec2( t.x, 0.0)).rgb +
+                     texture(u_overlay_tex, uv + vec2(-t.x, 0.0)).rgb +
+                     texture(u_overlay_tex, uv + vec2(0.0,  t.y)).rgb +
+                     texture(u_overlay_tex, uv + vec2(0.0, -t.y)).rgb) * 0.25;
+        return clamp(c + (c - blur) * a, 0.0, 1.0);
+    }
+
+    // 17 — Bloom / Glow  (a = threshold, b = radius steps 1..4)
+    if (mode == 17) {
+        vec3 base = texture(u_overlay_tex, uv).rgb;
+        vec3 bloom = vec3(0.0);
+        float weight = 0.0;
+        int steps = int(clamp(b, 1.0, 4.0));
+        for (int dx = -steps; dx <= steps; dx++) {
+            for (int dy = -steps; dy <= steps; dy++) {
+                vec2 off = vec2(float(dx), float(dy)) * texelSz * 3.0;
+                vec3 s = texture(u_overlay_tex, uv + off).rgb;
+                float bright = dot(s, vec3(0.299, 0.587, 0.114));
+                float w = max(0.0, bright - a);
+                bloom += s * w;
+                weight += w;
+            }
+        }
+        if (weight > 0.0) bloom /= weight;
+        return clamp(base + bloom * 0.6, 0.0, 1.0);
+    }
+
+    // 18 — Film Grain  (a = strength)
+    if (mode == 18) {
+        vec3 c = texture(u_overlay_tex, uv).rgb;
+        float g = _grain(uv, u_time) * 2.0 - 1.0;
+        return clamp(c + g * a * 0.15, 0.0, 1.0);
+    }
+
+    return texture(u_overlay_tex, uv).rgb;
+}
+
+// ── GIMP layer blend modes ────────────────────────────────────────────────────
+// a = base (fractal+primary),  b = overlay layer,  t = overlay_blend (opacity)
+vec3 blend_streams(vec3 a, vec3 b, float t, int mode) {
+    vec3 blended;
+    if (mode == 0)  blended = b;                                          // Normal
+    if (mode == 1)  blended = a * b;                                      // Multiply
+    if (mode == 2)  blended = 1.0 - (1.0-a)*(1.0-b);                    // Screen
+    if (mode == 3)  blended = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),    // Overlay
+                                  step(0.5, a));
+    if (mode == 4) {                                                       // Soft Light
+        vec3 d = mix(sqrt(a), 2.0*a-1.0, step(0.5, b));
+        blended = a + (2.0*b-1.0)*d;
+    }
+    if (mode == 5)  blended = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),    // Hard Light
+                                  step(0.5, b));
+    if (mode == 6)  blended = abs(a - b);                                 // Difference
+    if (mode == 7)  blended = a + b - 2.0*a*b;                           // Exclusion
+    if (mode == 8)  blended = clamp(a / max(1.0-b, 0.001), 0.0, 1.0);   // Color Dodge
+    if (mode == 9)  blended = 1.0-clamp((1.0-a)/max(b,0.001),0.0,1.0);  // Color Burn
+    if (mode == 10) blended = min(a, b);                                  // Darken
+    if (mode == 11) blended = max(a, b);                                  // Lighten
+    if (mode == 12) blended = clamp(a + b, 0.0, 1.0);                    // Addition
+    return mix(a, clamp(blended, 0.0, 1.0), t);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ════════════════════════════════════════════════════════════════════════════════
 void main() {
@@ -681,7 +892,8 @@ void main() {
     escape = clamp(escape, 0.0, 1.0);
 
     vec2 vidUV = vec2(fract(escape*3.7+u_time*0.05), fract(escape*5.3+0.5));
-    vec3 video  = texture(u_video_tex, vidUV).rgb;
+    vec3 video  = apply_color_filter(texture(u_video_tex, vidUV).rgb,
+                                     u_vid_filter, u_vid_fa, u_vid_fb);
 
     // ── Base palette ──────────────────────────────────────────────────────────
     vec3 baseColor = palette(escape + u_time*0.08);
@@ -708,10 +920,14 @@ void main() {
     vec3 color  = mix(baseColor, video, 0.65+0.35*escape);
     color *= step(0.001, escape)*0.95 + 0.05;
 
-    // ── Overlay video layer (50 % blend by default) ───────────────────────────
+    // ── Overlay video layer — filter + GIMP blend mode ───────────────────────
     if (u_overlay_blend > 0.0) {
-        vec3 overlay = texture(u_overlay_tex, v_uv).rgb;
-        color = mix(color, overlay, u_overlay_blend);
+        vec2 texelSz = (u_overlay_size.x > 1.0) ? 1.0 / u_overlay_size : vec2(0.001);
+        vec3 ovr = sample_overlay_filtered(v_uv, u_ovr_filter, u_ovr_fa, u_ovr_fb, texelSz);
+        // Apply color-only overlay filter on top of spatial result (mode < 12)
+        if (u_ovr_filter < 12)
+            ovr = apply_color_filter(ovr, u_ovr_filter, u_ovr_fa, u_ovr_fb);
+        color = blend_streams(color, ovr, u_overlay_blend, u_stream_blend_mode);
     }
 
     fragColor = vec4(color, 1.0);

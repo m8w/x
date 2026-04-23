@@ -89,6 +89,22 @@ struct FractalEngine {
     // 0 = fractal only  1 = overlay only  0.5 = 50/50 mix (visual + audio)
     float overlayBlend    = 0.5f;
 
+    // ── Video filters (GIMP-inspired) ─────────────────────────────────────────
+    // Color filters 0-11 apply to both streams.
+    // Spatial filters 12-18 apply to overlay only (has screen UV).
+    int   vidFilter  = 0;       // primary video filter ID
+    float vidFilterA = 1.0f;    // param A (brightness/saturation/levels/strength)
+    float vidFilterB = 1.0f;    // param B (contrast/frequency/radius)
+
+    int   ovrFilter  = 0;       // overlay filter ID
+    float ovrFilterA = 1.0f;    // overlay filter param A
+    float ovrFilterB = 1.0f;    // overlay filter param B
+
+    // ── Stream blend mode ─────────────────────────────────────────────────────
+    // 0=Normal  1=Multiply  2=Screen  3=Overlay  4=SoftLight  5=HardLight
+    // 6=Difference  7=Exclusion  8=ColorDodge  9=ColorBurn  10=Darken  11=Lighten  12=Addition
+    int   streamBlendMode = 0;
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.

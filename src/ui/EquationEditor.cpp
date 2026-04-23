@@ -98,7 +98,7 @@ static const char* kFormulas[] = {
     "Newton z\xc2\xb3\xe2\x88\x92" "1",           //  8
     "Phoenix",                                     //  9
     "z\xe2\x81\xbf + c  (power)",                 // 10
-    // ── New formulas ─────────────────────────────────────────────────────────
+    // ── Extended formulas (IDs 11–21) ────────────────────────────────────────
     "tan(z) + c",                                  // 11
     "z\xc2\xb7""exp(z) + c",                      // 12  z·exp(z)+c
     "Celtic  (|Re(z\xc2\xb2)|,Im(z\xc2\xb2))+c", // 13
@@ -110,8 +110,23 @@ static const char* kFormulas[] = {
     "z\xc2\xb3 + z + c",                           // 19
     "cosh(conj(z)) + c",                           // 20
     "Polar\xe2\x86\x92""Cart warp  [\xe2\x88\x82param]", // 21  formulaParam=twist
+    // ── Mandelbulber 2 extended set (IDs 22–35) ──────────────────────────────
+    "Buffalo  (|Re|,|Im|)+c",                      // 22
+    "Perp Celtic  (Re,|Im|)+c",                    // 23
+    "tanh(z) + c",                                 // 24
+    "Nova  (Newton z\xc2\xb3\xe2\x88\x921+c)",    // 25
+    "Lambda  z(1\xe2\x88\x92z)\xc2\xb7""c",       // 26
+    "Barnsley 1  (IFS)",                           // 27
+    "SimFp  sinh(z)+z\xc2\xb2+c",                 // 28
+    "Ikenaga  z\xc2\xb3+(c\xe2\x88\x921)z\xe2\x88\x92""c", // 29
+    "Rudy  z\xc2\xb2+c/z",                        // 30
+    "Magnet II",                                   // 31
+    "z\xe2\x81\xb4 + c  (4th power)",             // 32
+    "Glynn  z\xc2\xb9\xc2\xb7\xc2\xb5+c",        // 33
+    "Mandelbar Celtic",                            // 34
+    "z\xc2\xb2\xc2\xb7sin(|z|)+c",               // 35
 };
-static constexpr int kNumFormulas = 22;
+static constexpr int kNumFormulas = 36;
 static const char* k3DTypes[] = {
     "Mandelbulb",
     "Mandelbox",
@@ -1204,7 +1219,7 @@ void EquationEditor::drawMidiWindow() {
             // Quick range presets for Surge XT
             ImGui::Spacing();
             ImGui::TextDisabled("Quick range:");
-            if (ImGui::SmallButton("Formula (0-10)"))    { G.pgMin=0;   G.pgMax=10;   }
+            if (ImGui::SmallButton("Formula (0-35)"))    { G.pgMin=0;   G.pgMax=35;   }
             ImGui::SameLine();
             if (ImGui::SmallButton("PC 0-127"))          { G.pgMin=0;   G.pgMax=127;  }
             ImGui::SameLine();

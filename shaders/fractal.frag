@@ -216,6 +216,107 @@ vec2 eval_formula(int f, vec2 z, vec2 z_prev, vec2 seed) {
         return csqr(zw) + seed;
     }
 
+    // ── Mandelbulber 2 extended set (IDs 22–35) ───────────────────────────────
+
+    // 22 — Buffalo: abs on BOTH Re and Im of z² before adding c
+    //   Distinct from Burning Ship (which folds before squaring) and Celtic
+    //   (which only folds Re).  Produces symmetric four-quadrant structures.
+    if (f == 22) {
+        vec2 z2 = csqr(z);
+        return vec2(abs(z2.x), abs(z2.y)) + seed;
+    }
+
+    // 23 — Perpendicular Celtic: fold Im(z²) only, leave Re(z²) unchanged.
+    //   Counterpart to Celtic (f=13) which folds Re; produces distinct
+    //   vertical-axis symmetric filaments.
+    if (f == 23) {
+        vec2 z2 = csqr(z);
+        return vec2(z2.x, abs(z2.y)) + seed;
+    }
+
+    // 24 — tanh(z) + c: complex hyperbolic tangent.
+    //   Produces enclosed bounded regions with smooth gradient halos;
+    //   related to ctan (f=11) but with hyperbolic instead of circular poles.
+    if (f == 24) return ctanh(z) + seed;
+
+    // 25 — Nova (Newton z³−1 + c perturbation):
+    //   Standard Newton step plus an additive c term.  Keeps the three-root
+    //   convergence basins of Newton while the c perturbation distorts them.
+    if (f == 25) {
+        vec2 den = 3.0 * csqr(z);
+        if (cabs2(den) < 1e-12) return z + seed;
+        return z - cdiv(ccube(z) - vec2(1.0, 0.0), den) + seed;
+    }
+
+    // 26 — Lambda: z(1−z)·c
+    //   Completely different topology — fixed points at 0 and 1; produces
+    //   Douady rabbit / airplane / basilica families depending on c.
+    if (f == 26) return cmul(cmul(z, vec2(1.0, 0.0) - z), seed);
+
+    // 27 — Barnsley 1: IFS branching on sign of Re(z·conj(c))
+    //   Two affine branches selected per iteration by the sign of the inner
+    //   product; generates fern-like IFS attractors in the filled Julia set.
+    if (f == 27) {
+        if (dot(z, seed) >= 0.0)
+            return cmul(z - vec2(1.0, 0.0), seed);
+        else
+            return cmul(z + vec2(1.0, 0.0), seed);
+    }
+
+    // 28 — SimFp: sinh(z) + z² + c
+    //   Hybrid hyperbolic-polynomial; the two terms compete, producing
+    //   complex basins that combine lobe structures from both functions.
+    if (f == 28) return csinh(z) + csqr(z) + seed;
+
+    // 29 — Ikenaga: z³ + (c−1)z − c
+    //   Cubic with a linear (c−1)z perturbation; richer basin structure
+    //   than plain z³+c, inspired by the Ikenaga fractal from Mandelbulber.
+    if (f == 29) return ccube(z) + cmul(seed - vec2(1.0, 0.0), z) - seed;
+
+    // 30 — Rudy: z² + c/z
+    //   Rational map — the inverse term c/z creates ring-shaped structures
+    //   and a pole at the origin that distorts nearby orbits dramatically.
+    if (f == 30) {
+        if (cabs2(z) < 1e-10) return seed;
+        return csqr(z) + cdiv(seed, z);
+    }
+
+    // 31 — Magnet II: ((z³+3(c−1)z+(c−1)(c−2))/(3z²+3(c−2)z+(c−1)(c−2)+1))²
+    //   Second-order magnetic attractor rational map.  Produces complex
+    //   interlocking domains; paired with Magnet I (f=14) for A↔B blend.
+    if (f == 31) {
+        vec2 c1  = seed - vec2(1.0, 0.0);          // c−1
+        vec2 c2  = seed - vec2(2.0, 0.0);          // c−2
+        vec2 c12 = cmul(c1, c2);                    // (c−1)(c−2)
+        vec2 num = ccube(z) + 3.0*cmul(c1, z) + c12;
+        vec2 den = 3.0*csqr(z) + 3.0*cmul(c2, z) + c12 + vec2(1.0, 0.0);
+        if (cabs2(den) < 1e-10) return z;
+        return csqr(cdiv(num, den));
+    }
+
+    // 32 — z⁴ + c: fourth power Mandelbrot
+    //   Three-fold symmetry axis; produces the classic 4-lobed Mandelbrot
+    //   shape.  Richer fine structure than z² at the same iteration count.
+    if (f == 32) return cpow_r(z, 4.0) + seed;
+
+    // 33 — Glynn: z^1.5 + c (fractional power)
+    //   Non-integer exponent via polar form; produces asymmetric branching
+    //   dendrites — the classic "Glynn fractal" shape.
+    if (f == 33) return cpow_r(z, 1.5) + seed;
+
+    // 34 — Mandelbar Celtic: conjugate z before Celtic fold
+    //   Apply conjugation first, then fold only Re(conj(z)²).  Combines
+    //   the three-fold Mandelbar symmetry with Celtic's one-sided fold.
+    if (f == 34) {
+        vec2 z2 = csqr(cconj(z));
+        return vec2(abs(z2.x), z2.y) + seed;
+    }
+
+    // 35 — Magnitude-coupled: z² · sin(|z|) + c
+    //   Scales each iteration by the sine of the orbit radius, injecting
+    //   concentric ring modulation into the escape path.
+    if (f == 35) return cmul(csqr(z), vec2(sin(length(z)), 0.0)) + seed;
+
     return csqr(z) + seed;  // fallback
 }
 

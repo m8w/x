@@ -31,15 +31,18 @@ void GlitchEngine::scheduleNext(double now) {
 
 std::vector<GlitchType> GlitchEngine::activeTypes() const {
     std::vector<GlitchType> v;
-    if (doJuliaJump)     v.push_back(GlitchType::JuliaJump);
-    if (doFormulaFlash)  v.push_back(GlitchType::FormulaFlash);
-    if (doZoomPunch)     v.push_back(GlitchType::ZoomPunch);
-    if (doBlendScatter)  v.push_back(GlitchType::BlendScatter);
-    if (doPowerSpike)    v.push_back(GlitchType::PowerSpike);
-    if (doOffsetShift)   v.push_back(GlitchType::OffsetShift);
-    if (doVelocitySpike) v.push_back(GlitchType::VelocitySpike);
-    if (doPitchScramble) v.push_back(GlitchType::PitchScramble);
-    if (doGhostNote)     v.push_back(GlitchType::GhostNote);
+    if (doJuliaJump)       v.push_back(GlitchType::JuliaJump);
+    if (doFormulaFlash)    v.push_back(GlitchType::FormulaFlash);
+    if (doZoomPunch)       v.push_back(GlitchType::ZoomPunch);
+    if (doBlendScatter)    v.push_back(GlitchType::BlendScatter);
+    if (doPowerSpike)      v.push_back(GlitchType::PowerSpike);
+    if (doOffsetShift)     v.push_back(GlitchType::OffsetShift);
+    if (doBlendModeGlitch) v.push_back(GlitchType::BlendModeGlitch);
+    if (doFilterGlitch)    v.push_back(GlitchType::FilterGlitch);
+    if (doChaosGlitch)     v.push_back(GlitchType::ChaosGlitch);
+    if (doVelocitySpike)   v.push_back(GlitchType::VelocitySpike);
+    if (doPitchScramble)   v.push_back(GlitchType::PitchScramble);
+    if (doGhostNote)       v.push_back(GlitchType::GhostNote);
     return v;
 }
 
@@ -58,18 +61,23 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
     inGlitch = true;
 
     // Save current state
-    m_saved.juliaC       = eng.juliaC;
-    m_saved.power        = eng.power;
-    m_saved.zoom         = eng.zoom;
-    m_saved.offset       = eng.offset;
-    m_saved.formula      = eng.formula;
-    m_saved.formulaB     = eng.formulaB;
-    m_saved.formulaBlend = eng.formulaBlend;
-    m_saved.mandelbrot   = blend.mandelbrot;
-    m_saved.julia        = blend.julia;
-    m_saved.mandelbulb   = blend.mandelbulb;
-    m_saved.euclidean    = blend.euclidean;
-    m_saved.diff         = blend.diff;
+    m_saved.juliaC          = eng.juliaC;
+    m_saved.power           = eng.power;
+    m_saved.zoom            = eng.zoom;
+    m_saved.offset          = eng.offset;
+    m_saved.formula         = eng.formula;
+    m_saved.formulaB        = eng.formulaB;
+    m_saved.formulaBlend    = eng.formulaBlend;
+    m_saved.mandelbrot      = blend.mandelbrot;
+    m_saved.julia           = blend.julia;
+    m_saved.mandelbulb      = blend.mandelbulb;
+    m_saved.euclidean       = blend.euclidean;
+    m_saved.diff            = blend.diff;
+    m_saved.streamBlendMode = eng.streamBlendMode;
+    m_saved.vidFilter       = eng.vidFilter;
+    m_saved.ovrFilter       = eng.ovrFilter;
+    m_saved.chaosMode       = eng.chaosMode;
+    m_saved.chaosStrength   = eng.chaosStrength;
 
     // Reset MIDI glitch flags
     m_velSpike   = false;
@@ -125,6 +133,38 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
         eng.offset.y  += randF(-0.3f * s, 0.3f * s);
         m_post.offset  = eng.offset;
         break;
+
+    case GlitchType::BlendModeGlitch: {
+        lastGlitchName = "Blend Mode";
+        int lo = std::min(blendGlitchMin, blendGlitchMax);
+        int hi = std::max(blendGlitchMin, blendGlitchMax);
+        eng.streamBlendMode = randI(lo, hi);
+        m_post.streamBlendMode = eng.streamBlendMode;
+        break;
+    }
+
+    case GlitchType::FilterGlitch: {
+        lastGlitchName = "Filter Glitch";
+        if (filterGlitchStream == 0 || filterGlitchStream == 2) {
+            eng.vidFilter = randI(0, 11);
+            m_post.vidFilter = eng.vidFilter;
+        }
+        if (filterGlitchStream == 1 || filterGlitchStream == 2) {
+            eng.ovrFilter = randI(0, 18);
+            m_post.ovrFilter = eng.ovrFilter;
+        }
+        break;
+    }
+
+    case GlitchType::ChaosGlitch: {
+        lastGlitchName = "Chaos Warp";
+        int lo = std::max(1, std::min(chaosGlitchModeMin, chaosGlitchModeMax));
+        int hi = std::max(lo, chaosGlitchModeMax);
+        eng.chaosMode     = randI(lo, hi);
+        eng.chaosStrength = randF(0.3f * s, std::min(1.0f, 0.8f * s + 0.2f));
+        m_post.chaosMode  = eng.chaosMode;
+        break;
+    }
 
     case GlitchType::VelocitySpike:
         lastGlitchName = "Vel Spike";
@@ -183,6 +223,20 @@ void GlitchEngine::recoverGlitch(FractalEngine& eng, BlendController& blend) {
     case GlitchType::OffsetShift:
         if (eng.offset == m_post.offset) eng.offset = m_saved.offset;
         break;
+    case GlitchType::BlendModeGlitch:
+        if (eng.streamBlendMode == m_post.streamBlendMode)
+            eng.streamBlendMode = m_saved.streamBlendMode;
+        break;
+    case GlitchType::FilterGlitch:
+        if (eng.vidFilter == m_post.vidFilter) eng.vidFilter = m_saved.vidFilter;
+        if (eng.ovrFilter == m_post.ovrFilter) eng.ovrFilter = m_saved.ovrFilter;
+        break;
+    case GlitchType::ChaosGlitch:
+        if (eng.chaosMode == m_post.chaosMode) {
+            eng.chaosMode     = m_saved.chaosMode;
+            eng.chaosStrength = m_saved.chaosStrength;
+        }
+        break;
     case GlitchType::VelocitySpike:
         m_velSpike = false;
         break;
@@ -224,6 +278,18 @@ std::vector<MidiInput::Message> GlitchEngine::tick(double time,
     // Fire new glitch?
     if (!inGlitch && time >= m_nextGlitch) {
         fireGlitch(time, eng, blend);
+
+        // Random CC burst — fires on every glitch start (if enabled)
+        if (randomCCEnabled && randomCCCount > 0 && randomCCMin <= randomCCMax) {
+            uint8_t rch = (uint8_t)(std::max(1, std::min(16, randomCCChannel)) - 1);
+            int lo = std::max(0, std::min(127, randomCCMin));
+            int hi = std::max(lo, std::min(127, randomCCMax));
+            for (int i = 0; i < randomCCCount; i++) {
+                uint8_t cc  = (uint8_t)randI(lo, hi);
+                uint8_t val = (uint8_t)randI(0, 127);
+                out.push_back({(uint8_t)(0xB0 | rch), cc, val});
+            }
+        }
 
         // Ghost note fires immediately as an extra MIDI message
         if (m_activeType == GlitchType::GhostNote) {

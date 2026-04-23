@@ -15,6 +15,10 @@ enum class GlitchType {
     BlendScatter,   // blend weights randomize
     PowerSpike,     // power jumps to random value
     OffsetShift,    // pan offset shifts
+    // Filter / blend glitches
+    BlendModeGlitch,// stream blend mode jumps to random value
+    FilterGlitch,   // vid or overlay filter randomizes
+    ChaosGlitch,    // chaos warp mode + strength randomize
     // MIDI glitches (produce extra messages)
     VelocitySpike,  // next notes are max velocity
     PitchScramble,  // pitch jumps an octave
@@ -46,6 +50,9 @@ public:
     bool  doBlendScatter = true;
     bool  doPowerSpike   = false;
     bool  doOffsetShift  = false;
+    bool  doBlendModeGlitch = false;  // randomize stream blend mode
+    bool  doFilterGlitch    = false;  // randomize vid/ovr filter
+    bool  doChaosGlitch     = false;  // randomize chaos warp
     bool  doVelocitySpike= true;
     bool  doPitchScramble= true;
     bool  doGhostNote    = true;
@@ -53,6 +60,27 @@ public:
     // ── Formula flash range ───────────────────────────────────────────────────
     int   formulaFlashMin = 0;    // lowest formula ID FormulaFlash can pick
     int   formulaFlashMax = 35;   // highest formula ID (covers full 0–35 set)
+
+    // ── Blend mode glitch range ────────────────────────────────────────────────
+    int   blendGlitchMin  = 0;    // lowest blend mode index (0–41)
+    int   blendGlitchMax  = 41;
+
+    // ── Filter glitch target ───────────────────────────────────────────────────
+    int   filterGlitchStream = 0; // 0=vid only  1=ovr only  2=both
+
+    // ── Chaos glitch settings ──────────────────────────────────────────────────
+    int   chaosGlitchModeMin = 1; // lowest chaos mode to glitch to (1=turbulence)
+    int   chaosGlitchModeMax = 7;
+
+    // ── Random CC emission ────────────────────────────────────────────────────
+    // When enabled, fires randomCCCount CC messages on each glitch start.
+    // Map those CC numbers via MidiMapper to blend/filter/chaos params for
+    // automated MIDI-visual coupling.
+    bool  randomCCEnabled = false;
+    int   randomCCMin     = 20;   // lowest CC number to emit
+    int   randomCCMax     = 30;   // highest CC number to emit
+    int   randomCCCount   = 3;    // how many random CCs per glitch
+    int   randomCCChannel = 1;    // MIDI channel (1-16)
 
     // ── MIDI generator coupling ────────────────────────────────────────────────
     int   midiChannel   = 1;      // channel for ghost notes (1-16)
@@ -84,6 +112,11 @@ private:
         int       formulaB;
         float     formulaBlend;
         float     mandelbrot, julia, mandelbulb, euclidean, diff;
+        int       streamBlendMode;
+        int       vidFilter;
+        int       ovrFilter;
+        int       chaosMode;
+        float     chaosStrength;
     };
 
     // What the glitch SET each param to. Compared against the live value at
@@ -98,6 +131,10 @@ private:
         int       formula;
         int       formulaB;
         float     mandelbrot;  // representative blend weight for BlendScatter
+        int       streamBlendMode;
+        int       vidFilter;
+        int       ovrFilter;
+        int       chaosMode;
     };
 
     double      m_nextGlitch  = 0.0;

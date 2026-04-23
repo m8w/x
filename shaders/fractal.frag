@@ -806,29 +806,92 @@ vec3 sample_overlay_filtered(vec2 uv, int mode, float a, float b, vec2 texelSz) 
     return texture(u_overlay_tex, uv).rgb;
 }
 
-// ── GIMP layer blend modes ────────────────────────────────────────────────────
-// a = base (fractal+primary),  b = overlay layer,  t = overlay_blend (opacity)
+// ── 42 layer blend modes ──────────────────────────────────────────────────────
+// a = base (fractal+primary),  b = overlay,  t = opacity (u_overlay_blend)
+// Modes 0-12:  GIMP standard set
+// Modes 13-28: Extended math / glitch modes
+// Modes 29-37: Inverse / negative variants
+// Modes 38-41: HSL component swaps
 vec3 blend_streams(vec3 a, vec3 b, float t, int mode) {
-    vec3 blended;
-    if (mode == 0)  blended = b;                                          // Normal
-    if (mode == 1)  blended = a * b;                                      // Multiply
-    if (mode == 2)  blended = 1.0 - (1.0-a)*(1.0-b);                    // Screen
-    if (mode == 3)  blended = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),    // Overlay
-                                  step(0.5, a));
-    if (mode == 4) {                                                       // Soft Light
-        vec3 d = mix(sqrt(a), 2.0*a-1.0, step(0.5, b));
-        blended = a + (2.0*b-1.0)*d;
+    vec3 r = a;
+
+    // ── Standard GIMP (0–12) ──────────────────────────────────────────────────
+    if (mode == 0)  r = b;                                              // Normal
+    if (mode == 1)  r = a * b;                                          // Multiply
+    if (mode == 2)  r = 1.0-(1.0-a)*(1.0-b);                          // Screen
+    if (mode == 3)  r = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),        // Overlay
+                            step(0.5, a));
+    if (mode == 4) {                                                    // Soft Light
+        vec3 d = mix(sqrt(max(a,0.0)), 2.0*a-1.0, step(0.5, b));
+        r = a + (2.0*b-1.0)*d;
     }
-    if (mode == 5)  blended = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),    // Hard Light
-                                  step(0.5, b));
-    if (mode == 6)  blended = abs(a - b);                                 // Difference
-    if (mode == 7)  blended = a + b - 2.0*a*b;                           // Exclusion
-    if (mode == 8)  blended = clamp(a / max(1.0-b, 0.001), 0.0, 1.0);   // Color Dodge
-    if (mode == 9)  blended = 1.0-clamp((1.0-a)/max(b,0.001),0.0,1.0);  // Color Burn
-    if (mode == 10) blended = min(a, b);                                  // Darken
-    if (mode == 11) blended = max(a, b);                                  // Lighten
-    if (mode == 12) blended = clamp(a + b, 0.0, 1.0);                    // Addition
-    return mix(a, clamp(blended, 0.0, 1.0), t);
+    if (mode == 5)  r = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),        // Hard Light
+                            step(0.5, b));
+    if (mode == 6)  r = abs(a - b);                                    // Difference
+    if (mode == 7)  r = a + b - 2.0*a*b;                              // Exclusion
+    if (mode == 8)  r = clamp(a/max(1.0-b,0.001),0.0,1.0);           // Color Dodge
+    if (mode == 9)  r = 1.0-clamp((1.0-a)/max(b,0.001),0.0,1.0);    // Color Burn
+    if (mode == 10) r = min(a, b);                                     // Darken
+    if (mode == 11) r = max(a, b);                                     // Lighten
+    if (mode == 12) r = clamp(a + b, 0.0, 1.0);                       // Addition
+
+    // ── Extended math / glitch (13–28) ───────────────────────────────────────
+    if (mode == 13) r = clamp(a - b, 0.0, 1.0);                       // Subtract
+    if (mode == 14) r = clamp(b - a, 0.0, 1.0);                       // Inverse Subtract
+    if (mode == 15) r = clamp(a / max(b, 0.001), 0.0, 1.0);          // Divide
+    if (mode == 16) r = clamp(floor(a + b), 0.0, 1.0);               // Hard Mix
+    if (mode == 17) r = mix(                                           // Vivid Light
+                        1.0-clamp((1.0-a)/max(2.0*b,0.001),0.0,1.0),
+                        clamp(a/max(1.0-2.0*(b-0.5),0.001),0.0,1.0),
+                        step(0.5, b));
+    if (mode == 18) r = clamp(a + 2.0*b - 1.0, 0.0, 1.0);           // Linear Light
+    if (mode == 19) r = mix(min(a,2.0*b), max(a,2.0*b-1.0),          // Pin Light
+                            step(0.5, b));
+    if (mode == 20) r = 1.0 - abs(1.0 - a - b);                      // Negation
+    if (mode == 21) r = clamp(a*a/max(1.0-b,0.001),0.0,1.0);        // Reflect
+    if (mode == 22) r = clamp(b*b/max(1.0-a,0.001),0.0,1.0);        // Glow
+    if (mode == 23) r = min(a,b) - max(a,b) + 1.0;                   // Phoenix
+    if (mode == 24) r = (a + b) * 0.5;                               // Average
+    if (mode == 25) r = sqrt(max(a * b, 0.0));                       // Geometric Mean
+    if (mode == 26) r = clamp(a + b - 0.5, 0.0, 1.0);               // Grain Merge
+    if (mode == 27) r = clamp(a - b + 0.5, 0.0, 1.0);               // Grain Extract
+    if (mode == 28) r = clamp(2.0*a + b - 1.0, 0.0, 1.0);           // Stamp
+    if (mode == 29) r = clamp(1.0-(1.0-b)*(1.0-b)/max(a,0.001),     // Freeze
+                               0.0, 1.0);
+    if (mode == 30) r = clamp(1.0-(1.0-a)*(1.0-a)/max(b,0.001),     // Heat
+                               0.0, 1.0);
+    if (mode == 31) r = clamp(pow(a, 1.0/max(b,0.001)), 0.0, 1.0);  // Gamma
+
+    // ── Inverse / negative variants (32–37) ───────────────────────────────────
+    if (mode == 32) r = 1.0 - a * b;                                  // Invert Multiply
+    if (mode == 33) r = (1.0-a) * (1.0-b);                           // Invert Screen
+    if (mode == 34) r = 1.0 - abs(a - b);                            // Invert Difference
+    if (mode == 35) r = clamp((1.0-a) + (1.0-b), 0.0, 1.0);         // Invert Addition
+    if (mode == 36) {                                                  // Chromatic Split
+        // Each channel gets a different blend mode: R=Multiply G=Screen B=Difference
+        r = vec3(a.r*b.r, 1.0-(1.0-a.g)*(1.0-b.g), abs(a.b-b.b));
+    }
+    if (mode == 37) r = abs(a + b - a*b - 0.5) * 2.0;               // XOR-like
+
+    // ── HSL component swaps (38–41) ───────────────────────────────────────────
+    if (mode == 38) {                                                  // Hue
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(hb.x, ha.y, ha.z));
+    }
+    if (mode == 39) {                                                  // Saturation
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(ha.x, hb.y, ha.z));
+    }
+    if (mode == 40) {                                                  // Color (Hue+Sat)
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(hb.x, hb.y, ha.z));
+    }
+    if (mode == 41) {                                                  // Luminosity
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(ha.x, ha.y, hb.z));
+    }
+
+    return mix(a, clamp(r, 0.0, 1.0), t);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

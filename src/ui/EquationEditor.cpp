@@ -549,19 +549,52 @@ void EquationEditor::drawVideoPanel() {
         "Film Grain",
     };
     static const char* kBlendModes[] = {
-        "Normal",
-        "Multiply",
-        "Screen",
-        "Overlay",
-        "Soft Light",
-        "Hard Light",
-        "Difference",
-        "Exclusion",
-        "Color Dodge",
-        "Color Burn",
-        "Darken",
-        "Lighten",
-        "Addition",
+        // 0–12: Standard GIMP set
+        "0 Normal",
+        "1 Multiply",
+        "2 Screen",
+        "3 Overlay",
+        "4 Soft Light",
+        "5 Hard Light",
+        "6 Difference",
+        "7 Exclusion",
+        "8 Color Dodge",
+        "9 Color Burn",
+        "10 Darken",
+        "11 Lighten",
+        "12 Addition",
+        // 13–31: Extended math / glitch modes
+        "13 Subtract",
+        "14 Inverse Subtract",
+        "15 Divide",
+        "16 Hard Mix",
+        "17 Vivid Light",
+        "18 Linear Light",
+        "19 Pin Light",
+        "20 Negation",
+        "21 Reflect",
+        "22 Glow",
+        "23 Phoenix",
+        "24 Average",
+        "25 Geometric Mean",
+        "26 Grain Merge",
+        "27 Grain Extract",
+        "28 Stamp",
+        "29 Freeze",
+        "30 Heat",
+        "31 Gamma",
+        // 32–37: Inverse / negative variants
+        "32 Invert Multiply",
+        "33 Invert Screen",
+        "34 Invert Difference",
+        "35 Invert Addition",
+        "36 Chromatic Split",
+        "37 XOR",
+        // 38–41: HSL component swaps
+        "38 Hue",
+        "39 Saturation",
+        "40 Color (H+S)",
+        "41 Luminosity",
     };
 
     // Primary video filter
@@ -608,7 +641,7 @@ void EquationEditor::drawVideoPanel() {
     // Blend mode between streams
     ImGui::TextDisabled("Stream Blend Mode");
     ImGui::SetNextItemWidth(-1);
-    ImGui::Combo("Blend Mode##stream", &m_engine.streamBlendMode, kBlendModes, 13);
+    ImGui::Combo("Blend Mode##stream", &m_engine.streamBlendMode, kBlendModes, 42);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("How the fractal+primary video composites with the overlay.\n"
                           "Blend slider above controls opacity.");
@@ -1547,6 +1580,18 @@ void EquationEditor::drawMidiWindow() {
         if (ImGui::Button("CC71→FBlend"))  m_midiMapper.add({0,0,71,MidiParam::FormulaBlend,0.0f,1.0f,"Res→FBlend"});
         ImGui::SameLine();
         if (ImGui::Button("PC→FormulaA"))  m_midiMapper.add({3,0,0,MidiParam::FormulaA,0.0f,10.0f,"PC→FrmA"});
+
+        ImGui::TextDisabled("Filter / Blend / Chaos quick maps");
+        if (ImGui::Button("CC20→OvBlend")) m_midiMapper.add({0,0,20,MidiParam::OverlayBlend,0.0f,1.0f,"CC20→OvBlend"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC21→BlMode"))  m_midiMapper.add({0,0,21,MidiParam::StreamBlendMode,0.0f,41.0f,"CC21→BlMode"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC22→VidFlt"))  m_midiMapper.add({0,0,22,MidiParam::VidFilter,0.0f,11.0f,"CC22→VidFlt"});
+        if (ImGui::Button("CC23→OvrFlt"))  m_midiMapper.add({0,0,23,MidiParam::OvrFilter,0.0f,18.0f,"CC23→OvrFlt"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC24→Chaos"))   m_midiMapper.add({0,0,24,MidiParam::ChaosMode,0.0f,7.0f,"CC24→Chaos"});
+        ImGui::SameLine();
+        if (ImGui::Button("CC25→CStr"))    m_midiMapper.add({0,0,25,MidiParam::ChaosStrength,0.0f,1.0f,"CC25→ChaosStr"});
     }
 
     ImGui::End();
@@ -1632,6 +1677,52 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::Checkbox("Offset Shift",    &G.doOffsetShift);
 
     ImGui::Spacing();
+    ImGui::TextDisabled("Filter / Blend Glitches");
+    ImGui::Checkbox("Blend Mode##bg",  &G.doBlendModeGlitch);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Randomly jumps stream blend mode\n(Normal/Multiply/Screen/Overlay/…)");
+    if (G.doBlendModeGlitch) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);
+        ImGui::InputInt("##bgmin", &G.blendGlitchMin);
+        G.blendGlitchMin = std::max(0, std::min(G.blendGlitchMin, G.blendGlitchMax));
+        ImGui::SameLine();
+        ImGui::TextDisabled("\xe2\x80\x93");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);
+        ImGui::InputInt("##bgmax", &G.blendGlitchMax);
+        G.blendGlitchMax = std::max(G.blendGlitchMin, std::min(41, G.blendGlitchMax));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Blend mode ID range (0=Normal … 41=Luminosity)");
+    }
+    ImGui::Checkbox("Filter##fg",     &G.doFilterGlitch);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Randomly switches video / overlay filter");
+    if (G.doFilterGlitch) {
+        ImGui::SameLine();
+        static const char* kFGStreams[] = {"Vid only", "Ovr only", "Both"};
+        ImGui::SetNextItemWidth(90);
+        ImGui::Combo("##fgstream", &G.filterGlitchStream, kFGStreams, 3);
+    }
+    ImGui::Checkbox("Chaos Warp##cg", &G.doChaosGlitch);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Activates a random chaos warp mode\nand randomizes strength");
+    if (G.doChaosGlitch) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);
+        ImGui::InputInt("##cgmin", &G.chaosGlitchModeMin);
+        G.chaosGlitchModeMin = std::max(1, std::min(G.chaosGlitchModeMin, G.chaosGlitchModeMax));
+        ImGui::SameLine();
+        ImGui::TextDisabled("\xe2\x80\x93");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(40);
+        ImGui::InputInt("##cgmax", &G.chaosGlitchModeMax);
+        G.chaosGlitchModeMax = std::max(G.chaosGlitchModeMin, std::min(7, G.chaosGlitchModeMax));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Chaos mode range\n1=Turbulence 2=Logistic 3=Hénon\n4=Shred 5=Lorenz 6=Clifford 7=Ikeda");
+    }
+
+    ImGui::Spacing();
     ImGui::TextDisabled("MIDI Glitches");
     ImGui::Checkbox("Vel Spike",       &G.doVelocitySpike);
     ImGui::SameLine(120);
@@ -1655,6 +1746,38 @@ void EquationEditor::drawGlitchPanel() {
         G.midiChannel = std::max(1, std::min(16, G.midiChannel));
     }
 
+    // ── Random CC burst ───────────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Checkbox("Random CC burst", &G.randomCCEnabled);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On every glitch start, emit random CC messages.\n"
+                          "Map those CC numbers via MIDI Mapper to blend/filter\n"
+                          "params to link glitch chaos directly to visuals.");
+    if (G.randomCCEnabled) {
+        ImGui::SetNextItemWidth(55);
+        ImGui::InputInt("Count##rcc", &G.randomCCCount);
+        G.randomCCCount = std::max(1, std::min(16, G.randomCCCount));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(50);
+        ImGui::InputInt("Ch##rcc", &G.randomCCChannel);
+        G.randomCCChannel = std::max(1, std::min(16, G.randomCCChannel));
+        ImGui::TextDisabled("CC range:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(48);
+        ImGui::InputInt("##rccmin", &G.randomCCMin);
+        G.randomCCMin = std::max(0, std::min(G.randomCCMin, G.randomCCMax));
+        ImGui::SameLine();
+        ImGui::TextDisabled("\xe2\x80\x93");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(48);
+        ImGui::InputInt("##rccmax", &G.randomCCMax);
+        G.randomCCMax = std::max(G.randomCCMin, std::min(127, G.randomCCMax));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("CC numbers to randomly emit (e.g. 20–30).\n"
+                              "Add those as mappings in MIDI Mapper to link\n"
+                              "them to OverlayBlend, StreamBlendMode, etc.");
+    }
+
     ImGui::Separator();
 
     // ── Quick presets ─────────────────────────────────────────────────────────
@@ -1665,7 +1788,9 @@ void EquationEditor::drawGlitchPanel() {
         G.doJuliaJump = true;  G.doFormulaFlash = false;
         G.doZoomPunch = false; G.doBlendScatter = false;
         G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doBlendModeGlitch=false; G.doFilterGlitch=false; G.doChaosGlitch=false;
         G.doVelocitySpike = true; G.doPitchScramble = false; G.doGhostNote = false;
+        G.randomCCEnabled = false;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Moderate")) {
@@ -1674,7 +1799,9 @@ void EquationEditor::drawGlitchPanel() {
         G.doJuliaJump = true;  G.doFormulaFlash = true;
         G.doZoomPunch = false; G.doBlendScatter = true;
         G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doBlendModeGlitch=true;  G.doFilterGlitch=false; G.doChaosGlitch=false;
         G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+        G.randomCCEnabled = false;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Extreme")) {
@@ -1683,21 +1810,27 @@ void EquationEditor::drawGlitchPanel() {
         G.doJuliaJump = true;  G.doFormulaFlash = true;
         G.doZoomPunch = true;  G.doBlendScatter = true;
         G.doPowerSpike= true;  G.doOffsetShift  = true;
+        G.doBlendModeGlitch=true;  G.doFilterGlitch=true; G.doChaosGlitch=true;
         G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+        G.randomCCEnabled = true; G.randomCCCount = 4;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("MIDI only")) {
         G.doJuliaJump = false; G.doFormulaFlash = false;
         G.doZoomPunch = false; G.doBlendScatter = false;
         G.doPowerSpike= false; G.doOffsetShift  = false;
+        G.doBlendModeGlitch=false; G.doFilterGlitch=false; G.doChaosGlitch=false;
         G.doVelocitySpike = true; G.doPitchScramble = true; G.doGhostNote = true;
+        G.randomCCEnabled = true; G.randomCCCount = 3;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Visual only")) {
         G.doJuliaJump = true;  G.doFormulaFlash = true;
         G.doZoomPunch = true;  G.doBlendScatter = true;
         G.doPowerSpike= true;  G.doOffsetShift  = true;
+        G.doBlendModeGlitch=true;  G.doFilterGlitch=true; G.doChaosGlitch=true;
         G.doVelocitySpike = false; G.doPitchScramble = false; G.doGhostNote = false;
+        G.randomCCEnabled = false;
     }
 
     if (!G.enabled) { ImGui::EndDisabled(); }
@@ -2176,6 +2309,14 @@ void EquationEditor::saveSettings(const std::string& path) const {
             G.midiChannel, G.noteMin, G.noteMax);
     fprintf(f, "formula_flash_min=%d\nformula_flash_max=%d\n",
             G.formulaFlashMin, G.formulaFlashMax);
+    fprintf(f, "blend_mode_glitch=%d\nfilter_glitch=%d\nchaos_glitch=%d\n",
+            (int)G.doBlendModeGlitch, (int)G.doFilterGlitch, (int)G.doChaosGlitch);
+    fprintf(f, "blend_glitch_min=%d\nblend_glitch_max=%d\nfilter_glitch_stream=%d\n",
+            G.blendGlitchMin, G.blendGlitchMax, G.filterGlitchStream);
+    fprintf(f, "chaos_glitch_mode_min=%d\nchaos_glitch_mode_max=%d\n",
+            G.chaosGlitchModeMin, G.chaosGlitchModeMax);
+    fprintf(f, "random_cc=%d\nrandom_cc_min=%d\nrandom_cc_max=%d\nrandom_cc_count=%d\nrandom_cc_ch=%d\n",
+            (int)G.randomCCEnabled, G.randomCCMin, G.randomCCMax, G.randomCCCount, G.randomCCChannel);
 
     // [midi_gen]
     fprintf(f, "\n[midi_gen]\n");
@@ -2323,6 +2464,19 @@ void EquationEditor::loadSettings(const std::string& path) {
     G.noteMax           = ini_i(m, "glitch.note_max",           G.noteMax);
     G.formulaFlashMin   = ini_i(m, "glitch.formula_flash_min",  G.formulaFlashMin);
     G.formulaFlashMax   = ini_i(m, "glitch.formula_flash_max",  G.formulaFlashMax);
+    G.doBlendModeGlitch = ini_b(m, "glitch.blend_mode_glitch",  G.doBlendModeGlitch);
+    G.doFilterGlitch    = ini_b(m, "glitch.filter_glitch",       G.doFilterGlitch);
+    G.doChaosGlitch     = ini_b(m, "glitch.chaos_glitch",        G.doChaosGlitch);
+    G.blendGlitchMin    = ini_i(m, "glitch.blend_glitch_min",    G.blendGlitchMin);
+    G.blendGlitchMax    = ini_i(m, "glitch.blend_glitch_max",    G.blendGlitchMax);
+    G.filterGlitchStream= ini_i(m, "glitch.filter_glitch_stream",G.filterGlitchStream);
+    G.chaosGlitchModeMin= ini_i(m, "glitch.chaos_glitch_mode_min",G.chaosGlitchModeMin);
+    G.chaosGlitchModeMax= ini_i(m, "glitch.chaos_glitch_mode_max",G.chaosGlitchModeMax);
+    G.randomCCEnabled   = ini_b(m, "glitch.random_cc",           G.randomCCEnabled);
+    G.randomCCMin       = ini_i(m, "glitch.random_cc_min",       G.randomCCMin);
+    G.randomCCMax       = ini_i(m, "glitch.random_cc_max",       G.randomCCMax);
+    G.randomCCCount     = ini_i(m, "glitch.random_cc_count",     G.randomCCCount);
+    G.randomCCChannel   = ini_i(m, "glitch.random_cc_ch",        G.randomCCChannel);
 
     // [midi_gen]
     MG.enabled      = ini_b(m, "midi_gen.enabled",       MG.enabled);

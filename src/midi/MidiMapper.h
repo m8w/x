@@ -26,6 +26,20 @@ enum class MidiParam {
     ColorHueOscRate,// hue oscillator frequency (Hz)
     ColorHueOscAmp, // hue oscillator amplitude
     ColorLumOscAmp, // luminance oscillator amplitude
+    // ── Video filters & stream blend ─────────────────────────────────────────
+    OverlayBlend,   // eng.overlayBlend  (0=fractal only  1=overlay only)
+    StreamBlendMode,// eng.streamBlendMode (0–41 blend modes)
+    VidFilter,      // eng.vidFilter  (0–11 color filter ID)
+    VidFilterA,     // eng.vidFilterA (brightness / strength)
+    VidFilterB,     // eng.vidFilterB (contrast / frequency)
+    OvrFilter,      // eng.ovrFilter  (0–18 overlay filter ID)
+    OvrFilterA,     // eng.ovrFilterA
+    OvrFilterB,     // eng.ovrFilterB
+    // ── Chaos domain warp ────────────────────────────────────────────────────
+    ChaosMode,      // eng.chaosMode  (0=off  1-7=warp type)
+    ChaosStrength,  // eng.chaosStrength (0–1)
+    ChaosScale,     // eng.chaosScale    (0.5–8)
+    ChaosSpeed,     // eng.chaosSpeed    (0–3)
     COUNT
 };
 

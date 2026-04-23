@@ -1440,6 +1440,22 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::Checkbox("Julia Jump",      &G.doJuliaJump);
     ImGui::SameLine(120);
     ImGui::Checkbox("Formula Flash",   &G.doFormulaFlash);
+    if (G.doFormulaFlash) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(45);
+        ImGui::InputInt("##ffmin", &G.formulaFlashMin);
+        G.formulaFlashMin = std::max(0, std::min(G.formulaFlashMin, G.formulaFlashMax - 1));
+        ImGui::SameLine();
+        ImGui::TextDisabled("\xe2\x80\x93");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(45);
+        ImGui::InputInt("##ffmax", &G.formulaFlashMax);
+        G.formulaFlashMax = std::max(G.formulaFlashMin + 1, std::min(35, G.formulaFlashMax));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Formula ID range for flash (0–35)\n"
+                              "e.g. 22–35 = new Mandelbulber set only\n"
+                              "     0–35  = all formulas");
+    }
     ImGui::Checkbox("Zoom Punch",      &G.doZoomPunch);
     ImGui::SameLine(120);
     ImGui::Checkbox("Blend Scatter",   &G.doBlendScatter);
@@ -1682,6 +1698,61 @@ void EquationEditor::drawColorSynthPanel() {
         C.midiHueSens = 0.15f; C.midiLumSens = 0.5f; C.midiDecay = 2.5f;
     }
     ImGui::SameLine();
+    // Ice preset
+    if (ImGui::SmallButton("Ice")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.57f; C.satBase = 0.7f;  C.lumBase = 0.75f;
+        C.hueAlt  = 0.62f; C.satAlt  = 0.5f;  C.lumAlt  = 0.9f;
+        C.altRate = 0.2f;  C.hueOscAmp = 0.03f; C.hueOscRate = 0.1f;
+        C.lumOscAmp = 0.12f; C.lumOscRate = 0.3f;
+        C.hueSpread = 0.07f; C.lumSpread = 0.4f;
+        C.midiLumSens = 0.5f; C.midiHueSens = 0.05f; C.midiDecay = 2.0f;
+    }
+    ImGui::SameLine();
+    // Deep Space preset
+    if (ImGui::SmallButton("Deep Space")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.70f; C.satBase = 0.9f;  C.lumBase = 0.18f;
+        C.hueAlt  = 0.65f; C.satAlt  = 1.0f;  C.lumAlt  = 0.08f;
+        C.altRate = 0.08f; C.hueOscAmp = 0.02f; C.hueOscRate = 0.05f;
+        C.lumOscAmp = 0.06f; C.lumOscRate = 0.1f;
+        C.hueSpread = 0.15f; C.lumSpread = 0.25f;
+        C.midiLumSens = 0.8f; C.midiHueSens = 0.2f; C.midiDecay = 3.5f;
+    }
+    // Gold preset
+    if (ImGui::SmallButton("Gold")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.12f; C.satBase = 0.95f; C.lumBase = 0.55f;
+        C.hueAlt  = 0.07f; C.satAlt  = 1.0f;  C.lumAlt  = 0.4f;
+        C.altRate = 0.4f;  C.hueOscAmp = 0.02f; C.hueOscRate = 0.25f;
+        C.lumOscAmp = 0.15f; C.lumOscRate = 0.5f;
+        C.hueSpread = 0.06f; C.lumSpread = 0.35f;
+        C.midiLumSens = 0.6f; C.midiHueSens = 0.03f; C.midiDecay = 1.5f;
+    }
+    ImGui::SameLine();
+    // Forest preset
+    if (ImGui::SmallButton("Forest")) {
+        C.enabled = true; C.blendMode = 1;
+        C.hueBase = 0.33f; C.satBase = 0.8f;  C.lumBase = 0.3f;
+        C.hueAlt  = 0.38f; C.satAlt  = 0.6f;  C.lumAlt  = 0.5f;
+        C.altRate = 0.25f; C.hueOscAmp = 0.04f; C.hueOscRate = 0.2f;
+        C.lumOscAmp = 0.1f; C.lumOscRate = 0.35f;
+        C.hueSpread = 0.09f; C.lumSpread = 0.3f;
+        C.midiLumSens = 0.5f; C.midiHueSens = 0.08f; C.midiDecay = 2.0f;
+    }
+    ImGui::SameLine();
+    // Plasma preset
+    if (ImGui::SmallButton("Plasma")) {
+        C.enabled = true; C.blendMode = 2;
+        C.hueBase = 0.78f; C.satBase = 1.0f;  C.lumBase = 0.5f;
+        C.hueAlt  = 0.52f; C.satAlt  = 1.0f;  C.lumAlt  = 0.6f;
+        C.altRate = 4.0f;  C.hueOscAmp = 0.15f; C.hueOscRate = 2.5f;
+        C.lumOscAmp = 0.25f; C.lumOscRate = 3.5f;
+        C.hueSpread = 0.4f; C.lumSpread = 0.5f;
+        C.midiHueSens = 0.4f; C.midiSatSens = 0.2f; C.midiLumSens = 0.7f;
+        C.midiDecay = 0.4f;
+    }
+    ImGui::SameLine();
     if (ImGui::SmallButton("Off")) {
         C.enabled = false;
     }
@@ -1775,9 +1846,10 @@ void EquationEditor::drawChaosPanel() {
     auto& E = m_engine;
 
     static const char* kModeLabels[] = {
-        "Off", "Turbulence", "Logistic", "Henon", "Shred"
+        "Off", "Turbulence", "Logistic", "Henon", "Shred",
+        "Lorenz", "Clifford", "Ikeda"
     };
-    ImGui::Combo("Mode", &E.chaosMode, kModeLabels, 5);
+    ImGui::Combo("Mode", &E.chaosMode, kModeLabels, 8);
 
     if (E.chaosMode == 0) {
         ImGui::TextDisabled("Select a mode to enable chaos domain warp.");
@@ -1791,6 +1863,9 @@ void EquationEditor::drawChaosPanel() {
     case 2: ImGui::TextDisabled("Logistic map — period-doubling bifurcation into chaos"); break;
     case 3: ImGui::TextDisabled("Henon attractor — strange attractor displacement"); break;
     case 4: ImGui::TextDisabled("Shred — scanline drift / signal-loss distortion"); break;
+    case 5: ImGui::TextDisabled("Lorenz — butterfly-wing strange attractor (sigma=10 rho=28)"); break;
+    case 6: ImGui::TextDisabled("Clifford — swirling asymmetric attractor basin warp"); break;
+    case 7: ImGui::TextDisabled("Ikeda — laser-cavity map, spiralling chaos (mu=0.6-0.95)"); break;
     }
     ImGui::Separator();
     ImGui::Spacing();
@@ -1806,6 +1881,9 @@ void EquationEditor::drawChaosPanel() {
         case 2: ImGui::SetTooltip("Polar coordinate scale for logistic seed"); break;
         case 3: ImGui::SetTooltip("Henon map input scale"); break;
         case 4: ImGui::SetTooltip("Scanline density"); break;
+        case 5: ImGui::SetTooltip("Lorenz input scale — higher = more of the attractor sampled"); break;
+        case 6: ImGui::SetTooltip("Clifford attractor input scale"); break;
+        case 7: ImGui::SetTooltip("Ikeda map input scale"); break;
         }
     }
 
@@ -1813,13 +1891,18 @@ void EquationEditor::drawChaosPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Time modulation rate");
 
-    // Live indicator: show whether we're in a visually chaotic regime
+    // Live indicators
     if (E.chaosMode == 2) {
         float r = 3.57f + E.chaosStrength * 0.43f;
-        bool chaotic = (r > 3.57f);
         ImGui::Spacing();
         ImGui::TextDisabled("Logistic r = %.3f  (%s)", r,
-                            chaotic ? "chaotic regime" : "periodic (increase Strength)");
+            r > 3.57f ? "chaotic regime" : "periodic (increase Strength)");
+    }
+    if (E.chaosMode == 7) {
+        float mu = 0.6f + E.chaosStrength * 0.35f;
+        ImGui::Spacing();
+        ImGui::TextDisabled("Ikeda mu = %.3f  (%s)", mu,
+            mu > 0.85f ? "deep chaos" : mu > 0.7f ? "chaotic" : "near-periodic");
     }
 }
 
@@ -1923,6 +2006,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
             (int)G.doVelocitySpike, (int)G.doPitchScramble, (int)G.doGhostNote);
     fprintf(f, "midi_channel=%d\nnote_min=%d\nnote_max=%d\n",
             G.midiChannel, G.noteMin, G.noteMax);
+    fprintf(f, "formula_flash_min=%d\nformula_flash_max=%d\n",
+            G.formulaFlashMin, G.formulaFlashMax);
 
     // [midi_gen]
     fprintf(f, "\n[midi_gen]\n");
@@ -2061,8 +2146,10 @@ void EquationEditor::loadSettings(const std::string& path) {
     G.doPitchScramble  = ini_b(m, "glitch.pitch_scramble",G.doPitchScramble);
     G.doGhostNote      = ini_b(m, "glitch.ghost_note",    G.doGhostNote);
     G.midiChannel    = ini_i(m, "glitch.midi_channel",  G.midiChannel);
-    G.noteMin        = ini_i(m, "glitch.note_min",      G.noteMin);
-    G.noteMax        = ini_i(m, "glitch.note_max",      G.noteMax);
+    G.noteMin           = ini_i(m, "glitch.note_min",           G.noteMin);
+    G.noteMax           = ini_i(m, "glitch.note_max",           G.noteMax);
+    G.formulaFlashMin   = ini_i(m, "glitch.formula_flash_min",  G.formulaFlashMin);
+    G.formulaFlashMax   = ini_i(m, "glitch.formula_flash_max",  G.formulaFlashMax);
 
     // [midi_gen]
     MG.enabled      = ini_b(m, "midi_gen.enabled",       MG.enabled);

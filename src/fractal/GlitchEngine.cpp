@@ -88,8 +88,8 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
 
     case GlitchType::FormulaFlash:
         lastGlitchName = "Formula Flash";
-        eng.formula     = randI(0, 21);
-        eng.formulaB    = randI(0, 21);
+        eng.formula     = randI(formulaFlashMin, formulaFlashMax);
+        eng.formulaB    = randI(formulaFlashMin, formulaFlashMax);
         m_post.formula  = eng.formula;
         m_post.formulaB = eng.formulaB;
         break;

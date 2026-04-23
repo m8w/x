@@ -563,6 +563,60 @@ vec2 apply_chaos(vec2 p, float t) {
         return p + vec2(d * sw * 0.25, 0.0);
     }
 
+    // ── Mode 5: Lorenz — slice of the Lorenz strange attractor ───────────────
+    // Integrates the Lorenz ODE (σ=10, ρ=28, β=8/3) from the pixel position
+    // for a few Euler steps.  The (x,y) displacement is used as a warp vector.
+    // Produces the characteristic butterfly-wing flow fields.
+    if (u_chaos_mode == 5) {
+        const float sigma = 10.0, rho = 28.0, beta = 2.667;
+        float dt = 0.008 * sw;
+        float x = p.x * sc * 2.0;
+        float y = p.y * sc * 2.0;
+        float z = st * 10.0 + 10.0;           // z seeded from time, not UV
+        for (int i = 0; i < 6; i++) {
+            float dx =  sigma * (y - x);
+            float dy =  x * (rho - z) - y;
+            float dz =  x * y - beta * z;
+            x += dx * dt;  y += dy * dt;  z += dz * dt;
+        }
+        return p + clamp(vec2(x, y) * 0.012, -1.5, 1.5) * sw;
+    }
+
+    // ── Mode 6: Clifford — Clifford strange attractor warp ───────────────────
+    // xₙ₊₁ = sin(a·yₙ) + c·cos(a·xₙ)
+    // yₙ₊₁ = sin(b·xₙ) + d·cos(b·yₙ)
+    // a,b,c,d driven by strength and scale.  The attractor basin drives the UV
+    // displacement, producing swirling asymmetric folded structures.
+    if (u_chaos_mode == 6) {
+        float a = -1.4 + sw * 0.6;
+        float b =  1.6 - sw * 0.3;
+        float c2=  1.0;
+        float d =  0.7 + sw * 0.3;
+        vec2 h = p * sc;
+        for (int i = 0; i < 6; i++) {
+            h = vec2(sin(a * h.y) + c2 * cos(a * h.x),
+                     sin(b * h.x) + d  * cos(b * h.y));
+        }
+        return p + clamp(h * 0.15, -1.5, 1.5) * sw * 0.5;
+    }
+
+    // ── Mode 7: Ikeda — Ikeda laser-cavity map warp ──────────────────────────
+    // Complex map: z_{n+1} = 1 + μ·z_n·exp(i·t_n)
+    //   where t_n = 0.4 − 6/(1+|z_n|²)
+    // μ (gain) sweeps from 0.6 (ordered) → 0.95 (chaotic) with strength.
+    // Produces spiralling laser-cavity-style chaotic structures.
+    if (u_chaos_mode == 7) {
+        float mu = 0.6 + sw * 0.35;
+        vec2 h = p * sc;
+        for (int i = 0; i < 6; i++) {
+            float t  = 0.4 - 6.0 / (1.0 + dot(h, h));
+            float cr = cos(t), sr = sin(t);
+            h = vec2(1.0 + mu * (h.x * cr - h.y * sr),
+                           mu * (h.x * sr + h.y * cr));
+        }
+        return p + clamp(h * 0.08, -1.5, 1.5) * sw;
+    }
+
     return p;
 }
 

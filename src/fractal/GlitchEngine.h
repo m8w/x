@@ -50,6 +50,10 @@ public:
     bool  doPitchScramble= true;
     bool  doGhostNote    = true;
 
+    // ── Formula flash range ───────────────────────────────────────────────────
+    int   formulaFlashMin = 0;    // lowest formula ID FormulaFlash can pick
+    int   formulaFlashMax = 35;   // highest formula ID (covers full 0–35 set)
+
     // ── MIDI generator coupling ────────────────────────────────────────────────
     int   midiChannel   = 1;      // channel for ghost notes (1-16)
     int   noteMin       = 36;

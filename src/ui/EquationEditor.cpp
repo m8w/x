@@ -114,11 +114,11 @@ static const char* kFormulas[] = {
     "Buffalo  (|Re|,|Im|)+c",                      // 22
     "Perp Celtic  (Re,|Im|)+c",                    // 23
     "tanh(z) + c",                                 // 24
-    "Nova  (Newton z\xc2\xb3\xe2\x88\x921+c)",    // 25
+    "Nova  (Newton z\xc2\xb3\xe2\x88\x92" "1+c)",  // 25
     "Lambda  z(1\xe2\x88\x92z)\xc2\xb7""c",       // 26
     "Barnsley 1  (IFS)",                           // 27
     "SimFp  sinh(z)+z\xc2\xb2+c",                 // 28
-    "Ikenaga  z\xc2\xb3+(c\xe2\x88\x921)z\xe2\x88\x92""c", // 29
+    "Ikenaga  z\xc2\xb3+(c\xe2\x88\x92" "1)z\xe2\x88\x92" "c", // 29
     "Rudy  z\xc2\xb2+c/z",                        // 30
     "Magnet II",                                   // 31
     "z\xe2\x81\xb4 + c  (4th power)",             // 32

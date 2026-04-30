@@ -207,36 +207,23 @@ void MidiGenerator::emitPitchBend(float cents, uint8_t ch0,
 void MidiGenerator::start(double time) {
     if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
     m_pending.clear();
+    m_initQueue.clear();
     m_stepsSincePg = 0;
     liveStep       = 0;
     liveBendCents  = 0.0f;
     m_nextStep     = time + 0.05;
     playing        = true;
-
-    // Queue RPN 0 to set pitch bend range to ±2 semitones.
-    // This arrives on the first tick() so the synth is ready before notes fire.
-    uint8_t ch0 = (uint8_t)(channel - 1);
-    m_initQueue.clear();
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0), 101,   0});  // RPN MSB=0
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0), 100,   0});  // RPN LSB=0 (pitch bend range)
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0),   6,   2});  // Data entry: 2 semitones
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0),  38,   0});  // Data entry LSB: 0
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0), 101, 127});  // Null RPN
-    m_initQueue.push_back({(uint8_t)(0xB0 | ch0), 100, 127});
-    // Reset pitch bend to center
-    m_initQueue.push_back({(uint8_t)(0xE0 | ch0), 0, 64});     // bend center
 }
 
 void MidiGenerator::stop(std::vector<MidiInput::Message>& out) {
     playing = false;
     uint8_t ch0 = (uint8_t)(channel - 1);
-    for (auto& p : m_pending) {
+    for (auto& p : m_pending)
         out.push_back({(uint8_t)(0x80 | ch0), p.note, 0});
-    }
     m_pending.clear();
     m_initQueue.clear();
-    // Reset pitch bend to center on stop
-    out.push_back({(uint8_t)(0xE0 | ch0), 0, 64});
+    // Reset pitch bend to center so the synth doesn't stay bent after stop
+    out.push_back({(uint8_t)(0xE0 | ch0), 0x00, 0x40});
 }
 
 std::vector<MidiInput::Message> MidiGenerator::fireOneNote() {
@@ -259,12 +246,6 @@ std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
     if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
     std::vector<MidiInput::Message> out;
     if (!enabled || !playing) return out;
-
-    // Flush RPN init queue (sent once after start())
-    if (!m_initQueue.empty()) {
-        out.insert(out.end(), m_initQueue.begin(), m_initQueue.end());
-        m_initQueue.clear();
-    }
 
     uint8_t ch0 = (uint8_t)(channel - 1);
 

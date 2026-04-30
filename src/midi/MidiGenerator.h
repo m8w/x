@@ -104,7 +104,7 @@ private:
     bool                 m_seeded    = false;
     std::mt19937         m_rng;
     std::vector<PendingOff> m_pending;
-    std::vector<MidiInput::Message> m_initQueue; // RPN init sent on first tick
+    std::vector<MidiInput::Message> m_initQueue;
 
     float stepSec();
     float noteSec()    const;

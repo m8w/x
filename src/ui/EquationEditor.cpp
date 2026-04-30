@@ -1348,19 +1348,77 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SetNextItemWidth(180);
         ImGui::SliderInt("Vel max##G", &G.velMax, G.velMin+1, 127);
 
+        // ── Microtonality ─────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Microtonality");
+        ImGui::SetNextItemWidth(220);
+        int mmode = (int)G.microtonalMode;
+        if (ImGui::BeginCombo("Mode##MT", microtonalModeName(G.microtonalMode))) {
+            for (int i = 0; i < (int)MicrotonalMode::COUNT; i++) {
+                auto mm = static_cast<MicrotonalMode>(i);
+                if (ImGui::Selectable(microtonalModeName(mm), mmode == i))
+                    G.microtonalMode = mm;
+                if (mmode == i) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Off          — standard 12-TET, no pitch bend\n"
+                "Random Drift — each note gets ±amt cents of random tuning\n"
+                "Quarter-Tone — 24-EDO: each note randomly +0 / +50 / −50 cents\n"
+                "Just Inton   — 5-limit just ratios (M3 −14c, P5 +2c, M7 −12c…)\n"
+                "Harmonic     — pulls toward the overtone series of the root\n"
+                "               H7=−31c (blue 7th)  H11=−49c (alien tritone)");
+
+        if (G.microtonalMode != MicrotonalMode::Off) {
+            ImGui::SetNextItemWidth(200);
+            ImGui::SliderFloat("Amount (cents)##MT", &G.microtonalAmt, 0.0f, 100.0f, "%.0f¢");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Maximum pitch deviation in cents.\n"
+                                  "50 = quarter-tone max  100 = full semitone max");
+            // Live indicator
+            if (G.liveNote >= 0) {
+                float b = G.liveBendCents;
+                if (b > 0.5f)
+                    ImGui::TextColored({0.4f,1.0f,0.4f,1.0f}, "  bend +%.1f\xc2\xa2", b);
+                else if (b < -0.5f)
+                    ImGui::TextColored({1.0f,0.5f,0.3f,1.0f}, "  bend %.1f\xc2\xa2", b);
+                else
+                    ImGui::TextDisabled("  bend 0\xc2\xa2 (on grid)");
+            }
+        }
+
         ImGui::Separator();
 
         // ── Timing ────────────────────────────────────────────────────────────
         ImGui::TextDisabled("Timing");
+
+        // Chaos timing
+        ImGui::SetNextItemWidth(200);
+        ImGui::SliderFloat("Timing chaos##G", &G.timingChaos, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "0 = steady grid (step rate below controls the interval)\n"
+                "0.1+ = Poisson-style random timing — no two gaps the same\n"
+                "1.0 = completely wild: 20ms to 4 seconds between notes\n"
+                "High chaos ignores Step Rate and Note Length settings.");
+        if (G.timingChaos > 0.01f) {
+            ImGui::SameLine();
+            ImGui::TextColored({1.0f,0.5f,0.1f,1.0f}, "⚡ CHAOS");
+        }
+
         static const char* kRateLabels[] =
             {"1/32","1/16","1/8","1/4","1/2","Whole","Random"};
 
+        if (G.timingChaos < 0.01f) {
         ImGui::SetNextItemWidth(100);
         ImGui::Combo("Step rate##G", &G.stepRateIdx, kRateLabels, 7);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(100);
         ImGui::Combo("Note len##G",  &G.noteLenIdx,  kRateLabels, 7);
         ImGui::SameLine();
+        }
         ImGui::SetNextItemWidth(60);
         ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6);
 
@@ -2327,6 +2385,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
             MG.velMin, MG.velMax, MG.channel, MG.chordSize);
     fprintf(f, "bpm=%f\nstep_rate_idx=%d\nnote_len_idx=%d\nrest_prob=%f\nhumanize=%d\n",
             MG.bpm, MG.stepRateIdx, MG.noteLenIdx, MG.restProb, (int)MG.humanize);
+    fprintf(f, "microtonal_mode=%d\nmicrotonal_amt=%f\ntiming_chaos=%f\n",
+            (int)MG.microtonalMode, MG.microtonalAmt, MG.timingChaos);
     fprintf(f, "pg_enabled=%d\npg_every=%d\npg_min=%d\npg_max=%d\nmidi_thru=%d\n",
             (int)MG.pgEnabled, MG.pgEvery, MG.pgMin, MG.pgMax, (int)MG.midiThru);
 
@@ -2492,8 +2552,11 @@ void EquationEditor::loadSettings(const std::string& path) {
     MG.bpm          = ini_f(m, "midi_gen.bpm",           MG.bpm);
     MG.stepRateIdx  = ini_i(m, "midi_gen.step_rate_idx", MG.stepRateIdx);
     MG.noteLenIdx   = ini_i(m, "midi_gen.note_len_idx",  MG.noteLenIdx);
-    MG.restProb     = ini_f(m, "midi_gen.rest_prob",     MG.restProb);
-    MG.humanize     = ini_b(m, "midi_gen.humanize",      MG.humanize);
+    MG.restProb        = ini_f(m, "midi_gen.rest_prob",        MG.restProb);
+    MG.humanize        = ini_b(m, "midi_gen.humanize",         MG.humanize);
+    MG.microtonalMode  = (MicrotonalMode)ini_i(m, "midi_gen.microtonal_mode", (int)MG.microtonalMode);
+    MG.microtonalAmt   = ini_f(m, "midi_gen.microtonal_amt",   MG.microtonalAmt);
+    MG.timingChaos     = ini_f(m, "midi_gen.timing_chaos",     MG.timingChaos);
     MG.pgEnabled    = ini_b(m, "midi_gen.pg_enabled",    MG.pgEnabled);
     MG.pgEvery      = ini_i(m, "midi_gen.pg_every",      MG.pgEvery);
     MG.pgMin        = ini_i(m, "midi_gen.pg_min",        MG.pgMin);

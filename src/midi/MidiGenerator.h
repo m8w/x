@@ -14,6 +14,20 @@ enum class GenScale {
 const char* genScaleName(GenScale s);
 const char* genRootName (int r);       // r = 0–11 (C … B)
 
+// ── Microtonal modes ──────────────────────────────────────────────────────────
+// Applied via pitch bend before each NoteOn.  Bend range is set to ±2
+// semitones (200 cents) via RPN 0 on start() so all offsets fit cleanly.
+enum class MicrotonalMode {
+    Off = 0,      // standard 12-TET, no bend
+    RandomDrift,  // random ±amt cents per note  — pure stochastic microtonality
+    QuarterTone,  // 24-EDO snap: each note randomly +0, +50 or −50 cents
+    JustInton,    // 5-limit just intonation offsets from 12-TET per scale degree
+    Harmonic,     // pulls pitches toward the natural harmonic series of the root
+                  //   — emphasises H7 (−31c "blue" seventh) and H11 (−49c tritone)
+    COUNT
+};
+const char* microtonalModeName(MicrotonalMode m);
+
 // Step-rate / note-length options (index into kGenBeats[])
 // 0=1/32  1=1/16  2=1/8  3=1/4  4=1/2  5=Whole  6=Random
 inline constexpr float kGenBeats[] = {0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f};
@@ -39,6 +53,16 @@ public:
     int   channel     = 1;        // MIDI channel 1-16
     int   chordSize   = 1;        // notes per step (1–6)
 
+    // ── Microtonal ────────────────────────────────────────────────────────────
+    MicrotonalMode microtonalMode = MicrotonalMode::Off;
+    float microtonalAmt = 50.0f;  // max deviation in cents (0–100)
+
+    // ── Timing chaos ─────────────────────────────────────────────────────────
+    // 0 = normal humanized step rate
+    // 0.1–1.0 = increasingly wild random intervals (Poisson-style)
+    // At 1.0 each note fires anywhere from 20ms to 4 seconds after the last.
+    float timingChaos = 0.0f;
+
     // ── Timing ───────────────────────────────────────────────────────────────
     float bpm         = 120.0f;
     int   stepRateIdx = 1;        // index into kGenBeats[] (1/16 default)
@@ -47,15 +71,12 @@ public:
     bool  humanize    = true;     // ±5 % timing scatter
 
     // ── Auto program-change ───────────────────────────────────────────────────
-    // Emits Program Change messages; when mapped to FormulaA / FormulaB
-    // in the MIDI Mapper this drives live formula switching.
     bool  pgEnabled   = false;
-    int   pgEvery     = 8;        // steps between auto PC
+    int   pgEvery     = 8;
     int   pgMin       = 0;
-    int   pgMax       = 10;       // 0–10 = formula indices
+    int   pgMax       = 10;
 
     // ── MIDI Thru ─────────────────────────────────────────────────────────────
-    // When true, real hardware MIDI input is forwarded to the MIDI output port
     bool  midiThru    = false;
 
     // ── Live state (read by UI each frame) ────────────────────────────────────
@@ -63,17 +84,16 @@ public:
     int   liveVel     = 0;
     int   liveProg    = -1;
     int   liveStep    = 0;
+    float liveBendCents = 0.0f;   // last microtonal bend applied (cents)
 
     // ── Tick: call once per frame ─────────────────────────────────────────────
-    // Returns messages to dispatch (apply to MidiMapper + feedLearn).
     std::vector<MidiInput::Message> tick(double time);
 
     // Transport helpers
     void start(double time);
-    void stop (std::vector<MidiInput::Message>& out);  // emits NoteOffs
-    std::vector<MidiInput::Message> fireOneNote();     // immediate single note
+    void stop (std::vector<MidiInput::Message>& out);
+    std::vector<MidiInput::Message> fireOneNote();
 
-    // Build note list from current scale/key/range (also used by UI for display)
     std::vector<int> buildNoteList() const;
 
 private:
@@ -84,11 +104,15 @@ private:
     bool                 m_seeded    = false;
     std::mt19937         m_rng;
     std::vector<PendingOff> m_pending;
+    std::vector<MidiInput::Message> m_initQueue; // RPN init sent on first tick
 
-    float stepSec()    const;
+    float stepSec();
     float noteSec()    const;
     float jitteredSec(float base) const;
-    int   pickNote()         ;   // random note from current scale
-    int   pickVel()          ;
+    int   pickNote();
+    int   pickVel();
     void  scheduleNextStep(double now);
+    float microtonalCents(int note);
+    void  emitPitchBend(float cents, uint8_t ch0,
+                        std::vector<MidiInput::Message>& out);
 };

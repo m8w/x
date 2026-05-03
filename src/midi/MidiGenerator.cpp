@@ -211,12 +211,16 @@ void MidiGenerator::start(double time) {
     m_stepsSincePg = 0;
     liveStep       = 0;
     liveBendCents  = 0.0f;
+    liveInRest     = false;
+    m_restUntil    = 0.0;
     m_nextStep     = time + 0.05;
     playing        = true;
 }
 
 void MidiGenerator::stop(std::vector<MidiInput::Message>& out) {
-    playing = false;
+    playing    = false;
+    liveInRest = false;
+    m_restUntil = 0.0;
     uint8_t ch0 = (uint8_t)(channel - 1);
     for (auto& p : m_pending)
         out.push_back({(uint8_t)(0x80 | ch0), p.note, 0});
@@ -264,11 +268,35 @@ std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
     liveStep++;
     m_stepsSincePg++;
 
-    // Rest?
-    std::uniform_real_distribution<float> restRoll(0.0f, 1.0f);
-    bool isRest = noteEnabled && (restRoll(m_rng) < restProb);
+    // ── Rest system ─────────────────────────────────────────────────────────
+    // Rests have their own wall-clock duration independent of step timing so
+    // they are always audible regardless of chaos timing or step rate.
+    std::uniform_real_distribution<float> roll01(0.0f, 1.0f);
 
-    if (noteEnabled && !isRest) {
+    if (liveInRest) {
+        if (time < m_restUntil) return out;          // still in silence window
+        // Rest window ended — optionally chain another (burst)
+        liveInRest = false;
+        if (restBurst > 0.001f && roll01(m_rng) < restBurst) {
+            float dur = std::uniform_real_distribution<float>(
+                            restDurMin, std::max(restDurMin, restDurMax))(m_rng);
+            m_restUntil = time + dur;
+            liveInRest  = true;
+            return out;
+        }
+    }
+
+    // Decide whether this step triggers a new rest
+    bool isRest = noteEnabled && (roll01(m_rng) < restProb);
+    if (isRest) {
+        float dur = std::uniform_real_distribution<float>(
+                        restDurMin, std::max(restDurMin, restDurMax))(m_rng);
+        m_restUntil = time + dur;
+        liveInRest  = true;
+        return out;
+    }
+
+    if (noteEnabled) {
         int count = std::max(1, chordSize);
         int v     = pickVel();
         // For chaos timing, note length is also random

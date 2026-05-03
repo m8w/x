@@ -1422,14 +1422,46 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SetNextItemWidth(60);
         ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6);
 
+        // ── Rests ─────────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Rests");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Rests have their own duration independent of step timing.\n"
+                "Even with chaos timing active, silences last at least restMin seconds\n"
+                "so they are always audible as real gaps in the note stream.");
+
+        // Live rest indicator
+        if (G.liveInRest)
+            ImGui::TextColored({0.9f,0.5f,1.0f,1.0f}, "  \xe2\x8f\xb8 REST");
+        else
+            ImGui::TextDisabled("  \xe2\x96\xb6 playing");
+
         ImGui::SetNextItemWidth(200);
-        ImGui::SliderFloat("Rests##G", &G.restProb, 0.0f, 0.75f, "%.0f%%",
-                           ImGuiSliderFlags_None);
-        // show as percent
-        {
-            char tmp[16]; snprintf(tmp,sizeof(tmp),"%.0f%%", G.restProb*100);
-            ImGui::SameLine(); ImGui::TextDisabled("%s rests", tmp);
-        }
+        ImGui::SliderFloat("Probability##G", &G.restProb, 0.0f, 0.95f, "%.0f%%");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Chance per step of triggering a rest.\n"
+                              "95%% = almost always resting (very sparse)");
+
+        ImGui::SetNextItemWidth(130);
+        ImGui::SliderFloat("Min dur (s)##G", &G.restDurMin, 0.05f, 10.0f, "%.2f");
+        if (G.restDurMin > G.restDurMax) G.restDurMax = G.restDurMin;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(130);
+        ImGui::SliderFloat("Max dur (s)##G", &G.restDurMax,
+                           G.restDurMin, 10.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Rest lasts a random duration between min and max.\n"
+                              "Works at any timing chaos level — silence is always audible.");
+
+        ImGui::SetNextItemWidth(200);
+        ImGui::SliderFloat("Burst prob##G", &G.restBurst, 0.0f, 0.9f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("After a rest ends, probability it immediately chains\n"
+                              "into another rest of the same min/max duration.\n"
+                              "0 = one rest then notes resume\n"
+                              "0.5 = 50%% chance of consecutive silence\n"
+                              "0.9 = very long unpredictable silence clusters");
 
         ImGui::Checkbox("Humanize##G", &G.humanize);
         if (ImGui::IsItemHovered())
@@ -2385,6 +2417,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
             MG.velMin, MG.velMax, MG.channel, MG.chordSize);
     fprintf(f, "bpm=%f\nstep_rate_idx=%d\nnote_len_idx=%d\nrest_prob=%f\nhumanize=%d\n",
             MG.bpm, MG.stepRateIdx, MG.noteLenIdx, MG.restProb, (int)MG.humanize);
+    fprintf(f, "rest_dur_min=%f\nrest_dur_max=%f\nrest_burst=%f\n",
+            MG.restDurMin, MG.restDurMax, MG.restBurst);
     fprintf(f, "microtonal_mode=%d\nmicrotonal_amt=%f\ntiming_chaos=%f\n",
             (int)MG.microtonalMode, MG.microtonalAmt, MG.timingChaos);
     fprintf(f, "pg_enabled=%d\npg_every=%d\npg_min=%d\npg_max=%d\nmidi_thru=%d\n",
@@ -2553,6 +2587,9 @@ void EquationEditor::loadSettings(const std::string& path) {
     MG.stepRateIdx  = ini_i(m, "midi_gen.step_rate_idx", MG.stepRateIdx);
     MG.noteLenIdx   = ini_i(m, "midi_gen.note_len_idx",  MG.noteLenIdx);
     MG.restProb        = ini_f(m, "midi_gen.rest_prob",        MG.restProb);
+    MG.restDurMin      = ini_f(m, "midi_gen.rest_dur_min",     MG.restDurMin);
+    MG.restDurMax      = ini_f(m, "midi_gen.rest_dur_max",     MG.restDurMax);
+    MG.restBurst       = ini_f(m, "midi_gen.rest_burst",       MG.restBurst);
     MG.humanize        = ini_b(m, "midi_gen.humanize",         MG.humanize);
     MG.microtonalMode  = (MicrotonalMode)ini_i(m, "midi_gen.microtonal_mode", (int)MG.microtonalMode);
     MG.microtonalAmt   = ini_f(m, "midi_gen.microtonal_amt",   MG.microtonalAmt);

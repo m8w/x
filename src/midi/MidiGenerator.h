@@ -67,7 +67,10 @@ public:
     float bpm         = 120.0f;
     int   stepRateIdx = 1;        // index into kGenBeats[] (1/16 default)
     int   noteLenIdx  = 2;        // index into kGenBeats[] (1/8 default)
-    float restProb    = 0.20f;    // 0–0.75: probability of a rest on each step
+    float restProb    = 0.20f;    // probability of entering a rest (0–1)
+    float restDurMin  = 0.25f;    // minimum rest duration in seconds
+    float restDurMax  = 1.5f;     // maximum rest duration in seconds
+    float restBurst   = 0.0f;     // probability rest re-rolls (chains consecutive silences)
     bool  humanize    = true;     // ±5 % timing scatter
 
     // ── Auto program-change ───────────────────────────────────────────────────
@@ -84,7 +87,8 @@ public:
     int   liveVel     = 0;
     int   liveProg    = -1;
     int   liveStep    = 0;
-    float liveBendCents = 0.0f;   // last microtonal bend applied (cents)
+    float liveBendCents = 0.0f;
+    bool  liveInRest  = false;    // true while a rest window is active
 
     // ── Tick: call once per frame ─────────────────────────────────────────────
     std::vector<MidiInput::Message> tick(double time);
@@ -100,6 +104,7 @@ private:
     struct PendingOff { double offTime; uint8_t ch, note; };
 
     double               m_nextStep  = 0.0;
+    double               m_restUntil = 0.0;  // wall-clock end of current rest
     int                  m_stepsSincePg = 0;
     bool                 m_seeded    = false;
     std::mt19937         m_rng;

@@ -7,6 +7,15 @@ static constexpr float kTwoPi = 6.28318530718f;
 void ColorSynth::tick(float time, float dt, const std::vector<Msg>& msgs) {
     if (!enabled) return;
 
+    // ── React to glitch engine events (rising edge) ───────────────────────────
+    if (glitchColorReact && inGlitch && !m_wasInGlitch) {
+        // Glitch just started — fire a big color flash
+        m_hueImpulse += glitchHueSens * (std::fmod(m_hueImpulse + 0.5f, 1.0f) - 0.5f + 0.3f);
+        m_satImpulse += glitchSatSens;
+        m_lumImpulse += glitchLumSens;
+    }
+    m_wasInGlitch = inGlitch;
+
     // ── React to MIDI note-on ─────────────────────────────────────────────────
     for (const auto& m : msgs) {
         int type = m.status & 0xF0;

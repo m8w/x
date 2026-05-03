@@ -65,7 +65,8 @@ uniform bool  u_cs_enabled;
 uniform vec3  u_cs_hsl;         // primary HSL (hue 0-1 wrapping, sat 0-1, lum 0-1)
 uniform vec3  u_cs_hsl_alt;     // alternate HSL
 uniform float u_cs_alt_blend;   // 0=primary  1=alt  (oscillates)
-uniform int   u_cs_mode;        // 0=replace  1=multiply  2=screen
+uniform int   u_cs_mode;        // 0–41 GIMP blend mode (same set as stream blend)
+uniform float u_cs_opacity;    // 0=no synth  1=full synth blend
 uniform float u_cs_hue_spread;  // hue range spread across escape value
 uniform float u_cs_lum_spread;  // lum range spread across escape value
 
@@ -968,16 +969,9 @@ void main() {
         vec3 col2 = synthPalette(escape, u_cs_hsl_alt);
         vec3 synthCol = mix(col1, col2, u_cs_alt_blend);
 
-        if (u_cs_mode == 0) {
-            // Replace: synth drives all colour; palette provides detail variation
-            baseColor = synthCol;
-        } else if (u_cs_mode == 1) {
-            // Multiply: tints the palette with the synth colour
-            baseColor = baseColor * synthCol * 2.0;
-        } else {
-            // Screen: lightens — good for dark fractals
-            baseColor = 1.0 - (1.0-baseColor)*(1.0-synthCol);
-        }
+        // Use the same 42-mode GIMP blend library as the stream blend
+        vec3 blended = blend_streams(baseColor, synthCol, u_cs_mode);
+        baseColor = mix(baseColor, blended, u_cs_opacity);
     }
 
     vec3 color  = mix(baseColor, video, 0.65+0.35*escape);

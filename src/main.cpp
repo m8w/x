@@ -155,9 +155,21 @@ int main(int argc, char** argv) {
                 midiOut.send(gMsg);                                  // real MIDI to DAW/VST
                 synthMsgs.push_back({gMsg.status, gMsg.data1, gMsg.data2});
             }
+
+            // Glitch→sound: fire a note from the MIDI generator on each new glitch
+            if (glitchEng.wantsMidiTrigger && midiGen.enabled && midiGen.playing) {
+                auto burstMsgs = midiGen.fireOneNote();
+                for (auto& msg : burstMsgs) {
+                    auto gMsg = glitchEng.applyMidiGlitch(msg);
+                    midiMapper.apply(gMsg, engine, blend, colorSynth);
+                    midiOut.send(gMsg);
+                    synthMsgs.push_back({gMsg.status, gMsg.data1, gMsg.data2});
+                }
+            }
         }
 
-        // Tick color synthesizer — update oscillators + react to MIDI
+        // Tick color synthesizer — update oscillators + react to MIDI + glitch
+        colorSynth.inGlitch = glitchEng.inGlitch;
         colorSynth.tick(t, dt, synthMsgs);
 
         // Decode next video frame if ready

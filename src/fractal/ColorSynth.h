@@ -55,8 +55,17 @@ struct ColorSynth {
     float midiLumSens   = 0.40f;
     float midiDecay     = 1.8f;   // impulse half-life in seconds
 
-    // ── Shader blend mode ─────────────────────────────────────────────────────
-    int   blendMode     = 1;      // 0=replace  1=multiply  2=screen
+    // ── Shader blend mode (0–41, same 42-mode GIMP set as stream blend) ─────────
+    int   blendMode     = 1;      // 0=Normal … 41=Luminosity
+    float opacity       = 1.0f;  // 0=fully transparent (no synth)  1=full effect
+
+    // ── Glitch color coupling ─────────────────────────────────────────────────
+    bool  glitchColorReact = false; // flash colors when glitch fires
+    float glitchHueSens    = 0.40f; // hue impulse per glitch event
+    float glitchSatSens    = 0.20f; // sat impulse per glitch event
+    float glitchLumSens    = 0.70f; // lum impulse per glitch event
+    // Set each frame by main loop before calling tick()
+    bool  inGlitch         = false;
 
     // ── Computed outputs — written by tick(), read by Renderer ────────────────
     float outHSL[3]     = {0.0f, 0.8f, 0.5f};
@@ -72,4 +81,5 @@ private:
     float m_hueImpulse  = 0.0f;
     float m_satImpulse  = 0.0f;
     float m_lumImpulse  = 0.0f;
+    bool  m_wasInGlitch = false;
 };

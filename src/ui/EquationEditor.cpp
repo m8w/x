@@ -1836,6 +1836,14 @@ void EquationEditor::drawGlitchPanel() {
         G.midiChannel = std::max(1, std::min(16, G.midiChannel));
     }
 
+    // ── Glitch→Sound coupling ─────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Checkbox("Trigger note on glitch", &G.triggerMidiOnGlitch);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("When enabled, each new glitch event fires one note burst\n"
+                          "from the MIDI Generator (respects its scale, root, chord size).\n"
+                          "Requires MIDI Generator to be enabled and playing.");
+
     // ── Random CC burst ───────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Checkbox("Random CC burst", &G.randomCCEnabled);
@@ -1935,16 +1943,60 @@ void EquationEditor::drawColorSynthPanel() {
     auto& C = m_colorSynth;
 
     ImGui::Checkbox("Enable Color Synth", &C.enabled);
+    ImGui::SameLine();
+    if (C.inGlitch && C.glitchColorReact) {
+        ImGui::TextColored({1.0f, 0.3f, 0.9f, 1.0f}, "** GLITCH **");
+    }
     if (!C.enabled) { ImGui::BeginDisabled(); }
 
-    // ── Blend mode ────────────────────────────────────────────────────────────
-    static const char* kBlendModes[] = {
-        "Replace  (synth only)",
-        "Multiply (tint palette)",
-        "Screen   (lighten)"
+    // ── Layer blend mode (full 42-mode GIMP set) ──────────────────────────────
+    static const char* kCSBlendModes[] = {
+        "0 Normal",
+        "1 Multiply",
+        "2 Screen",
+        "3 Overlay",
+        "4 Soft Light",
+        "5 Hard Light",
+        "6 Difference",
+        "7 Exclusion",
+        "8 Color Dodge",
+        "9 Color Burn",
+        "10 Darken",
+        "11 Lighten",
+        "12 Addition",
+        "13 Subtract",
+        "14 Inverse Subtract",
+        "15 Divide",
+        "16 Hard Mix",
+        "17 Vivid Light",
+        "18 Linear Light",
+        "19 Pin Light",
+        "20 Negation",
+        "21 Reflect",
+        "22 Glow",
+        "23 Phoenix",
+        "24 Average",
+        "25 Geometric Mean",
+        "26 Grain Merge",
+        "27 Grain Extract",
+        "28 Stamp",
+        "29 Freeze",
+        "30 Heat",
+        "31 Gamma",
+        "32 Invert Multiply",
+        "33 Invert Screen",
+        "34 Invert Difference",
+        "35 Invert Addition",
+        "36 Chromatic Split",
+        "37 XOR",
+        "38 Hue",
+        "39 Saturation",
+        "40 Color (H+S)",
+        "41 Luminosity",
     };
-    ImGui::SetNextItemWidth(200);
-    ImGui::Combo("Blend mode", &C.blendMode, kBlendModes, 3);
+    ImGui::SetNextItemWidth(-1);
+    ImGui::Combo("Layer Blend##cs", &C.blendMode, kCSBlendModes, 42);
+    ImGui::SliderFloat("Opacity##cs", &C.opacity, 0.0f, 1.0f, "%.2f");
 
     ImGui::Separator();
     ImGui::TextDisabled("── Primary Color (HSL) ─────────────────");
@@ -2024,117 +2076,127 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::Separator();
     ImGui::TextDisabled("── Quick Presets ───────────────────────");
 
-    // Fire preset
+    // Fire — Overlay blend for rich embers
     if (ImGui::SmallButton("Fire")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 3; C.opacity = 0.9f;
         C.hueBase = 0.05f; C.satBase = 1.0f; C.lumBase = 0.5f;
         C.hueAlt  = 0.0f;  C.satAlt  = 1.0f; C.lumAlt  = 0.3f;
         C.altRate = 1.5f;  C.hueOscAmp = 0.04f; C.hueOscRate = 0.8f;
         C.lumOscAmp = 0.2f; C.lumOscRate = 1.2f;
         C.hueSpread = 0.1f; C.lumSpread = 0.5f;
         C.midiLumSens = 0.6f; C.midiHueSens = 0.05f;
+        C.glitchColorReact = true; C.glitchHueSens = 0.2f; C.glitchLumSens = 0.8f;
     }
     ImGui::SameLine();
-    // Ocean preset
+    // Ocean — Soft Light for gentle waves
     if (ImGui::SmallButton("Ocean")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 4; C.opacity = 0.85f;
         C.hueBase = 0.58f; C.satBase = 0.9f; C.lumBase = 0.45f;
         C.hueAlt  = 0.52f; C.satAlt  = 0.7f; C.lumAlt  = 0.6f;
         C.altRate = 0.3f;  C.hueOscAmp = 0.06f; C.hueOscRate = 0.15f;
         C.lumOscAmp = 0.1f; C.lumOscRate = 0.4f;
         C.hueSpread = 0.08f; C.lumSpread = 0.3f;
         C.midiLumSens = 0.4f; C.midiHueSens = 0.1f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Psychedelic preset
+    // Psychedelic — Vivid Light for maximum pop
     if (ImGui::SmallButton("Psychedelic")) {
-        C.enabled = true; C.blendMode = 2;
+        C.enabled = true; C.blendMode = 17; C.opacity = 1.0f;
         C.hueBase = 0.0f; C.satBase = 1.0f; C.lumBase = 0.5f;
         C.hueAlt  = 0.5f; C.satAlt  = 1.0f; C.lumAlt  = 0.5f;
         C.altRate = 3.0f;  C.hueOscAmp = 0.2f; C.hueOscRate = 1.0f;
         C.lumOscAmp = 0.2f; C.lumOscRate = 2.0f;
         C.hueSpread = 0.5f; C.lumSpread = 0.5f;
         C.midiHueSens = 0.5f; C.midiSatSens = 0.3f; C.midiLumSens = 0.6f;
+        C.glitchColorReact = true; C.glitchHueSens = 0.8f; C.glitchLumSens = 0.9f;
     }
-    // Neon preset
+    // Neon — Color Dodge for electric glow
     if (ImGui::SmallButton("Neon")) {
-        C.enabled = true; C.blendMode = 2;
+        C.enabled = true; C.blendMode = 8; C.opacity = 0.8f;
         C.hueBase = 0.83f; C.satBase = 1.0f; C.lumBase = 0.6f;
         C.hueAlt  = 0.17f; C.satAlt  = 1.0f; C.lumAlt  = 0.6f;
         C.altRate = 2.0f;  C.hueOscAmp = 0.05f; C.hueOscRate = 3.0f;
         C.lumOscAmp = 0.15f; C.lumOscRate = 3.0f;
         C.hueSpread = 0.3f; C.lumSpread = 0.2f;
         C.midiHueSens = 0.3f; C.midiLumSens = 0.8f; C.midiDecay = 0.6f;
+        C.glitchColorReact = true; C.glitchHueSens = 0.5f; C.glitchLumSens = 1.0f;
     }
     ImGui::SameLine();
-    // Monochrome preset
+    // Monochrome — Normal replace for pure B&W
     if (ImGui::SmallButton("Mono")) {
-        C.enabled = true; C.blendMode = 0;
+        C.enabled = true; C.blendMode = 0; C.opacity = 1.0f;
         C.hueBase = 0.0f; C.satBase = 0.0f; C.lumBase = 0.5f;
         C.hueAlt  = 0.0f; C.satAlt  = 0.0f; C.lumAlt  = 0.8f;
         C.altRate = 0.5f;  C.hueOscAmp = 0.0f;
         C.lumOscAmp = 0.3f; C.lumOscRate = 0.8f;
         C.hueSpread = 0.0f; C.lumSpread = 0.6f;
         C.midiLumSens = 0.7f; C.midiDecay = 0.8f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Sunrise preset
+    // Sunrise — Overlay warm glow
     if (ImGui::SmallButton("Sunrise")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 3; C.opacity = 0.8f;
         C.hueBase = 0.08f; C.satBase = 0.95f; C.lumBase = 0.55f;
         C.hueAlt  = 0.72f; C.satAlt  = 0.8f;  C.lumAlt  = 0.35f;
         C.altRate = 0.15f; C.hueOscAmp = 0.03f; C.hueOscRate = 0.1f;
         C.lumOscAmp = 0.08f; C.lumOscRate = 0.2f;
         C.hueSpread = 0.2f; C.lumSpread = 0.4f;
         C.midiHueSens = 0.15f; C.midiLumSens = 0.5f; C.midiDecay = 2.5f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Ice preset
+    // Ice — Soft Light cold blues
     if (ImGui::SmallButton("Ice")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 4; C.opacity = 0.75f;
         C.hueBase = 0.57f; C.satBase = 0.7f;  C.lumBase = 0.75f;
         C.hueAlt  = 0.62f; C.satAlt  = 0.5f;  C.lumAlt  = 0.9f;
         C.altRate = 0.2f;  C.hueOscAmp = 0.03f; C.hueOscRate = 0.1f;
         C.lumOscAmp = 0.12f; C.lumOscRate = 0.3f;
         C.hueSpread = 0.07f; C.lumSpread = 0.4f;
         C.midiLumSens = 0.5f; C.midiHueSens = 0.05f; C.midiDecay = 2.0f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Deep Space preset
+    // Deep Space — Multiply dark purple void
     if (ImGui::SmallButton("Deep Space")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 1; C.opacity = 1.0f;
         C.hueBase = 0.70f; C.satBase = 0.9f;  C.lumBase = 0.18f;
         C.hueAlt  = 0.65f; C.satAlt  = 1.0f;  C.lumAlt  = 0.08f;
         C.altRate = 0.08f; C.hueOscAmp = 0.02f; C.hueOscRate = 0.05f;
         C.lumOscAmp = 0.06f; C.lumOscRate = 0.1f;
         C.hueSpread = 0.15f; C.lumSpread = 0.25f;
         C.midiLumSens = 0.8f; C.midiHueSens = 0.2f; C.midiDecay = 3.5f;
+        C.glitchColorReact = true; C.glitchHueSens = 0.6f; C.glitchLumSens = 0.9f;
     }
-    // Gold preset
+    // Gold — Grain Merge warm shimmer
     if (ImGui::SmallButton("Gold")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 26; C.opacity = 0.85f;
         C.hueBase = 0.12f; C.satBase = 0.95f; C.lumBase = 0.55f;
         C.hueAlt  = 0.07f; C.satAlt  = 1.0f;  C.lumAlt  = 0.4f;
         C.altRate = 0.4f;  C.hueOscAmp = 0.02f; C.hueOscRate = 0.25f;
         C.lumOscAmp = 0.15f; C.lumOscRate = 0.5f;
         C.hueSpread = 0.06f; C.lumSpread = 0.35f;
         C.midiLumSens = 0.6f; C.midiHueSens = 0.03f; C.midiDecay = 1.5f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Forest preset
+    // Forest — Multiply deep greens
     if (ImGui::SmallButton("Forest")) {
-        C.enabled = true; C.blendMode = 1;
+        C.enabled = true; C.blendMode = 1; C.opacity = 0.9f;
         C.hueBase = 0.33f; C.satBase = 0.8f;  C.lumBase = 0.3f;
         C.hueAlt  = 0.38f; C.satAlt  = 0.6f;  C.lumAlt  = 0.5f;
         C.altRate = 0.25f; C.hueOscAmp = 0.04f; C.hueOscRate = 0.2f;
         C.lumOscAmp = 0.1f; C.lumOscRate = 0.35f;
         C.hueSpread = 0.09f; C.lumSpread = 0.3f;
         C.midiLumSens = 0.5f; C.midiHueSens = 0.08f; C.midiDecay = 2.0f;
+        C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Plasma preset
+    // Plasma — Screen electric purple
     if (ImGui::SmallButton("Plasma")) {
-        C.enabled = true; C.blendMode = 2;
+        C.enabled = true; C.blendMode = 2; C.opacity = 1.0f;
         C.hueBase = 0.78f; C.satBase = 1.0f;  C.lumBase = 0.5f;
         C.hueAlt  = 0.52f; C.satAlt  = 1.0f;  C.lumAlt  = 0.6f;
         C.altRate = 4.0f;  C.hueOscAmp = 0.15f; C.hueOscRate = 2.5f;
@@ -2142,10 +2204,38 @@ void EquationEditor::drawColorSynthPanel() {
         C.hueSpread = 0.4f; C.lumSpread = 0.5f;
         C.midiHueSens = 0.4f; C.midiSatSens = 0.2f; C.midiLumSens = 0.7f;
         C.midiDecay = 0.4f;
+        C.glitchColorReact = true; C.glitchHueSens = 0.9f; C.glitchLumSens = 1.0f;
+    }
+    ImGui::SameLine();
+    // Glitch preset — XOR strobes with full glitch coupling
+    if (ImGui::SmallButton("Glitch")) {
+        C.enabled = true; C.blendMode = 37; C.opacity = 0.7f;
+        C.hueBase = 0.0f;  C.satBase = 1.0f; C.lumBase = 0.5f;
+        C.hueAlt  = 0.33f; C.satAlt  = 1.0f; C.lumAlt  = 0.5f;
+        C.altRate = 5.0f;  C.hueOscAmp = 0.3f; C.hueOscRate = 3.0f;
+        C.lumOscAmp = 0.3f; C.lumOscRate = 4.0f;
+        C.hueSpread = 0.5f; C.lumSpread = 0.5f;
+        C.midiHueSens = 0.8f; C.midiSatSens = 0.5f; C.midiLumSens = 0.9f;
+        C.midiDecay = 0.2f;
+        C.glitchColorReact = true; C.glitchHueSens = 1.0f;
+        C.glitchSatSens = 0.5f; C.glitchLumSens = 1.0f;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Off")) {
         C.enabled = false;
+    }
+
+    // ── Glitch color coupling ─────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("── Glitch Color Coupling ───────────────");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Flash colors on every glitch event from the Glitch Engine.\n"
+                          "Requires Glitch Engine to be enabled.");
+    ImGui::Checkbox("React to Glitches##cs", &C.glitchColorReact);
+    if (C.glitchColorReact) {
+        ImGui::SliderFloat("Hue flash##csg",  &C.glitchHueSens, 0.0f, 1.0f);
+        ImGui::SliderFloat("Sat flash##csg",  &C.glitchSatSens, 0.0f, 1.0f);
+        ImGui::SliderFloat("Lum flash##csg",  &C.glitchLumSens, 0.0f, 1.0f);
     }
 
     // ── Live indicator ────────────────────────────────────────────────────────
@@ -2384,7 +2474,9 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "hue_spread=%f\nlum_spread=%f\n", C.hueSpread, C.lumSpread);
     fprintf(f, "midi_hue_sens=%f\nmidi_sat_sens=%f\nmidi_lum_sens=%f\nmidi_decay=%f\n",
             C.midiHueSens, C.midiSatSens, C.midiLumSens, C.midiDecay);
-    fprintf(f, "blend_mode=%d\n", C.blendMode);
+    fprintf(f, "blend_mode=%d\nopacity=%f\n", C.blendMode, C.opacity);
+    fprintf(f, "glitch_color_react=%d\nglitch_hue_sens=%f\nglitch_sat_sens=%f\nglitch_lum_sens=%f\n",
+            (int)C.glitchColorReact, C.glitchHueSens, C.glitchSatSens, C.glitchLumSens);
 
     // [glitch]
     fprintf(f, "\n[glitch]\n");
@@ -2407,6 +2499,7 @@ void EquationEditor::saveSettings(const std::string& path) const {
             G.chaosGlitchModeMin, G.chaosGlitchModeMax);
     fprintf(f, "random_cc=%d\nrandom_cc_min=%d\nrandom_cc_max=%d\nrandom_cc_count=%d\nrandom_cc_ch=%d\n",
             (int)G.randomCCEnabled, G.randomCCMin, G.randomCCMax, G.randomCCCount, G.randomCCChannel);
+    fprintf(f, "trigger_midi_on_glitch=%d\n", (int)G.triggerMidiOnGlitch);
 
     // [midi_gen]
     fprintf(f, "\n[midi_gen]\n");
@@ -2536,7 +2629,12 @@ void EquationEditor::loadSettings(const std::string& path) {
     C.midiSatSens  = ini_f(m, "color.midi_sat_sens", C.midiSatSens);
     C.midiLumSens  = ini_f(m, "color.midi_lum_sens", C.midiLumSens);
     C.midiDecay    = ini_f(m, "color.midi_decay",    C.midiDecay);
-    C.blendMode    = ini_i(m, "color.blend_mode",    C.blendMode);
+    C.blendMode        = ini_i(m, "color.blend_mode",        C.blendMode);
+    C.opacity          = ini_f(m, "color.opacity",           C.opacity);
+    C.glitchColorReact = ini_b(m, "color.glitch_color_react",C.glitchColorReact);
+    C.glitchHueSens    = ini_f(m, "color.glitch_hue_sens",   C.glitchHueSens);
+    C.glitchSatSens    = ini_f(m, "color.glitch_sat_sens",   C.glitchSatSens);
+    C.glitchLumSens    = ini_f(m, "color.glitch_lum_sens",   C.glitchLumSens);
 
     // [glitch]
     G.enabled        = ini_b(m, "glitch.enabled",       G.enabled);
@@ -2570,7 +2668,8 @@ void EquationEditor::loadSettings(const std::string& path) {
     G.randomCCMin       = ini_i(m, "glitch.random_cc_min",       G.randomCCMin);
     G.randomCCMax       = ini_i(m, "glitch.random_cc_max",       G.randomCCMax);
     G.randomCCCount     = ini_i(m, "glitch.random_cc_count",     G.randomCCCount);
-    G.randomCCChannel   = ini_i(m, "glitch.random_cc_ch",        G.randomCCChannel);
+    G.randomCCChannel      = ini_i(m, "glitch.random_cc_ch",           G.randomCCChannel);
+    G.triggerMidiOnGlitch  = ini_b(m, "glitch.trigger_midi_on_glitch", G.triggerMidiOnGlitch);
 
     // [midi_gen]
     MG.enabled      = ini_b(m, "midi_gen.enabled",       MG.enabled);

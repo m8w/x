@@ -109,6 +109,7 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setFloat3("u_cs_hsl_alt",    cs.outHSLAlt[0], cs.outHSLAlt[1], cs.outHSLAlt[2]);
     prog.setFloat ("u_cs_alt_blend",  cs.outAltBlend);
     prog.setInt   ("u_cs_mode",       cs.blendMode);
+    prog.setFloat ("u_cs_opacity",    cs.opacity);
     prog.setFloat ("u_cs_hue_spread", cs.hueSpread);
     prog.setFloat ("u_cs_lum_spread", cs.lumSpread);
 }

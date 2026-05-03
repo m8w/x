@@ -87,8 +87,15 @@ public:
     int   noteMin       = 36;
     int   noteMax       = 96;
 
+    // ── Sound engine coupling ─────────────────────────────────────────────────
+    // When enabled, each new glitch event sets wantsMidiTrigger=true for one
+    // frame. main.cpp reads it and fires midiGen.fireOneNote() so the visual
+    // glitch also triggers a note burst from the MIDI generator.
+    bool  triggerMidiOnGlitch = false;
+
     // ── Live state ────────────────────────────────────────────────────────────
-    bool  inGlitch      = false;
+    bool  inGlitch          = false;
+    bool  wantsMidiTrigger  = false;  // pulsed for one frame on each glitch start
     const char* lastGlitchName = "";
 
     // Tick: call once per frame.

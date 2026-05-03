@@ -275,9 +275,13 @@ std::vector<MidiInput::Message> GlitchEngine::tick(double time,
         scheduleNext(time);
     }
 
+    // Clear the one-frame trigger pulse
+    wantsMidiTrigger = false;
+
     // Fire new glitch?
     if (!inGlitch && time >= m_nextGlitch) {
         fireGlitch(time, eng, blend);
+        if (triggerMidiOnGlitch) wantsMidiTrigger = true;
 
         // Random CC burst — fires on every glitch start (if enabled)
         if (randomCCEnabled && randomCCCount > 0 && randomCCMin <= randomCCMax) {

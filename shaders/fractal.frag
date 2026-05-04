@@ -970,8 +970,7 @@ void main() {
         vec3 synthCol = mix(col1, col2, u_cs_alt_blend);
 
         // Use the same 42-mode GIMP blend library as the stream blend
-        vec3 blended = blend_streams(baseColor, synthCol, u_cs_mode);
-        baseColor = mix(baseColor, blended, u_cs_opacity);
+        baseColor = blend_streams(baseColor, synthCol, u_cs_opacity, u_cs_mode);
     }
 
     vec3 color  = mix(baseColor, video, 0.65+0.35*escape);

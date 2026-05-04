@@ -29,6 +29,11 @@ public:
     // Returns the next decoded frame in RGB24.
     // Caller must call releaseFrame() when done.
     // Returns nullptr if no frame available (end of file / camera not ready yet).
+    // Force output RGB frame to this resolution (upscales/downscales via swscale).
+    // Pass 0,0 to use the source's native resolution (default).
+    // Call each frame from main.cpp with the FBO size to keep camera at full screen.
+    void setOutputSize(int w, int h) { m_outW = w; m_outH = h; }
+
     AVFrame* nextFrame();
     void     releaseFrame(AVFrame* frame);
 
@@ -50,7 +55,11 @@ private:
     int              m_width     = 0;
     int              m_height    = 0;
     AVPixelFormat    m_lastPixFmt= AV_PIX_FMT_NONE;
+    int              m_srcW      = 0;   // source frame size (for swscale invalidation)
+    int              m_srcH      = 0;
     bool             m_isCamera  = false;
+    int              m_outW      = 0;   // 0 = use native source size
+    int              m_outH      = 0;
     std::string      m_path;
 
     bool initCodec();

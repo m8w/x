@@ -194,6 +194,9 @@ int main(int argc, char** argv) {
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
 
+        // Camera: upscale to FBO resolution so the texture is always full-screen crisp
+        if (videoIn.isCamera()) videoIn.setOutputSize(fw, fh);
+
         renderer.render(fw, fh, t, engine, blend, videoTex, overlayTex, colorSynth);
 
         // Encode frame for RTMP if streaming

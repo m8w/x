@@ -184,28 +184,35 @@ bool VideoInput::initCodec() {
 // Build / rebuild the swscale context from the actual decoded frame's format.
 // .mov files (ProRes, HEVC, H264 with full-range flag) often report a different
 // pixel format in the codec header than what the decoder actually outputs.
-void VideoInput::ensureSwsCtx(AVPixelFormat srcFmt, int w, int h) {
-    if (m_swsCtx && srcFmt == m_lastPixFmt && w == m_width && h == m_height)
+void VideoInput::ensureSwsCtx(AVPixelFormat srcFmt, int srcW, int srcH) {
+    // Target output size: use override (e.g. FBO size for camera) or native source size
+    int dstW = (m_outW > 0) ? m_outW : srcW;
+    int dstH = (m_outH > 0) ? m_outH : srcH;
+
+    if (m_swsCtx && srcFmt == m_lastPixFmt && srcW == m_srcW && srcH == m_srcH
+                 && dstW == m_width && dstH == m_height)
         return;
 
     if (m_swsCtx) sws_freeContext(m_swsCtx);
 
-    // If frame dimensions changed, reallocate output frame too
-    if (w != m_width || h != m_height) {
+    // Reallocate output frame if destination size changed
+    if (dstW != m_width || dstH != m_height) {
         av_frame_unref(m_frameRGB);
-        m_width  = w;
-        m_height = h;
+        m_width  = dstW;
+        m_height = dstH;
         m_frameRGB->format = AV_PIX_FMT_RGB24;
-        m_frameRGB->width  = w;
-        m_frameRGB->height = h;
+        m_frameRGB->width  = dstW;
+        m_frameRGB->height = dstH;
         av_frame_get_buffer(m_frameRGB, 0);
     }
 
     m_swsCtx = sws_getContext(
-        w, h, srcFmt,
-        w, h, AV_PIX_FMT_RGB24,
+        srcW, srcH, srcFmt,
+        dstW, dstH, AV_PIX_FMT_RGB24,
         SWS_BILINEAR, nullptr, nullptr, nullptr);
     m_lastPixFmt = srcFmt;
+    m_srcW = srcW;
+    m_srcH = srcH;
 }
 
 AVFrame* VideoInput::nextFrame() {
@@ -271,5 +278,7 @@ void VideoInput::close() {
     m_isCamera   = false;
     m_streamIdx  = -1;
     m_lastPixFmt = AV_PIX_FMT_NONE;
+    m_srcW = 0; m_srcH = 0;
+    m_outW = 0; m_outH = 0;
     av_frame_unref(m_frameSW);
 }

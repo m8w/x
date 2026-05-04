@@ -1,6 +1,7 @@
 #include "StreamOutput.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <vector>
 #include <chrono>
 #include <sys/stat.h>   // mkdir / stat for local recording dir creation
@@ -406,6 +407,12 @@ void StreamOutput::audioCaptureLoop() {
                 av_audio_fifo_read(fifo, (void**)enc->data, m_audioSamplesPerFrame);
                 enc->pts  = m_audioPts;
                 m_audioPts += m_audioSamplesPerFrame;
+                // Sanitize: BlackHole returns NaN/Inf when no audio flows through it
+                for (int ch = 0; ch < 2; ch++) {
+                    float* s = (float*)enc->data[ch];
+                    for (int i = 0; i < m_audioSamplesPerFrame; i++)
+                        if (!std::isfinite(s[i])) s[i] = 0.0f;
+                }
                 applyOverlayMix((float**)enc->data, m_audioSamplesPerFrame);
                 encodeAndDistributeAudio(enc);
                 av_frame_free(&enc);
@@ -581,8 +588,10 @@ void StreamOutput::applyOverlayMix(float** dst, int nbSamples) {
     }
     float b = overlayAudioBlend, a = 1.0f - b;
     for (int i = 0; i < got; i++) {
-        dst[0][i] = dst[0][i] * a + tmpL[i] * b;
-        dst[1][i] = dst[1][i] * a + tmpR[i] * b;
+        float l = std::isfinite(tmpL[i]) ? tmpL[i] : 0.0f;
+        float r = std::isfinite(tmpR[i]) ? tmpR[i] : 0.0f;
+        dst[0][i] = dst[0][i] * a + l * b;
+        dst[1][i] = dst[1][i] * a + r * b;
     }
 }
 

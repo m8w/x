@@ -4,23 +4,31 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #include <libavutil/hwcontext.h>
+#include <libavdevice/avdevice.h>
 }
 #include <string>
+#include <vector>
 
-// Decodes local video files (any format FFmpeg supports) and returns
-// RGB24 AVFrames ready for upload to a GL texture.
+// Decodes local video files or live capture devices (webcam/camera).
+// Returns RGB24 AVFrames ready for upload to a GL texture.
 class VideoInput {
 public:
     VideoInput();
     ~VideoInput();
 
-    bool open(const std::string& path);
+    bool open(const std::string& path);           // local file
+    bool openCamera(int deviceIdx);               // live camera (avfoundation/v4l2)
     void close();
-    bool isOpen() const { return m_fmtCtx != nullptr; }
+    bool isOpen()   const { return m_fmtCtx != nullptr; }
+    bool isCamera() const { return m_isCamera; }
+
+    // Returns detected camera names (index = device index for openCamera()).
+    // macOS: avfoundation video devices. Linux: /dev/videoN devices.
+    static std::vector<std::string> listCameras();
 
     // Returns the next decoded frame in RGB24.
     // Caller must call releaseFrame() when done.
-    // Returns nullptr if no frame available (end of file or error).
+    // Returns nullptr if no frame available (end of file / camera not ready yet).
     AVFrame* nextFrame();
     void     releaseFrame(AVFrame* frame);
 
@@ -42,6 +50,7 @@ private:
     int              m_width     = 0;
     int              m_height    = 0;
     AVPixelFormat    m_lastPixFmt= AV_PIX_FMT_NONE;
+    bool             m_isCamera  = false;
     std::string      m_path;
 
     bool initCodec();

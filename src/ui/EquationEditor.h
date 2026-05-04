@@ -49,6 +49,11 @@ private:
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";
 
+    // Camera picker state
+    std::vector<std::string> m_cameraList;
+    int                      m_cameraIdx  = 0;
+    bool                     m_cameraListDirty = true;
+
     // Stream timer
     std::chrono::steady_clock::time_point m_streamStartTime;
     bool m_wasStreaming = false;

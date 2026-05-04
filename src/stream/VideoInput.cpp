@@ -3,6 +3,9 @@
 #ifdef __APPLE__
 #include <libavutil/hwcontext_videotoolbox.h>
 #endif
+#ifndef __APPLE__
+#include <unistd.h>
+#endif
 
 VideoInput::VideoInput() {
     m_frame    = av_frame_alloc();
@@ -18,6 +21,97 @@ VideoInput::~VideoInput() {
     av_frame_free(&m_frameRGB);
     av_packet_free(&m_pkt);
 }
+
+// ── Camera enumeration ────────────────────────────────────────────────────────
+
+std::vector<std::string> VideoInput::listCameras() {
+    std::vector<std::string> result;
+    avdevice_register_all();
+
+#if defined(__APPLE__)
+    const AVInputFormat* fmt = av_find_input_format("avfoundation");
+    if (!fmt) return result;
+    AVDeviceInfoList* devList = nullptr;
+    if (avdevice_list_input_sources(fmt, nullptr, nullptr, &devList) >= 0 && devList) {
+        for (int i = 0; i < devList->nb_devices; i++) {
+            AVDeviceInfo* d = devList->devices[i];
+            bool hasVideo = false;
+            for (int j = 0; j < d->nb_media_types; j++) {
+                if (d->media_types[j] == AVMEDIA_TYPE_VIDEO) { hasVideo = true; break; }
+            }
+            if (hasVideo) {
+                const char* desc = d->device_description ? d->device_description : d->device_name;
+                result.push_back(desc);
+            }
+        }
+        avdevice_free_list_devices(&devList);
+    }
+#elif defined(__linux__)
+    for (int i = 0; i < 8; i++) {
+        std::string dev = "/dev/video" + std::to_string(i);
+        if (access(dev.c_str(), F_OK) == 0)
+            result.push_back(dev);
+    }
+#endif
+    return result;
+}
+
+// ── Camera open ───────────────────────────────────────────────────────────────
+
+bool VideoInput::openCamera(int idx) {
+    close();
+    m_isCamera = true;
+    avdevice_register_all();
+
+    const AVInputFormat* fmt = nullptr;
+    std::string devStr;
+
+#if defined(__APPLE__)
+    fmt = av_find_input_format("avfoundation");
+    devStr = std::to_string(idx);
+#elif defined(__linux__)
+    fmt = av_find_input_format("v4l2");
+    devStr = "/dev/video" + std::to_string(idx);
+#else
+    fprintf(stderr, "VideoInput: camera capture not supported on this platform\n");
+    m_isCamera = false;
+    return false;
+#endif
+
+    if (!fmt) {
+        fprintf(stderr, "VideoInput: camera capture format not available\n");
+        m_isCamera = false;
+        return false;
+    }
+
+    AVDictionary* opts = nullptr;
+    av_dict_set(&opts, "framerate", "30", 0);
+#ifdef __APPLE__
+    // uyvy422 is the native format for most Mac webcams — avoids colour conversion
+    av_dict_set(&opts, "pixel_format", "uyvy422", 0);
+#endif
+
+    m_path = "cam:" + devStr;
+    int ret = avformat_open_input(&m_fmtCtx, devStr.c_str(), fmt, &opts);
+    av_dict_free(&opts);
+
+    if (ret != 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        fprintf(stderr, "VideoInput: cannot open camera %d: %s\n", idx, errbuf);
+        m_isCamera = false;
+        return false;
+    }
+
+    if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        fprintf(stderr, "VideoInput: camera has no stream info\n");
+        return false;
+    }
+    fprintf(stderr, "VideoInput: camera %d opened\n", idx);
+    return initCodec();
+}
+
+// ── File open ─────────────────────────────────────────────────────────────────
 
 bool VideoInput::open(const std::string& path) {
     close();
@@ -154,7 +248,11 @@ AVFrame* VideoInput::nextFrame() {
             return m_frameRGB;
         }
     }
-    // Loop: seek back to start
+    if (m_isCamera) {
+        // Live camera: no frame ready yet — caller retries next render frame
+        return nullptr;
+    }
+    // File: loop back to start
     av_seek_frame(m_fmtCtx, m_streamIdx, 0, AVSEEK_FLAG_BACKWARD);
     avcodec_flush_buffers(m_codecCtx);
     return nullptr;
@@ -170,6 +268,7 @@ void VideoInput::close() {
     if (m_fmtCtx)    { avformat_close_input(&m_fmtCtx);   }
     if (m_hwDevCtx)  { av_buffer_unref(&m_hwDevCtx);      m_hwDevCtx = nullptr; }
     m_useHW      = false;
+    m_isCamera   = false;
     m_streamIdx  = -1;
     m_lastPixFmt = AV_PIX_FMT_NONE;
     av_frame_unref(m_frameSW);

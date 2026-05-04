@@ -465,12 +465,51 @@ void EquationEditor::drawVideoPanel() {
     ImGui::TextDisabled("(or type a path and press Enter)");
 
     ImGui::Separator();
-    if (m_videoIn.isOpen())
-        ImGui::TextColored({0.2f,1.0f,0.4f,1.0f}, "Playing: %dx%d  %s",
+    if (m_videoIn.isOpen()) {
+        const char* srcLabel = m_videoIn.isCamera() ? "Live cam" : "Playing";
+        ImGui::TextColored({0.2f,1.0f,0.4f,1.0f}, "%s: %dx%d  %s",
+                           srcLabel,
                            m_videoIn.width(), m_videoIn.height(),
                            m_videoIn.path().c_str());
-    else
-        ImGui::TextDisabled("No video loaded — click Browse to choose a file");
+    } else {
+        ImGui::TextDisabled("No video — Browse for a file or open a camera below");
+    }
+
+    // ── Live Camera ───────────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextUnformatted("Live Camera Input");
+
+    // Refresh camera list
+    if (m_cameraListDirty || ImGui::Button("Refresh cameras")) {
+        m_cameraList = VideoInput::listCameras();
+        m_cameraIdx  = 0;
+        m_cameraListDirty = false;
+    }
+
+    if (m_cameraList.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(no cameras detected)");
+    } else {
+        // Build a null-delimited list for ImGui::Combo
+        std::string comboItems;
+        for (const auto& n : m_cameraList) { comboItems += n; comboItems += '\0'; }
+        comboItems += '\0';
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::Combo("##camlist", &m_cameraIdx, comboItems.c_str());
+
+        ImGui::BeginGroup();
+        if (ImGui::Button("Open Camera")) {
+            m_videoIn.openCamera(m_cameraIdx);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close##cam")) {
+            m_videoIn.close();
+        }
+        ImGui::EndGroup();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Opens the selected camera as the primary video texture.\n"
+                              "The fractal will map from the live camera feed.");
+    }
 
     // ── Overlay video layer ───────────────────────────────────────────────────
     ImGui::Separator();

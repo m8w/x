@@ -56,7 +56,7 @@ void EquationEditor::draw() {
 
     ImGui::End();
 
-    // UI2 — MIDI Mapper (separate window)
+    // UI2  -  MIDI Mapper (separate window)
     drawMidiWindow();
     drawGlitchPanel();
 }
@@ -68,7 +68,7 @@ void EquationEditor::drawBlendPanel() {
     ImGui::SliderFloat("Euclidean",    &m_blend.euclidean,  0.0f, 1.0f);
     ImGui::SliderFloat("Differential", &m_blend.diff,       0.0f, 1.0f);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("de Jong attractor ODE field — parameters driven by Julia C and Power");
+        ImGui::SetTooltip("de Jong attractor ODE field  -  parameters driven by Julia C and Power");
 
     float total = m_blend.mandelbrot + m_blend.julia +
                   m_blend.mandelbulb + m_blend.euclidean + m_blend.diff;
@@ -86,7 +86,7 @@ void EquationEditor::drawBlendPanel() {
 }
 
 static const char* kFormulas[] = {
-    // ── Classic 11 ───────────────────────────────────────────────────────────
+    // -- Classic 11 -----------------------------------------------------------
     "z\xc2\xb2 + c  (Mandelbrot)",               //  0
     "sin(z) + c",                                  //  1
     "exp(z) + c",                                  //  2
@@ -98,7 +98,7 @@ static const char* kFormulas[] = {
     "Newton z\xc2\xb3\xe2\x88\x92" "1",           //  8
     "Phoenix",                                     //  9
     "z\xe2\x81\xbf + c  (power)",                 // 10
-    // ── Extended formulas (IDs 11–21) ────────────────────────────────────────
+    // -- Extended formulas (IDs 11-21) ----------------------------------------
     "tan(z) + c",                                  // 11
     "z\xc2\xb7""exp(z) + c",                      // 12  z·exp(z)+c
     "Celtic  (|Re(z\xc2\xb2)|,Im(z\xc2\xb2))+c", // 13
@@ -110,7 +110,7 @@ static const char* kFormulas[] = {
     "z\xc2\xb3 + z + c",                           // 19
     "cosh(conj(z)) + c",                           // 20
     "Polar\xe2\x86\x92""Cart warp  [\xe2\x88\x82param]", // 21  formulaParam=twist
-    // ── Mandelbulber 2 extended set (IDs 22–35) ──────────────────────────────
+    // -- Mandelbulber 2 extended set (IDs 22-35) ------------------------------
     "Buffalo  (|Re|,|Im|)+c",                      // 22
     "Perp Celtic  (Re,|Im|)+c",                    // 23
     "tanh(z) + c",                                 // 24
@@ -134,7 +134,7 @@ static const char* k3DTypes[] = {
 };
 
 void EquationEditor::drawFractalPanel() {
-    // ── Iteration formula A × B cross-blend ──────────────────────────────────
+    // -- Iteration formula A x B cross-blend ----------------------------------
     ImGui::TextDisabled("Formula A  \xe2\x86\x94  Formula B");
     ImGui::Combo("Formula A##sel", &m_engine.formula,  kFormulas, kNumFormulas);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(
@@ -145,16 +145,16 @@ void EquationEditor::drawFractalPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("0 = pure Formula A   1 = pure Formula B   0.5 = crossfade");
 
-    // ── Formula extra parameter (used by Time-spiral and Polar warp) ──────────
+    // -- Formula extra parameter (used by Time-spiral and Polar warp) ----------
     ImGui::Separator();
     ImGui::TextDisabled("Formula extra param  (Time-spiral speed / Polar warp twist)");
     ImGui::SliderFloat("Param", &m_engine.formulaParam, -6.283f, 6.283f, "%.3f");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-        "Formula 18 (Time-spiral): rotation speed in rad/s — higher = faster spiral.\n"
-        "Formula 21 (Polar warp): angle multiplier — 1=normal, 2=doubled twist, -1=reverse.\n"
+        "Formula 18 (Time-spiral): rotation speed in rad/s  -  higher = faster spiral.\n"
+        "Formula 21 (Polar warp): angle multiplier  -  1=normal, 2=doubled twist, -1=reverse.\n"
         "Other formulas: available as u_formula_param but currently unused.");
 
-    // ── Auto-animate formula param ────────────────────────────────────────────
+    // -- Auto-animate formula param --------------------------------------------
     {
         static bool  animParam = false;
         static float paramSpeed = 0.5f;
@@ -171,9 +171,9 @@ void EquationEditor::drawFractalPanel() {
         }
     }
 
-    // ── Formula Presets ───────────────────────────────────────────────────────
+    // -- Formula Presets -------------------------------------------------------
     ImGui::Separator();
-    ImGui::TextDisabled("── Formula Presets ────────────────────────────────────");
+    ImGui::TextDisabled("-- Formula Presets ------------------------------------");
 
     struct FPre {
         const char* name;
@@ -183,29 +183,29 @@ void EquationEditor::drawFractalPanel() {
     };
     static const FPre kFPre[] = {
         {"Classic",    0,  0, 0.0f,  0.000f, 0.000f, 2.0f, 1.0f,
-         "Pure Mandelbrot — the original escape-time fractal"},
+         "Pure Mandelbrot  -  the original escape-time fractal"},
         {"Electric",   1,  2, 0.35f,-0.700f, 0.270f, 2.0f, 1.0f,
-         "sin(z) fading into exp(z) — lightning-bolt filaments"},
+         "sin(z) fading into exp(z)  -  lightning-bolt filaments"},
         {"Phoenix",    9,  0, 0.0f,  0.560f,-0.500f, 2.0f, 1.0f,
-         "Phoenix recurrence — feather-wing symmetry"},
+         "Phoenix recurrence  -  feather-wing symmetry"},
         {"Ghosts",     8,  7, 0.4f, -0.123f, 0.745f, 2.0f, 1.0f,
-         "Newton z\xc2\xb3-1 bleeding into Tricorn — ghost-convergence shells"},
+         "Newton z\xc2\xb3-1 bleeding into Tricorn  -  ghost-convergence shells"},
         {"Fire Ship",  6, 11, 0.5f, -0.750f, 0.100f, 2.0f, 1.0f,
-         "Burning Ship + Tangent blend — fiery spike corona"},
+         "Burning Ship + Tangent blend  -  fiery spike corona"},
         {"Magnet Storm",14,15,0.3f, -0.500f, 0.000f, 2.0f, 1.0f,
          "Magnet I attractor morphing into z\xe1\xb5\x87 self-power"},
         {"Vortex",    12, 18, 0.5f, -0.400f, 0.200f, 2.0f, 1.5f,
-         "z\xc2\xb7""exp(z) spirals + Time-spiral rotation — galaxy arms"},
+         "z\xc2\xb7""exp(z) spirals + Time-spiral rotation  -  galaxy arms"},
         {"Celtic Cross",13,7, 0.5f,  0.000f, 0.650f, 2.0f, 1.0f,
-         "Celtic fold blending with Tricorn — knotwork symmetry"},
+         "Celtic fold blending with Tricorn  -  knotwork symmetry"},
         {"Manowar+Ship",16,6, 0.4f, -0.800f, 0.156f, 2.0f, 1.0f,
-         "Manowar memory + Burning Ship folds — chaotic coastlines"},
+         "Manowar memory + Burning Ship folds  -  chaotic coastlines"},
         {"Polar Drift", 21,0, 0.3f, -0.700f, 0.270f, 2.0f, 1.3f,
-         "Polar warp blending with Mandelbrot — twisted orbit paths"},
+         "Polar warp blending with Mandelbrot  -  twisted orbit paths"},
         {"Cubic Galaxy",19,12,0.45f,-0.620f, 0.440f, 3.0f, 1.0f,
-         "Cubic+linear + z\xc2\xb7""exp(z) — three-arm spiral with halos"},
+         "Cubic+linear + z\xc2\xb7""exp(z)  -  three-arm spiral with halos"},
         {"Cosh Mirror", 20, 3, 0.5f,  0.285f, 0.010f, 2.0f, 1.0f,
-         "cosh(conj(z)) + cos(z) blend — bilateral mirror symmetry"},
+         "cosh(conj(z)) + cos(z) blend  -  bilateral mirror symmetry"},
     };
     static constexpr int kNFPre = 12;
 
@@ -225,7 +225,7 @@ void EquationEditor::drawFractalPanel() {
 
     ImGui::Separator();
 
-    // ── Pixel coordinate injection ────────────────────────────────────────────
+    // -- Pixel coordinate injection --------------------------------------------
     ImGui::TextDisabled("Pixel coord as equation variable");
     ImGui::SliderFloat("Pixel inject", &m_engine.pixelWeight, 0.0f, 1.0f);
     if (ImGui::IsItemHovered())
@@ -234,18 +234,18 @@ void EquationEditor::drawFractalPanel() {
 
     ImGui::Separator();
 
-    // ── Multi-layer repetition ────────────────────────────────────────────────
+    // -- Multi-layer repetition ------------------------------------------------
     ImGui::TextDisabled("Layer repetition");
     ImGui::SliderInt("Layers (1-4)", &m_engine.layerCount, 1, 4);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Runs the equation N times with spatially offset seeds\n"
-                          "and averages the results — creates woven depth.");
+                          "and averages the results  -  creates woven depth.");
     if (m_engine.layerCount > 1)
         ImGui::SliderFloat("Layer offset", &m_engine.layerOffset, 0.01f, 1.0f);
 
     ImGui::Separator();
 
-    // ── Geometry coupling ─────────────────────────────────────────────────────
+    // -- Geometry coupling -----------------------------------------------------
     ImGui::TextDisabled("Euclidean \xe2\x86\x94 fractal coupling");
     ImGui::SliderFloat("Geo warp", &m_engine.geoWarp, 0.0f, 1.0f);
     if (ImGui::IsItemHovered())
@@ -254,7 +254,7 @@ void EquationEditor::drawFractalPanel() {
 
     ImGui::Separator();
 
-    // ── Complex parameters ────────────────────────────────────────────────────
+    // -- Complex parameters ----------------------------------------------------
     ImGui::DragFloat2("Julia / Phoenix C", &m_engine.juliaC.x,
                       0.001f, -2.0f, 2.0f, "%.4f");
     ImGui::DragFloat("Power (z^n / bulb)", &m_engine.power,
@@ -264,7 +264,7 @@ void EquationEditor::drawFractalPanel() {
 
     ImGui::Separator();
 
-    // ── View ──────────────────────────────────────────────────────────────────
+    // -- View ------------------------------------------------------------------
     ImGui::DragFloat("Zoom", &m_engine.zoom, 0.01f, 0.1f, 1000.0f, "%.3f",
                      ImGuiSliderFlags_Logarithmic);
     ImGui::DragFloat2("Offset (x,y)", &m_engine.offset.x, 0.001f);
@@ -273,7 +273,7 @@ void EquationEditor::drawFractalPanel() {
         m_engine.offset = {0.0f, 0.0f};
     }
 
-    // ── Julia animation ───────────────────────────────────────────────────────
+    // -- Julia animation -------------------------------------------------------
     static bool  animJulia = false;
     static float animSpeed = 0.3f;
     ImGui::Checkbox("Animate Julia C", &animJulia);
@@ -287,7 +287,7 @@ void EquationEditor::drawFractalPanel() {
 
     ImGui::Separator();
 
-    // ── 3-D fractal (mandelbulb.frag) ─────────────────────────────────────────
+    // -- 3-D fractal (mandelbulb.frag) -----------------------------------------
     ImGui::TextDisabled("3-D fractal (when Mandelbulb blend > 0.5)");
     ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 3);
     if (m_engine.fractal3D == 1) {
@@ -306,14 +306,14 @@ void EquationEditor::drawGeometryPanel() {
 
     ImGui::Separator();
 
-    // ── Mirror ────────────────────────────────────────────────────────────────
+    // -- Mirror ----------------------------------------------------------------
     static const char* kMirrorLabels[] = {"None", "Mirror X", "Mirror Y", "Mirror XY"};
     ImGui::Combo("Mirror", &m_engine.geoMirror, kMirrorLabels, 4);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Folds the complex plane on one or both axes before iteration.\n"
                           "Produces 2-fold or 4-fold reflective symmetry across the fractal.");
 
-    // ── Kaleidoscope ──────────────────────────────────────────────────────────
+    // -- Kaleidoscope ----------------------------------------------------------
     ImGui::Separator();
     bool kaleidOn = m_engine.geoKaleid >= 2;
     if (ImGui::Checkbox("Kaleidoscope", &kaleidOn)) {
@@ -321,7 +321,7 @@ void EquationEditor::drawGeometryPanel() {
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Folds the plane into N angular wedges.\n"
-                          "Creates radial symmetry — like spinning a fractal in a mirror tunnel.");
+                          "Creates radial symmetry  -  like spinning a fractal in a mirror tunnel.");
     if (kaleidOn) {
         ImGui::SliderInt("Segments", &m_engine.geoKaleid, 2, 16);
         if (ImGui::IsItemHovered())
@@ -343,9 +343,9 @@ void EquationEditor::drawGeometryPanel() {
         if (ImGui::SmallButton("16")) m_engine.geoKaleid = 16;
     }
 
-    // ── Scene presets (shape + mirror + kaleidoscope combos) ──────────────────
+    // -- Scene presets (shape + mirror + kaleidoscope combos) ------------------
     ImGui::Separator();
-    ImGui::TextDisabled("── Scene Presets ─────────────────────────────");
+    ImGui::TextDisabled("-- Scene Presets -----------------------------");
 
     // Snowflake
     if (ImGui::SmallButton("Snowflake")) {
@@ -438,14 +438,14 @@ void EquationEditor::drawGeometryPanel() {
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove all mirror / kaleidoscope folds");
 
-    // ── MIDI map hint ─────────────────────────────────────────────────────────
+    // -- MIDI map hint ---------------------------------------------------------
     ImGui::Separator();
     ImGui::TextDisabled("MIDI: map 'Geo mirror (0-3)' and 'Kaleidoscope segments'");
     ImGui::TextDisabled("      in the MIDI Mapper window to control live.");
 }
 
 void EquationEditor::drawVideoPanel() {
-    // ── Browse button ─────────────────────────────────────────────────────────
+    // -- Browse button ---------------------------------------------------------
     if (ImGui::Button("Browse...")) {
         std::string picked = pickVideoFile();
         if (!picked.empty()) {
@@ -472,10 +472,10 @@ void EquationEditor::drawVideoPanel() {
                            m_videoIn.width(), m_videoIn.height(),
                            m_videoIn.path().c_str());
     } else {
-        ImGui::TextDisabled("No video — Browse for a file or open a camera below");
+        ImGui::TextDisabled("No video  -  Browse for a file or open a camera below");
     }
 
-    // ── Live Camera ───────────────────────────────────────────────────────────
+    // -- Live Camera -----------------------------------------------------------
     ImGui::Separator();
     ImGui::TextUnformatted("Live Camera Input");
 
@@ -511,7 +511,7 @@ void EquationEditor::drawVideoPanel() {
                               "The fractal will map from the live camera feed.");
     }
 
-    // ── Overlay video layer ───────────────────────────────────────────────────
+    // -- Overlay video layer ---------------------------------------------------
     ImGui::Separator();
     ImGui::TextUnformatted("Overlay Video Layer");
     ImGui::SliderFloat("Blend##overlay", &m_engine.overlayBlend, 0.0f, 1.0f,
@@ -546,11 +546,11 @@ void EquationEditor::drawVideoPanel() {
                            m_overlayIn.width(), m_overlayIn.height(),
                            m_overlayIn.path().c_str());
     else
-        ImGui::TextDisabled("No overlay loaded — click Browse to choose a file");
+        ImGui::TextDisabled("No overlay loaded  -  click Browse to choose a file");
 
-    // ── Video Filters ─────────────────────────────────────────────────────────
+    // -- Video Filters ---------------------------------------------------------
     ImGui::Separator();
-    ImGui::TextDisabled("── Video Filters (GIMP-inspired) ──────────────────");
+    ImGui::TextDisabled("-- Video Filters (GIMP-inspired) ------------------");
 
     static const char* kColorFilters[] = {
         "None",
@@ -588,7 +588,7 @@ void EquationEditor::drawVideoPanel() {
         "Film Grain",
     };
     static const char* kBlendModes[] = {
-        // 0–12: Standard GIMP set
+        // 0-12: Standard GIMP set
         "0 Normal",
         "1 Multiply",
         "2 Screen",
@@ -602,7 +602,7 @@ void EquationEditor::drawVideoPanel() {
         "10 Darken",
         "11 Lighten",
         "12 Addition",
-        // 13–31: Extended math / glitch modes
+        // 13-31: Extended math / glitch modes
         "13 Subtract",
         "14 Inverse Subtract",
         "15 Divide",
@@ -622,14 +622,14 @@ void EquationEditor::drawVideoPanel() {
         "29 Freeze",
         "30 Heat",
         "31 Gamma",
-        // 32–37: Inverse / negative variants
+        // 32-37: Inverse / negative variants
         "32 Invert Multiply",
         "33 Invert Screen",
         "34 Invert Difference",
         "35 Invert Addition",
         "36 Chromatic Split",
         "37 XOR",
-        // 38–41: HSL component swaps
+        // 38-41: HSL component swaps
         "38 Hue",
         "39 Saturation",
         "40 Color (H+S)",
@@ -784,14 +784,14 @@ static bool isRestreamDest(const DestSink& s) {
 }
 
 void EquationEditor::drawStreamPanel() {
-    // ── Bitrate / Resolution ──────────────────────────────────────────────────
+    // -- Bitrate / Resolution --------------------------------------------------
     ImGui::SliderInt("Bitrate (kbps)", &m_bitrateKbps, 500, 16000);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Restream: up to 4500 for 1080p30, 8000 for 1080p60");
     ImGui::Combo("Resolution", &m_resIndex, kResLabels, 4);
     ImGui::Separator();
 
-    // ── Restream pinned entry (always at top, always present) ─────────────────
+    // -- Restream pinned entry (always at top, always present) -----------------
     // Find it, create it if missing.
     int restreamIdx = -1;
     for (int i = 0; i < m_streamOut.destCount(); i++)
@@ -806,22 +806,22 @@ void EquationEditor::drawStreamPanel() {
 
         // Status indicator
         if (m_streamOut.isStreaming() && rs.connected)
-            ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE");
+            ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "[*] LIVE");
         else if (m_streamOut.isStreaming() && !rs.connected)
-            ImGui::TextColored({1.0f,0.4f,0.1f,1.0f}, "● ERR ");
+            ImGui::TextColored({1.0f,0.4f,0.1f,1.0f}, "[*] ERR ");
         else
-            ImGui::TextDisabled("○     ");
+            ImGui::TextDisabled("[ ]     ");
         ImGui::SameLine();
         ImGui::Checkbox("##en", &rs.enabled);
         ImGui::SameLine();
         ImGui::TextColored({0.4f,0.85f,1.0f,1.0f}, "Restream");
 
-        // Stream key on its own line — full width, plain text so it's easy to paste
+        // Stream key on its own line  -  full width, plain text so it's easy to paste
         const char* base = "rtmp://live.restream.io/live/";
         const size_t baseLen = strlen(base);
         // Extract key: skip past any accidentally doubled base prefixes in the
         // stored URL (happens when the user pastes the full URL instead of
-        // just the key — the field then shows and saves the correct key only).
+        // just the key  -  the field then shows and saves the correct key only).
         const char* keyStart = rs.url.c_str();
         while (strncmp(keyStart, base, baseLen) == 0) keyStart += baseLen;
         // Persist the normalised URL immediately so the bad doubled value is gone
@@ -842,10 +842,10 @@ void EquationEditor::drawStreamPanel() {
             saveSettings(AppSettings::lastPath());   // persist key immediately
         if (ImGui::IsItemHovered() || rs.url == base || rs.url.empty())
             ImGui::SetTooltip("Paste your Restream stream key here\n"
-                              "(Dashboard → Stream Setup → Stream Key)");
+                              "(Dashboard -> Stream Setup -> Stream Key)");
         ImGui::SameLine();
-        if (ImGui::SmallButton("×##rsclr")) {
-            rs.url = base;   // wipe back to bare base URL — key is gone
+        if (ImGui::SmallButton("x##rsclr")) {
+            rs.url = base;   // wipe back to bare base URL  -  key is gone
             saveSettings(AppSettings::lastPath());   // persist the clear too
         }
         if (ImGui::IsItemHovered())
@@ -856,7 +856,7 @@ void EquationEditor::drawStreamPanel() {
         ImGui::PopID();
     }
 
-    // ── Other destinations ────────────────────────────────────────────────────
+    // -- Other destinations ----------------------------------------------------
     int removeIdx = -1;
     bool hasOthers = false;
     for (int i = 0; i < m_streamOut.destCount(); i++)
@@ -894,7 +894,7 @@ void EquationEditor::drawStreamPanel() {
         const char* base = matchServiceBase(s.url);
         char keyBuf[512] = {};
         if (isLocalPath(s.url)) {
-            // Local recording path — show plainly, no masking
+            // Local recording path  -  show plainly, no masking
             strncpy(keyBuf, s.url.c_str(), sizeof(keyBuf) - 1);
             ImGui::SetNextItemWidth(-30);
             if (ImGui::InputText("##lpath", keyBuf, sizeof(keyBuf)))
@@ -902,15 +902,15 @@ void EquationEditor::drawStreamPanel() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Local recording path (.mp4 / .mkv)");
         } else if (base) {
-            // Known service — show only the stream key (plain text)
+            // Known service  -  show only the stream key (plain text)
             strncpy(keyBuf, s.url.c_str() + strlen(base), sizeof(keyBuf) - 1);
             ImGui::SetNextItemWidth(-30);
             if (ImGui::InputText("##key", keyBuf, sizeof(keyBuf)))
                 s.url = std::string(base) + keyBuf;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Stream key — prepended with:\n%s", base);
+                ImGui::SetTooltip("Stream key  -  prepended with:\n%s", base);
         } else {
-            // Custom — show full URL, password-masked
+            // Custom  -  show full URL, password-masked
             strncpy(keyBuf, s.url.c_str(), sizeof(keyBuf) - 1);
             ImGui::SetNextItemWidth(-30);
             if (ImGui::InputText("##url", keyBuf, sizeof(keyBuf),
@@ -927,12 +927,12 @@ void EquationEditor::drawStreamPanel() {
     ImGui::PopID(); // "stream_dests"
     if (removeIdx >= 0) m_streamOut.removeDestination(removeIdx);
 
-    // ── Add destination ───────────────────────────────────────────────────────
+    // -- Add destination -------------------------------------------------------
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::TextDisabled("Add another destination:");
 
-    // Service quick-pick buttons (skip Restream — it's always pinned above)
+    // Service quick-pick buttons (skip Restream  -  it's always pinned above)
     for (int p = 0; p < kNumPresets; p++) {
         if (strcmp(kPresets[p].label, "Restream") == 0) continue;
         if (p > 0) ImGui::SameLine();
@@ -943,7 +943,7 @@ void EquationEditor::drawStreamPanel() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Local file")) {
-        // Default to Seagate drive → fractal stream/part 1/
+        // Default to Seagate drive -> fractal stream/part 1/
         // Falls back to home dir if the drive isn't mounted.
         const char* seagate = "/Volumes/Seagate/fractal stream/part 1";
         const char* home    = getenv("HOME");
@@ -991,7 +991,7 @@ void EquationEditor::drawStreamPanel() {
         m_newUrl[0]  = '\0';
     }
 
-    // ── Audio capture device ──────────────────────────────────────────────────
+    // -- Audio capture device --------------------------------------------------
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::TextDisabled("Audio source (macOS loopback)");
@@ -1009,7 +1009,7 @@ void EquationEditor::drawStreamPanel() {
                               "e.g. \"BlackHole 2ch\" (must be installed separately).");
     }
 
-    // ── Start / Stop ──────────────────────────────────────────────────────────
+    // -- Start / Stop ----------------------------------------------------------
     ImGui::Spacing();
     ImGui::Separator();
 
@@ -1021,14 +1021,14 @@ void EquationEditor::drawStreamPanel() {
     if (!m_streamOut.isStreaming()) {
         if (!rsKeySet) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f,0.3f,0.1f,1.0f));
-            if (ImGui::Button("Start Stream  ▶"))
+            if (ImGui::Button("Start Stream  >"))
                 m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
                                   m_bitrateKbps, 30);
             ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextColored({1.0f,0.8f,0.2f,1.0f}, "⚠ No Restream key set");
+            ImGui::TextColored({1.0f,0.8f,0.2f,1.0f}, "(!) No Restream key set");
         } else {
-            if (ImGui::Button("Start Stream  ▶"))
+            if (ImGui::Button("Start Stream  >"))
                 m_streamOut.start(kResW[m_resIndex], kResH[m_resIndex],
                                   m_bitrateKbps, 30);
         }
@@ -1040,7 +1040,7 @@ void EquationEditor::drawStreamPanel() {
         }
 
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f,0.1f,0.1f,1.0f));
-        if (ImGui::Button("Stop Stream  ■")) m_streamOut.stop();
+        if (ImGui::Button("Stop Stream  []")) m_streamOut.stop();
         ImGui::PopStyleColor();
         ImGui::SameLine();
 
@@ -1051,7 +1051,7 @@ void EquationEditor::drawStreamPanel() {
         int mm = (totalSec % 3600) / 60;
         int ss = totalSec % 60;
 
-        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "● LIVE  %02d:%02d:%02d  (%d dest)",
+        ImGui::TextColored({0.2f,1.0f,0.2f,1.0f}, "[*] LIVE  %02d:%02d:%02d  (%d dest)",
                            hh, mm, ss, m_streamOut.destCount());
     }
 
@@ -1060,12 +1060,12 @@ void EquationEditor::drawStreamPanel() {
         m_wasStreaming = false;
 }
 
-// ── Animation Panel ───────────────────────────────────────────────────────────
+// -- Animation Panel -----------------------------------------------------------
 // All oscillations use static state so base values are preserved across frames.
 void EquationEditor::drawAnimPanel() {
     double t = ImGui::GetTime();
 
-    // ── Zoom oscillation ──────────────────────────────────────────────────────
+    // -- Zoom oscillation ------------------------------------------------------
     static bool  animZoom      = false;
     static float zoomBase      = 1.0f;
     static float zoomAmp       = 0.4f;
@@ -1084,7 +1084,7 @@ void EquationEditor::drawAnimPanel() {
 
     ImGui::Separator();
 
-    // ── Power oscillation ─────────────────────────────────────────────────────
+    // -- Power oscillation -----------------------------------------------------
     static bool  animPower     = false;
     static float powerBase     = 8.0f;
     static float powerAmp      = 2.0f;
@@ -1104,7 +1104,7 @@ void EquationEditor::drawAnimPanel() {
 
     ImGui::Separator();
 
-    // ── Formula A↔B blend oscillation ────────────────────────────────────────
+    // -- Formula A↔B blend oscillation ----------------------------------------
     static bool  animFBlend    = false;
     static float fBlendAmp     = 1.0f;
     static float fBlendSpeed   = 0.15f;
@@ -1118,7 +1118,7 @@ void EquationEditor::drawAnimPanel() {
 
     ImGui::Separator();
 
-    // ── Offset drift ─────────────────────────────────────────────────────────
+    // -- Offset drift ---------------------------------------------------------
     static bool  animDrift     = false;
     static float driftSpeed    = 0.02f;
     static float driftAngle    = 0.0f;   // radians
@@ -1141,7 +1141,7 @@ void EquationEditor::drawAnimPanel() {
 
     ImGui::Separator();
 
-    // ── Pixel weight oscillation ──────────────────────────────────────────────
+    // -- Pixel weight oscillation ----------------------------------------------
     static bool  animPixel     = false;
     static float pixelAmp      = 0.5f;
     static float pixelSpeed    = 0.3f;
@@ -1157,7 +1157,7 @@ void EquationEditor::drawAnimPanel() {
 // ════════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════════
-// UI2 — MIDI Mapper + Generator  (separate floating window)
+// UI2  -  MIDI Mapper + Generator  (separate floating window)
 // ════════════════════════════════════════════════════════════════════════════════
 static const char* kNoteNames[] = {
     "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"
@@ -1171,9 +1171,9 @@ static inline const char* midiNoteName(int n) {
 void EquationEditor::drawMidiWindow() {
     ImGui::SetNextWindowPos ({800, 10},  ImGuiCond_Once);
     ImGui::SetNextWindowSize({460, 820}, ImGuiCond_Once);
-    ImGui::Begin("MIDI Mapper — UI2");
+    ImGui::Begin("MIDI Mapper  -  UI2");
 
-    // ── Port selector ─────────────────────────────────────────────────────────
+    // -- Port selector ---------------------------------------------------------
     if (ImGui::CollapsingHeader("MIDI Routing", ImGuiTreeNodeFlags_DefaultOpen)) {
 
         // Helper lambda to build a null-null ImGui combo buffer from a port list
@@ -1191,8 +1191,8 @@ void EquationEditor::drawMidiWindow() {
             }
         };
 
-        // ── MIDI INPUT ────────────────────────────────────────────────────────
-        ImGui::TextDisabled("INPUT  (hardware controller → fractal params)");
+        // -- MIDI INPUT --------------------------------------------------------
+        ImGui::TextDisabled("INPUT  (hardware controller -> fractal params)");
         {
             static int selIn = 0;
             static char inBuf[1024];
@@ -1212,20 +1212,20 @@ void EquationEditor::drawMidiWindow() {
                 auto last = m_midiIn.lastMessage();
                 int  type = (last.status & 0xF0), ch = (last.status & 0x0F)+1;
                 const char* tn = type==0xB0?"CC":type==0x90?"NoteOn":
-                                 type==0x80?"NoteOff":type==0xC0?"PC":"—";
-                ImGui::TextColored({0.3f,1,0.3f,1}, "● IN: %s",
+                                 type==0x80?"NoteOff":type==0xC0?"PC":" - ";
+                ImGui::TextColored({0.3f,1,0.3f,1}, "[*] IN: %s",
                                    m_midiIn.portName(m_midiIn.openedPort()).c_str());
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s ch%d #%d v%d", tn,ch,last.data1,last.data2);
             } else {
-                ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ IN not connected");
+                ImGui::TextColored({0.5f,0.5f,0.5f,1},"[ ] IN not connected");
             }
         }
 
         ImGui::Spacing();
 
-        // ── MIDI OUTPUT ───────────────────────────────────────────────────────
-        ImGui::TextDisabled("OUTPUT  (generator notes → DAW / VST for recording)");
+        // -- MIDI OUTPUT -------------------------------------------------------
+        ImGui::TextDisabled("OUTPUT  (generator notes -> DAW / VST for recording)");
         ImGui::TextDisabled("Mac: IAC Driver Bus 1   Win: loopMIDI   Linux: ALSA virtual");
         {
             static int selOut = 0;
@@ -1243,12 +1243,12 @@ void EquationEditor::drawMidiWindow() {
                 ImGui::PopStyleColor();
             }
             if (m_midiOut.isOpen()) {
-                ImGui::TextColored({0.2f,0.8f,1,1}, "● OUT: %s",
+                ImGui::TextColored({0.2f,0.8f,1,1}, "[*] OUT: %s",
                                    m_midiOut.portName(m_midiOut.openedPort()).c_str());
                 ImGui::SameLine();
                 ImGui::TextDisabled("generator notes routing here");
             } else {
-                ImGui::TextColored({0.5f,0.5f,0.5f,1},"○ OUT not connected  (generator notes will not reach DAW)");
+                ImGui::TextColored({0.5f,0.5f,0.5f,1},"[ ] OUT not connected  (generator notes will not reach DAW)");
             }
 
             if (m_midiOut.isOpen()) {
@@ -1261,8 +1261,8 @@ void EquationEditor::drawMidiWindow() {
 
         ImGui::Spacing();
 
-        // ── MIDI THRU ─────────────────────────────────────────────────────────
-        ImGui::Checkbox("MIDI Thru  (hardware input → output port)", &m_midiGen.midiThru);
+        // -- MIDI THRU ---------------------------------------------------------
+        ImGui::Checkbox("MIDI Thru  (hardware input -> output port)", &m_midiGen.midiThru);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Forwards incoming hardware MIDI straight to the output port\n"
                               "so a physical controller can also play the VST.");
@@ -1279,17 +1279,17 @@ void EquationEditor::drawMidiWindow() {
         ImGui::Checkbox("Generator enabled", &G.enabled);
         if (!G.enabled) { ImGui::BeginDisabled(); }
 
-        // ── Transport ──────────────────────────────────────────────────────────
+        // -- Transport ----------------------------------------------------------
         ImGui::Spacing();
         if (!G.playing) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f,0.5f,0.2f,1));
-            if (ImGui::Button("  ▶  Play  ")) {
+            if (ImGui::Button("  >  Play  ")) {
                 G.start(ImGui::GetTime());
             }
             ImGui::PopStyleColor();
         } else {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f,0.1f,0.1f,1));
-            if (ImGui::Button("  ■  Stop  ")) {
+            if (ImGui::Button("  []  Stop  ")) {
                 std::vector<MidiInput::Message> offs;
                 G.stop(offs);
                 for (auto& m : offs) m_midiMapper.apply(m, m_engine, m_blend, m_colorSynth);
@@ -1297,7 +1297,7 @@ void EquationEditor::drawMidiWindow() {
             ImGui::PopStyleColor();
         }
         ImGui::SameLine();
-        if (ImGui::Button("♪ One Note")) {
+        if (ImGui::Button("~ One Note")) {
             auto msgs = G.fireOneNote();
             for (auto& m : msgs) {
                 m_midiMapper.apply(m, m_engine, m_blend, m_colorSynth);
@@ -1305,7 +1305,7 @@ void EquationEditor::drawMidiWindow() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("⚠ Panic")) {
+        if (ImGui::Button("(!) Panic")) {
             std::vector<MidiInput::Message> offs;
             G.stop(offs);
             for (auto& m : offs) {
@@ -1315,15 +1315,15 @@ void EquationEditor::drawMidiWindow() {
             m_midiOut.panic();   // belt-and-suspenders: CC123 all channels
         }
 
-        // ── BPM ───────────────────────────────────────────────────────────────
+        // -- BPM ---------------------------------------------------------------
         ImGui::SetNextItemWidth(180);
         ImGui::SliderFloat("BPM", &G.bpm, 20.0f, 280.0f, "%.0f");
         ImGui::SameLine();
         if (G.playing) {
-            ImGui::TextColored({1,0.7f,0.1f,1},"● PLAYING  step %d", G.liveStep);
+            ImGui::TextColored({1,0.7f,0.1f,1},"[*] PLAYING  step %d", G.liveStep);
         }
 
-        // ── Live display (like the HTML "Live Output" card) ───────────────────
+        // -- Live display (like the HTML "Live Output" card) -------------------
         ImGui::Separator();
         ImGui::TextDisabled("Live");
         ImGui::SameLine(60);
@@ -1331,7 +1331,7 @@ void EquationEditor::drawMidiWindow() {
             ImGui::TextColored({1,0.7f,0.1f,1}, "Note %-4s (%3d)",
                                midiNoteName(G.liveNote), G.liveNote);
         } else {
-            ImGui::TextDisabled("Note —");
+            ImGui::TextDisabled("Note  - ");
         }
         ImGui::SameLine();
         ImGui::TextColored({0.7f,0.5f,1,1}, "Vel %3d", G.liveVel);
@@ -1342,11 +1342,11 @@ void EquationEditor::drawMidiWindow() {
         else if (G.liveProg >= 0)
             ImGui::TextColored({0.2f,0.9f,0.7f,1}, "PC %d", G.liveProg);
         else
-            ImGui::TextDisabled("PC —");
+            ImGui::TextDisabled("PC  - ");
 
         ImGui::Separator();
 
-        // ── Note & Scale ──────────────────────────────────────────────────────
+        // -- Note & Scale ------------------------------------------------------
         ImGui::TextDisabled("Note & Scale");
 
         ImGui::SetNextItemWidth(55); ImGui::InputInt("Min note##G", &G.noteMin);
@@ -1356,7 +1356,7 @@ void EquationEditor::drawMidiWindow() {
         G.noteMax = std::max(G.noteMin+1, std::min(127, G.noteMax));
         ImGui::SameLine();
         // Show note names
-        ImGui::TextDisabled("%s – %s", midiNoteName(G.noteMin), midiNoteName(G.noteMax));
+        ImGui::TextDisabled("%s - %s", midiNoteName(G.noteMin), midiNoteName(G.noteMax));
 
         // Root key
         ImGui::SetNextItemWidth(80);
@@ -1387,7 +1387,7 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SetNextItemWidth(180);
         ImGui::SliderInt("Vel max##G", &G.velMax, G.velMin+1, 127);
 
-        // ── Microtonality ─────────────────────────────────────────────────────
+        // -- Microtonality -----------------------------------------------------
         ImGui::Separator();
         ImGui::TextDisabled("Microtonality");
         ImGui::SetNextItemWidth(220);
@@ -1403,16 +1403,16 @@ void EquationEditor::drawMidiWindow() {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Off          — standard 12-TET, no pitch bend\n"
-                "Random Drift — each note gets ±amt cents of random tuning\n"
-                "Quarter-Tone — 24-EDO: each note randomly +0 / +50 / −50 cents\n"
-                "Just Inton   — 5-limit just ratios (M3 −14c, P5 +2c, M7 −12c…)\n"
-                "Harmonic     — pulls toward the overtone series of the root\n"
-                "               H7=−31c (blue 7th)  H11=−49c (alien tritone)");
+                "Off           -  standard 12-TET, no pitch bend\n"
+                "Random Drift  -  each note gets +/-amt cents of random tuning\n"
+                "Quarter-Tone  -  24-EDO: each note randomly +0 / +50 / -50 cents\n"
+                "Just Inton    -  5-limit just ratios (M3 -14c, P5 +2c, M7 -12c...)\n"
+                "Harmonic      -  pulls toward the overtone series of the root\n"
+                "               H7=-31c (blue 7th)  H11=-49c (alien tritone)");
 
         if (G.microtonalMode != MicrotonalMode::Off) {
             ImGui::SetNextItemWidth(200);
-            ImGui::SliderFloat("Amount (cents)##MT", &G.microtonalAmt, 0.0f, 100.0f, "%.0f¢");
+            ImGui::SliderFloat("Amount (cents)##MT", &G.microtonalAmt, 0.0f, 100.0f, "%.0fc");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Maximum pitch deviation in cents.\n"
                                   "50 = quarter-tone max  100 = full semitone max");
@@ -1430,7 +1430,7 @@ void EquationEditor::drawMidiWindow() {
 
         ImGui::Separator();
 
-        // ── Timing ────────────────────────────────────────────────────────────
+        // -- Timing ------------------------------------------------------------
         ImGui::TextDisabled("Timing");
 
         // Chaos timing
@@ -1439,12 +1439,12 @@ void EquationEditor::drawMidiWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "0 = steady grid (step rate below controls the interval)\n"
-                "0.1+ = Poisson-style random timing — no two gaps the same\n"
+                "0.1+ = Poisson-style random timing  -  no two gaps the same\n"
                 "1.0 = completely wild: 20ms to 4 seconds between notes\n"
                 "High chaos ignores Step Rate and Note Length settings.");
         if (G.timingChaos > 0.01f) {
             ImGui::SameLine();
-            ImGui::TextColored({1.0f,0.5f,0.1f,1.0f}, "⚡ CHAOS");
+            ImGui::TextColored({1.0f,0.5f,0.1f,1.0f}, "!! CHAOS");
         }
 
         static const char* kRateLabels[] =
@@ -1461,7 +1461,7 @@ void EquationEditor::drawMidiWindow() {
         ImGui::SetNextItemWidth(60);
         ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6);
 
-        // ── Rests ─────────────────────────────────────────────────────────────
+        // -- Rests -------------------------------------------------------------
         ImGui::Separator();
         ImGui::TextDisabled("Rests");
         if (ImGui::IsItemHovered())
@@ -1491,7 +1491,7 @@ void EquationEditor::drawMidiWindow() {
                            G.restDurMin, 10.0f, "%.2f");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Rest lasts a random duration between min and max.\n"
-                              "Works at any timing chaos level — silence is always audible.");
+                              "Works at any timing chaos level  -  silence is always audible.");
 
         ImGui::SetNextItemWidth(200);
         ImGui::SliderFloat("Burst prob##G", &G.restBurst, 0.0f, 0.9f, "%.2f");
@@ -1504,31 +1504,31 @@ void EquationEditor::drawMidiWindow() {
 
         ImGui::Checkbox("Humanize##G", &G.humanize);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Adds ±7%% timing scatter to feel less robotic");
+            ImGui::SetTooltip("Adds +/-7%% timing scatter to feel less robotic");
 
         ImGui::Separator();
 
-        // ── Auto program change ───────────────────────────────────────────────
+        // -- Auto program change -----------------------------------------------
         ImGui::TextDisabled("Auto Program Change");
         ImGui::SameLine();
-        ImGui::TextDisabled("— Surge XT / any synth  (values >127 send Bank Select CC0 + PC)");
+        ImGui::TextDisabled(" -  Surge XT / any synth  (values >127 send Bank Select CC0 + PC)");
         ImGui::Checkbox("Enable PC##G", &G.pgEnabled);
         if (G.pgEnabled) {
-            // Every N steps — full available width
+            // Every N steps  -  full available width
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderInt("Every N steps##G", &G.pgEvery, 1, 64);
             G.pgEvery = std::max(1, G.pgEvery);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("How many steps between each patch change");
 
-            // Patch min/max — full width, no 127 cap
+            // Patch min/max  -  full width, no 127 cap
             // Ctrl+click on any slider to type an exact number
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderInt("Patch min##G", &G.pgMin, 0, 16383);
             G.pgMin = std::max(0, std::min(G.pgMin, G.pgMax - 1));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Ctrl+click to type exact value\n"
-                                  "Surge XT: bank×128 + patch_index");
+                                  "Surge XT: bankx128 + patch_index");
 
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderInt("Patch max##G", &G.pgMax, 1, 16383);
@@ -1539,10 +1539,10 @@ void EquationEditor::drawMidiWindow() {
             // Live display of current bank+patch when > 127
             if (G.pgMin > 127 || G.pgMax > 127) {
                 ImGui::TextColored({0.4f,0.9f,0.6f,1},
-                    "Bank %d patch %d  →  Bank %d patch %d",
+                    "Bank %d patch %d  ->  Bank %d patch %d",
                     G.pgMin/128, G.pgMin%128, G.pgMax/128, G.pgMax%128);
             } else {
-                ImGui::TextDisabled("Range: %d – %d  (map PC→FormulaA to drive formula changes)",
+                ImGui::TextDisabled("Range: %d - %d  (map PC->FormulaA to drive formula changes)",
                                     G.pgMin, G.pgMax);
             }
 
@@ -1588,7 +1588,7 @@ void EquationEditor::drawMidiWindow() {
         static int newParamIdx = (int)MidiParam::FormulaBlend;
         static const char* kMsgTypes[] = {"CC", "NoteOn", "NoteOff", "ProgramChange"};
 
-        // ── MIDI Learn ────────────────────────────────────────────────────────
+        // -- MIDI Learn --------------------------------------------------------
         if (!learn.active && !learn.captured) {
             if (ImGui::Button("  MIDI Learn  "))
                 learn.active = true;
@@ -1596,7 +1596,7 @@ void EquationEditor::drawMidiWindow() {
                 ImGui::SetTooltip("Click then wiggle a knob / press a key / change a program");
         } else if (learn.active) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,1,0,1));
-            ImGui::Text("Waiting for MIDI…");
+            ImGui::Text("Waiting for MIDI...");
             ImGui::PopStyleColor();
             ImGui::SameLine();
             if (ImGui::SmallButton("Cancel")) learn.active = false;
@@ -1611,7 +1611,7 @@ void EquationEditor::drawMidiWindow() {
             if (ImGui::SmallButton("Clear")) learn.captured = false;
         }
 
-        // ── Add-mapping form ──────────────────────────────────────────────────
+        // -- Add-mapping form --------------------------------------------------
         ImGui::SetNextItemWidth(100); ImGui::Combo("Type##nm",     &newMap.msgType, kMsgTypes, 4);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(40);  ImGui::InputInt("Ch##nm",    &newMap.channel);
@@ -1647,7 +1647,7 @@ void EquationEditor::drawMidiWindow() {
 
         ImGui::Separator();
 
-        // ── Mapping table ─────────────────────────────────────────────────────
+        // -- Mapping table -----------------------------------------------------
         ImGui::TextDisabled("Active mappings (%d)", (int)m_midiMapper.mappings().size());
         if (ImGui::BeginTable("##maptbl", 7,
                 ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|
@@ -1660,7 +1660,7 @@ void EquationEditor::drawMidiWindow() {
             ImGui::TableSetupColumn("#",     ImGuiTableColumnFlags_WidthFixed, 30);
             ImGui::TableSetupColumn("Min",   ImGuiTableColumnFlags_WidthFixed, 48);
             ImGui::TableSetupColumn("Max",   ImGuiTableColumnFlags_WidthFixed, 48);
-            ImGui::TableSetupColumn("×",     ImGuiTableColumnFlags_WidthFixed, 18);
+            ImGui::TableSetupColumn("x",     ImGuiTableColumnFlags_WidthFixed, 18);
             ImGui::TableHeadersRow();
 
             static const char* kMsgShort[] = {"CC","NoteOn","NoteOff","PC"};
@@ -1688,7 +1688,7 @@ void EquationEditor::drawMidiWindow() {
                 ImGui::DragFloat(mid3, &m.maxVal, 0.01f);
                 ImGui::TableSetColumnIndex(6);
                 ImGui::PushStyleColor(ImGuiCol_Text,ImVec4(1,0.3f,0.3f,1));
-                char did[16]; snprintf(did,sizeof(did),"×##d%d",i);
+                char did[16]; snprintf(did,sizeof(did),"x##d%d",i);
                 if (ImGui::SmallButton(did)) removeIdx = i;
                 ImGui::PopStyleColor();
             }
@@ -1696,47 +1696,47 @@ void EquationEditor::drawMidiWindow() {
             ImGui::EndTable();
         }
 
-        // ── Quick presets ─────────────────────────────────────────────────────
+        // -- Quick presets -----------------------------------------------------
         ImGui::Separator();
         ImGui::TextDisabled("Quick presets");
-        if (ImGui::Button("CC1→Julia.x"))  m_midiMapper.add({0,0,1,MidiParam::JuliaCX,-1.5f,1.5f,"Mod→Julia.x"});
+        if (ImGui::Button("CC1->Julia.x"))  m_midiMapper.add({0,0,1,MidiParam::JuliaCX,-1.5f,1.5f,"Mod->Julia.x"});
         ImGui::SameLine();
-        if (ImGui::Button("CC2→Julia.y"))  m_midiMapper.add({0,0,2,MidiParam::JuliaCY,-1.5f,1.5f,"Mod→Julia.y"});
+        if (ImGui::Button("CC2->Julia.y"))  m_midiMapper.add({0,0,2,MidiParam::JuliaCY,-1.5f,1.5f,"Mod->Julia.y"});
         ImGui::SameLine();
-        if (ImGui::Button("CC7→Zoom"))     m_midiMapper.add({0,0,7,MidiParam::Zoom,0.2f,8.0f,"Vol→Zoom"});
-        if (ImGui::Button("CC74→Power"))   m_midiMapper.add({0,0,74,MidiParam::Power,2.0f,12.0f,"Bright→Power"});
+        if (ImGui::Button("CC7->Zoom"))     m_midiMapper.add({0,0,7,MidiParam::Zoom,0.2f,8.0f,"Vol->Zoom"});
+        if (ImGui::Button("CC74->Power"))   m_midiMapper.add({0,0,74,MidiParam::Power,2.0f,12.0f,"Bright->Power"});
         ImGui::SameLine();
-        if (ImGui::Button("CC71→FBlend"))  m_midiMapper.add({0,0,71,MidiParam::FormulaBlend,0.0f,1.0f,"Res→FBlend"});
+        if (ImGui::Button("CC71->FBlend"))  m_midiMapper.add({0,0,71,MidiParam::FormulaBlend,0.0f,1.0f,"Res->FBlend"});
         ImGui::SameLine();
-        if (ImGui::Button("PC→FormulaA"))  m_midiMapper.add({3,0,0,MidiParam::FormulaA,0.0f,10.0f,"PC→FrmA"});
+        if (ImGui::Button("PC->FormulaA"))  m_midiMapper.add({3,0,0,MidiParam::FormulaA,0.0f,10.0f,"PC->FrmA"});
 
         ImGui::TextDisabled("Filter / Blend / Chaos quick maps");
-        if (ImGui::Button("CC20→OvBlend")) m_midiMapper.add({0,0,20,MidiParam::OverlayBlend,0.0f,1.0f,"CC20→OvBlend"});
+        if (ImGui::Button("CC20->OvBlend")) m_midiMapper.add({0,0,20,MidiParam::OverlayBlend,0.0f,1.0f,"CC20->OvBlend"});
         ImGui::SameLine();
-        if (ImGui::Button("CC21→BlMode"))  m_midiMapper.add({0,0,21,MidiParam::StreamBlendMode,0.0f,41.0f,"CC21→BlMode"});
+        if (ImGui::Button("CC21->BlMode"))  m_midiMapper.add({0,0,21,MidiParam::StreamBlendMode,0.0f,41.0f,"CC21->BlMode"});
         ImGui::SameLine();
-        if (ImGui::Button("CC22→VidFlt"))  m_midiMapper.add({0,0,22,MidiParam::VidFilter,0.0f,11.0f,"CC22→VidFlt"});
-        if (ImGui::Button("CC23→OvrFlt"))  m_midiMapper.add({0,0,23,MidiParam::OvrFilter,0.0f,18.0f,"CC23→OvrFlt"});
+        if (ImGui::Button("CC22->VidFlt"))  m_midiMapper.add({0,0,22,MidiParam::VidFilter,0.0f,11.0f,"CC22->VidFlt"});
+        if (ImGui::Button("CC23->OvrFlt"))  m_midiMapper.add({0,0,23,MidiParam::OvrFilter,0.0f,18.0f,"CC23->OvrFlt"});
         ImGui::SameLine();
-        if (ImGui::Button("CC24→Chaos"))   m_midiMapper.add({0,0,24,MidiParam::ChaosMode,0.0f,7.0f,"CC24→Chaos"});
+        if (ImGui::Button("CC24->Chaos"))   m_midiMapper.add({0,0,24,MidiParam::ChaosMode,0.0f,7.0f,"CC24->Chaos"});
         ImGui::SameLine();
-        if (ImGui::Button("CC25→CStr"))    m_midiMapper.add({0,0,25,MidiParam::ChaosStrength,0.0f,1.0f,"CC25→ChaosStr"});
+        if (ImGui::Button("CC25->CStr"))    m_midiMapper.add({0,0,25,MidiParam::ChaosStrength,0.0f,1.0f,"CC25->ChaosStr"});
     }
 
     ImGui::End();
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// UI3 — Glitch Engine  (separate floating window)
+// UI3  -  Glitch Engine  (separate floating window)
 // ════════════════════════════════════════════════════════════════════════════════
 void EquationEditor::drawGlitchPanel() {
     ImGui::SetNextWindowPos ({1280, 10},  ImGuiCond_Once);
     ImGui::SetNextWindowSize({310, 440},  ImGuiCond_Once);
-    ImGui::Begin("Glitch Engine — UI3");
+    ImGui::Begin("Glitch Engine  -  UI3");
 
     auto& G = m_glitch;
 
-    // ── Master ────────────────────────────────────────────────────────────────
+    // -- Master ----------------------------------------------------------------
     ImGui::Checkbox("Enable Glitch Engine", &G.enabled);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Fires random chaos events that affect both\n"
@@ -1745,17 +1745,17 @@ void EquationEditor::drawGlitchPanel() {
 
     if (!G.enabled) { ImGui::BeginDisabled(); }
 
-    // ── Live status ───────────────────────────────────────────────────────────
+    // -- Live status -----------------------------------------------------------
     ImGui::Spacing();
     if (G.inGlitch) {
-        ImGui::TextColored({1.0f, 0.3f, 0.1f, 1.0f}, "⚡ GLITCHING: %s", G.lastGlitchName);
+        ImGui::TextColored({1.0f, 0.3f, 0.1f, 1.0f}, "!! GLITCHING: %s", G.lastGlitchName);
     } else {
-        ImGui::TextColored({0.4f, 0.4f, 0.4f, 1.0f}, "● Idle");
+        ImGui::TextColored({0.4f, 0.4f, 0.4f, 1.0f}, "[*] Idle");
     }
 
     ImGui::Separator();
 
-    // ── Event timing ─────────────────────────────────────────────────────────
+    // -- Event timing ---------------------------------------------------------
     ImGui::TextDisabled("Event Rate");
     ImGui::SliderFloat("Rate (glitches/sec)", &G.glitchRateHz, 0.05f, 5.0f, "%.2f");
     if (ImGui::IsItemHovered())
@@ -1767,7 +1767,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::SliderFloat("Max duration (s)", &G.glitchDurMax,
                        G.glitchDurMin, 5.0f, "%.2f");
 
-    // ── Intensity ─────────────────────────────────────────────────────────────
+    // -- Intensity -------------------------------------------------------------
     ImGui::Separator();
     ImGui::TextDisabled("Intensity");
     ImGui::SliderFloat("Intensity", &G.intensity, 0.0f, 1.0f);
@@ -1777,7 +1777,7 @@ void EquationEditor::drawGlitchPanel() {
 
     ImGui::Separator();
 
-    // ── Glitch type toggles ───────────────────────────────────────────────────
+    // -- Glitch type toggles ---------------------------------------------------
     ImGui::TextDisabled("Fractal Glitches");
     ImGui::Checkbox("Julia Jump",      &G.doJuliaJump);
     ImGui::SameLine(120);
@@ -1794,9 +1794,9 @@ void EquationEditor::drawGlitchPanel() {
         ImGui::InputInt("##ffmax", &G.formulaFlashMax);
         G.formulaFlashMax = std::max(G.formulaFlashMin + 1, std::min(35, G.formulaFlashMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Formula ID range for flash (0–35)\n"
-                              "e.g. 22–35 = new Mandelbulber set only\n"
-                              "     0–35  = all formulas");
+            ImGui::SetTooltip("Formula ID range for flash (0-35)\n"
+                              "e.g. 22-35 = new Mandelbulber set only\n"
+                              "     0-35  = all formulas");
     }
     ImGui::Checkbox("Zoom Punch",      &G.doZoomPunch);
     ImGui::SameLine(120);
@@ -1809,7 +1809,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::TextDisabled("Filter / Blend Glitches");
     ImGui::Checkbox("Blend Mode##bg",  &G.doBlendModeGlitch);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Randomly jumps stream blend mode\n(Normal/Multiply/Screen/Overlay/…)");
+        ImGui::SetTooltip("Randomly jumps stream blend mode\n(Normal/Multiply/Screen/Overlay/...)");
     if (G.doBlendModeGlitch) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(40);
@@ -1822,7 +1822,7 @@ void EquationEditor::drawGlitchPanel() {
         ImGui::InputInt("##bgmax", &G.blendGlitchMax);
         G.blendGlitchMax = std::max(G.blendGlitchMin, std::min(41, G.blendGlitchMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Blend mode ID range (0=Normal … 41=Luminosity)");
+            ImGui::SetTooltip("Blend mode ID range (0=Normal ... 41=Luminosity)");
     }
     ImGui::Checkbox("Filter##fg",     &G.doFilterGlitch);
     if (ImGui::IsItemHovered())
@@ -1858,7 +1858,7 @@ void EquationEditor::drawGlitchPanel() {
     ImGui::Checkbox("Pitch Scramble",  &G.doPitchScramble);
     ImGui::Checkbox("Ghost Note",      &G.doGhostNote);
 
-    // ── Ghost note range ──────────────────────────────────────────────────────
+    // -- Ghost note range ------------------------------------------------------
     if (G.doGhostNote) {
         ImGui::Spacing();
         ImGui::TextDisabled("Ghost note range");
@@ -1875,7 +1875,7 @@ void EquationEditor::drawGlitchPanel() {
         G.midiChannel = std::max(1, std::min(16, G.midiChannel));
     }
 
-    // ── Glitch→Sound coupling ─────────────────────────────────────────────────
+    // -- Glitch->Sound coupling -------------------------------------------------
     ImGui::Spacing();
     ImGui::Checkbox("Trigger note on glitch", &G.triggerMidiOnGlitch);
     if (ImGui::IsItemHovered())
@@ -1883,7 +1883,7 @@ void EquationEditor::drawGlitchPanel() {
                           "from the MIDI Generator (respects its scale, root, chord size).\n"
                           "Requires MIDI Generator to be enabled and playing.");
 
-    // ── Random CC burst ───────────────────────────────────────────────────────
+    // -- Random CC burst -------------------------------------------------------
     ImGui::Spacing();
     ImGui::Checkbox("Random CC burst", &G.randomCCEnabled);
     if (ImGui::IsItemHovered())
@@ -1910,14 +1910,14 @@ void EquationEditor::drawGlitchPanel() {
         ImGui::InputInt("##rccmax", &G.randomCCMax);
         G.randomCCMax = std::max(G.randomCCMin, std::min(127, G.randomCCMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("CC numbers to randomly emit (e.g. 20–30).\n"
+            ImGui::SetTooltip("CC numbers to randomly emit (e.g. 20-30).\n"
                               "Add those as mappings in MIDI Mapper to link\n"
                               "them to OverlayBlend, StreamBlendMode, etc.");
     }
 
     ImGui::Separator();
 
-    // ── Quick presets ─────────────────────────────────────────────────────────
+    // -- Quick presets ---------------------------------------------------------
     ImGui::TextDisabled("Presets");
     if (ImGui::SmallButton("Subtle")) {
         G.glitchRateHz = 0.2f; G.intensity = 0.3f;
@@ -1976,7 +1976,7 @@ void EquationEditor::drawGlitchPanel() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// COLOR SYNTHESIZER  — MIDI-reactive HSL / RGB palette engine
+// COLOR SYNTHESIZER   -  MIDI-reactive HSL / RGB palette engine
 // ════════════════════════════════════════════════════════════════════════════════
 void EquationEditor::drawColorSynthPanel() {
     auto& C = m_colorSynth;
@@ -1988,7 +1988,7 @@ void EquationEditor::drawColorSynthPanel() {
     }
     if (!C.enabled) { ImGui::BeginDisabled(); }
 
-    // ── Layer blend mode (full 42-mode GIMP set) ──────────────────────────────
+    // -- Layer blend mode (full 42-mode GIMP set) ------------------------------
     static const char* kCSBlendModes[] = {
         "0 Normal",
         "1 Multiply",
@@ -2038,7 +2038,7 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::SliderFloat("Opacity##cs", &C.opacity, 0.0f, 1.0f, "%.2f");
 
     ImGui::Separator();
-    ImGui::TextDisabled("── Primary Color (HSL) ─────────────────");
+    ImGui::TextDisabled("-- Primary Color (HSL) -----------------");
 
     ImGui::SliderFloat("Hue",        &C.hueBase, 0.0f, 1.0f);
     ImGui::SliderFloat("Saturation", &C.satBase, 0.0f, 1.0f);
@@ -2046,7 +2046,7 @@ void EquationEditor::drawColorSynthPanel() {
 
     // Live colour swatch
     {
-        // Simple HSL→RGB approximation for the swatch
+        // Simple HSL->RGB approximation for the swatch
         auto hsl2rgb_ui = [](float h, float s, float l) -> ImVec4 {
             auto f = [&](float n) {
                 float k = fmodf(n + h * 12.0f, 12.0f);
@@ -2062,7 +2062,7 @@ void EquationEditor::drawColorSynthPanel() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("── Alternate Color (HSL) ───────────────");
+    ImGui::TextDisabled("-- Alternate Color (HSL) ---------------");
 
     ImGui::SliderFloat("Alt Hue",   &C.hueAlt, 0.0f, 1.0f);
     ImGui::SliderFloat("Alt Sat",   &C.satAlt, 0.0f, 1.0f);
@@ -2085,7 +2085,7 @@ void EquationEditor::drawColorSynthPanel() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("── Oscillators ─────────────────────────");
+    ImGui::TextDisabled("-- Oscillators -------------------------");
 
     ImGui::SliderFloat("Hue osc amp",   &C.hueOscAmp,  0.0f, 0.5f);
     ImGui::SliderFloat("Hue osc rate",  &C.hueOscRate, 0.01f, 4.0f, "%.2f Hz");
@@ -2093,7 +2093,7 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::SliderFloat("Lum osc rate",  &C.lumOscRate, 0.01f, 4.0f, "%.2f Hz");
 
     ImGui::Separator();
-    ImGui::TextDisabled("── Escape-value Spread ─────────────────");
+    ImGui::TextDisabled("-- Escape-value Spread -----------------");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("How much hue and lum shift across the fractal\n"
                           "detail range (0 = flat colour block).");
@@ -2102,7 +2102,7 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::SliderFloat("Lum spread",  &C.lumSpread, 0.0f, 1.0f);
 
     ImGui::Separator();
-    ImGui::TextDisabled("── MIDI Note Reaction ──────────────────");
+    ImGui::TextDisabled("-- MIDI Note Reaction ------------------");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("How strongly incoming note-on velocity\n"
                           "flashes hue, saturation, and luminance.");
@@ -2113,9 +2113,9 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::SliderFloat("Decay (s)",  &C.midiDecay,   0.2f, 8.0f, "%.2f s");
 
     ImGui::Separator();
-    ImGui::TextDisabled("── Quick Presets ───────────────────────");
+    ImGui::TextDisabled("-- Quick Presets -----------------------");
 
-    // Fire — Overlay blend for rich embers
+    // Fire  -  Overlay blend for rich embers
     if (ImGui::SmallButton("Fire")) {
         C.enabled = true; C.blendMode = 3; C.opacity = 0.9f;
         C.hueBase = 0.05f; C.satBase = 1.0f; C.lumBase = 0.5f;
@@ -2127,7 +2127,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = true; C.glitchHueSens = 0.2f; C.glitchLumSens = 0.8f;
     }
     ImGui::SameLine();
-    // Ocean — Soft Light for gentle waves
+    // Ocean  -  Soft Light for gentle waves
     if (ImGui::SmallButton("Ocean")) {
         C.enabled = true; C.blendMode = 4; C.opacity = 0.85f;
         C.hueBase = 0.58f; C.satBase = 0.9f; C.lumBase = 0.45f;
@@ -2139,7 +2139,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Psychedelic — Vivid Light for maximum pop
+    // Psychedelic  -  Vivid Light for maximum pop
     if (ImGui::SmallButton("Psychedelic")) {
         C.enabled = true; C.blendMode = 17; C.opacity = 1.0f;
         C.hueBase = 0.0f; C.satBase = 1.0f; C.lumBase = 0.5f;
@@ -2150,7 +2150,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.midiHueSens = 0.5f; C.midiSatSens = 0.3f; C.midiLumSens = 0.6f;
         C.glitchColorReact = true; C.glitchHueSens = 0.8f; C.glitchLumSens = 0.9f;
     }
-    // Neon — Color Dodge for electric glow
+    // Neon  -  Color Dodge for electric glow
     if (ImGui::SmallButton("Neon")) {
         C.enabled = true; C.blendMode = 8; C.opacity = 0.8f;
         C.hueBase = 0.83f; C.satBase = 1.0f; C.lumBase = 0.6f;
@@ -2162,7 +2162,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = true; C.glitchHueSens = 0.5f; C.glitchLumSens = 1.0f;
     }
     ImGui::SameLine();
-    // Monochrome — Normal replace for pure B&W
+    // Monochrome  -  Normal replace for pure B&W
     if (ImGui::SmallButton("Mono")) {
         C.enabled = true; C.blendMode = 0; C.opacity = 1.0f;
         C.hueBase = 0.0f; C.satBase = 0.0f; C.lumBase = 0.5f;
@@ -2174,7 +2174,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Sunrise — Overlay warm glow
+    // Sunrise  -  Overlay warm glow
     if (ImGui::SmallButton("Sunrise")) {
         C.enabled = true; C.blendMode = 3; C.opacity = 0.8f;
         C.hueBase = 0.08f; C.satBase = 0.95f; C.lumBase = 0.55f;
@@ -2186,7 +2186,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Ice — Soft Light cold blues
+    // Ice  -  Soft Light cold blues
     if (ImGui::SmallButton("Ice")) {
         C.enabled = true; C.blendMode = 4; C.opacity = 0.75f;
         C.hueBase = 0.57f; C.satBase = 0.7f;  C.lumBase = 0.75f;
@@ -2198,7 +2198,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Deep Space — Multiply dark purple void
+    // Deep Space  -  Multiply dark purple void
     if (ImGui::SmallButton("Deep Space")) {
         C.enabled = true; C.blendMode = 1; C.opacity = 1.0f;
         C.hueBase = 0.70f; C.satBase = 0.9f;  C.lumBase = 0.18f;
@@ -2209,7 +2209,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.midiLumSens = 0.8f; C.midiHueSens = 0.2f; C.midiDecay = 3.5f;
         C.glitchColorReact = true; C.glitchHueSens = 0.6f; C.glitchLumSens = 0.9f;
     }
-    // Gold — Grain Merge warm shimmer
+    // Gold  -  Grain Merge warm shimmer
     if (ImGui::SmallButton("Gold")) {
         C.enabled = true; C.blendMode = 26; C.opacity = 0.85f;
         C.hueBase = 0.12f; C.satBase = 0.95f; C.lumBase = 0.55f;
@@ -2221,7 +2221,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Forest — Multiply deep greens
+    // Forest  -  Multiply deep greens
     if (ImGui::SmallButton("Forest")) {
         C.enabled = true; C.blendMode = 1; C.opacity = 0.9f;
         C.hueBase = 0.33f; C.satBase = 0.8f;  C.lumBase = 0.3f;
@@ -2233,7 +2233,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = false;
     }
     ImGui::SameLine();
-    // Plasma — Screen electric purple
+    // Plasma  -  Screen electric purple
     if (ImGui::SmallButton("Plasma")) {
         C.enabled = true; C.blendMode = 2; C.opacity = 1.0f;
         C.hueBase = 0.78f; C.satBase = 1.0f;  C.lumBase = 0.5f;
@@ -2246,7 +2246,7 @@ void EquationEditor::drawColorSynthPanel() {
         C.glitchColorReact = true; C.glitchHueSens = 0.9f; C.glitchLumSens = 1.0f;
     }
     ImGui::SameLine();
-    // Glitch preset — XOR strobes with full glitch coupling
+    // Glitch preset  -  XOR strobes with full glitch coupling
     if (ImGui::SmallButton("Glitch")) {
         C.enabled = true; C.blendMode = 37; C.opacity = 0.7f;
         C.hueBase = 0.0f;  C.satBase = 1.0f; C.lumBase = 0.5f;
@@ -2264,9 +2264,9 @@ void EquationEditor::drawColorSynthPanel() {
         C.enabled = false;
     }
 
-    // ── Glitch color coupling ─────────────────────────────────────────────────
+    // -- Glitch color coupling -------------------------------------------------
     ImGui::Separator();
-    ImGui::TextDisabled("── Glitch Color Coupling ───────────────");
+    ImGui::TextDisabled("-- Glitch Color Coupling ---------------");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Flash colors on every glitch event from the Glitch Engine.\n"
                           "Requires Glitch Engine to be enabled.");
@@ -2277,7 +2277,7 @@ void EquationEditor::drawColorSynthPanel() {
         ImGui::SliderFloat("Lum flash##csg",  &C.glitchLumSens, 0.0f, 1.0f);
     }
 
-    // ── Live indicator ────────────────────────────────────────────────────────
+    // -- Live indicator --------------------------------------------------------
     ImGui::Separator();
     ImGui::TextDisabled("Live output:");
     ImGui::SameLine();
@@ -2304,7 +2304,7 @@ void EquationEditor::drawColorSynthPanel() {
     if (!C.enabled) { ImGui::EndDisabled(); }
 }
 
-// ── Distortion / Metaballs ────────────────────────────────────────────────────
+// -- Distortion / Metaballs ----------------------------------------------------
 //
 // Controls for the iridescent metaball shader (distortion.frag).
 // Enabling Distortion Mode bypasses the fractal pipeline and renders the
@@ -2349,18 +2349,18 @@ void EquationEditor::drawDistortionPanel() {
     if (dis) ImGui::EndDisabled();
 }
 
-// ── Chaos Effects ─────────────────────────────────────────────────────────────
+// -- Chaos Effects -------------------------------------------------------------
 //
 // Pre-iteration domain warps inspired by chaos theory.  Applied to the complex
 // plane before fractal iteration so the chaotic geometry is baked into the
 // fractal structure itself.
 //
-//  Off         — straight fractal rendering (no warp)
-//  Turbulence  — two-level fBm noise warp; smooth, continuously-folding flow
-//  Logistic    — logistic map r·x·(1-x) iterated in polar coords; at r→4 the
+//  Off          -  straight fractal rendering (no warp)
+//  Turbulence   -  two-level fBm noise warp; smooth, continuously-folding flow
+//  Logistic     -  logistic map r·x·(1-x) iterated in polar coords; at r->4 the
 //                orbit enters full chaos and drives a rotation warp
-//  Hénon       — Hénon strange attractor (a=1.4, b=0.3) displacement
-//  Shred       — multi-frequency scanline horizontal drift; tape-degradation look
+//  Hénon        -  Hénon strange attractor (a=1.4, b=0.3) displacement
+//  Shred        -  multi-frequency scanline horizontal drift; tape-degradation look
 
 void EquationEditor::drawChaosPanel() {
     auto& E = m_engine;
@@ -2379,13 +2379,13 @@ void EquationEditor::drawChaosPanel() {
     // Mode descriptions
     ImGui::Spacing();
     switch (E.chaosMode) {
-    case 1: ImGui::TextDisabled("fBm turbulence — smooth chaotic flow fields"); break;
-    case 2: ImGui::TextDisabled("Logistic map — period-doubling bifurcation into chaos"); break;
-    case 3: ImGui::TextDisabled("Henon attractor — strange attractor displacement"); break;
-    case 4: ImGui::TextDisabled("Shred — scanline drift / signal-loss distortion"); break;
-    case 5: ImGui::TextDisabled("Lorenz — butterfly-wing strange attractor (sigma=10 rho=28)"); break;
-    case 6: ImGui::TextDisabled("Clifford — swirling asymmetric attractor basin warp"); break;
-    case 7: ImGui::TextDisabled("Ikeda — laser-cavity map, spiralling chaos (mu=0.6-0.95)"); break;
+    case 1: ImGui::TextDisabled("fBm turbulence  -  smooth chaotic flow fields"); break;
+    case 2: ImGui::TextDisabled("Logistic map  -  period-doubling bifurcation into chaos"); break;
+    case 3: ImGui::TextDisabled("Henon attractor  -  strange attractor displacement"); break;
+    case 4: ImGui::TextDisabled("Shred  -  scanline drift / signal-loss distortion"); break;
+    case 5: ImGui::TextDisabled("Lorenz  -  butterfly-wing strange attractor (sigma=10 rho=28)"); break;
+    case 6: ImGui::TextDisabled("Clifford  -  swirling asymmetric attractor basin warp"); break;
+    case 7: ImGui::TextDisabled("Ikeda  -  laser-cavity map, spiralling chaos (mu=0.6-0.95)"); break;
     }
     ImGui::Separator();
     ImGui::Spacing();
@@ -2401,7 +2401,7 @@ void EquationEditor::drawChaosPanel() {
         case 2: ImGui::SetTooltip("Polar coordinate scale for logistic seed"); break;
         case 3: ImGui::SetTooltip("Henon map input scale"); break;
         case 4: ImGui::SetTooltip("Scanline density"); break;
-        case 5: ImGui::SetTooltip("Lorenz input scale — higher = more of the attractor sampled"); break;
+        case 5: ImGui::SetTooltip("Lorenz input scale  -  higher = more of the attractor sampled"); break;
         case 6: ImGui::SetTooltip("Clifford attractor input scale"); break;
         case 7: ImGui::SetTooltip("Ikeda map input scale"); break;
         }
@@ -2426,7 +2426,7 @@ void EquationEditor::drawChaosPanel() {
     }
 }
 
-// ── INI helpers (file-local) ──────────────────────────────────────────────────
+// -- INI helpers (file-local) --------------------------------------------------
 
 using IniMap = std::unordered_map<std::string, std::string>;
 
@@ -2462,7 +2462,7 @@ static bool        ini_b(const IniMap& m, const std::string& k, bool  def)
 static std::string ini_s(const IniMap& m, const std::string& k, const std::string& def)
     { auto it = m.find(k); return it != m.end() ? it->second : def; }
 
-// ── saveSettings ──────────────────────────────────────────────────────────────
+// -- saveSettings --------------------------------------------------------------
 
 void EquationEditor::saveSettings(const std::string& path) const {
     AppSettings::ensureDirs();
@@ -2592,7 +2592,7 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fclose(f);
 }
 
-// ── loadSettings ──────────────────────────────────────────────────────────────
+// -- loadSettings --------------------------------------------------------------
 
 void EquationEditor::loadSettings(const std::string& path) {
     IniMap m = parseIni(path);
@@ -2823,7 +2823,7 @@ void EquationEditor::loadSettings(const std::string& path) {
         m_streamOut.addDestination("Restream", "rtmp://live.restream.io/live/");
 }
 
-// ── Presets panel ─────────────────────────────────────────────────────────────
+// -- Presets panel -------------------------------------------------------------
 
 void EquationEditor::drawPresetsPanel() {
     // Refresh list when needed
@@ -2853,7 +2853,7 @@ void EquationEditor::drawPresetsPanel() {
 
     // Preset list
     if (m_presetList.empty()) {
-        ImGui::TextDisabled("No presets yet — type a name and click Save");
+        ImGui::TextDisabled("No presets yet  -  type a name and click Save");
         return;
     }
 
@@ -2881,9 +2881,9 @@ void EquationEditor::drawPresetsPanel() {
     }
 }
 
-// ── Surge XT constants ────────────────────────────────────────────────────────
+// -- Surge XT constants --------------------------------------------------------
 
-// Factory bank names — approximate alphabetical order matching a standard
+// Factory bank names  -  approximate alphabetical order matching a standard
 // Surge XT installation.  User banks follow from index 17 onwards.
 static const char* kSurgeBankNames[] = {
     "0  Bass",            "1  Brass",           "2  Chip",
@@ -2897,28 +2897,28 @@ static const char* kSurgeBankNames[] = {
 };
 static constexpr int kSurgeBankNameCount = 21;
 
-// Default CC41–48 → fractal param mappings (Surge XT Macros 1–8)
+// Default CC41-48 -> fractal param mappings (Surge XT Macros 1-8)
 struct SurgeDefaultMap {
     int cc; MidiParam param; float minV; float maxV; const char* label;
 };
 static const SurgeDefaultMap kSurgeMaps[] = {
-    { 41, MidiParam::JuliaCX,          -2.0f,  2.0f,  "M1 → Julia X"   },
-    { 42, MidiParam::JuliaCY,          -2.0f,  2.0f,  "M2 → Julia Y"   },
-    { 43, MidiParam::Zoom,              0.1f,  8.0f,  "M3 → Zoom"      },
-    { 44, MidiParam::FormulaBlend,      0.0f,  1.0f,  "M4 → FmlaBlend" },
-    { 45, MidiParam::ColorHue,          0.0f,  1.0f,  "M5 → Color Hue" },
-    { 46, MidiParam::GeoWarp,           0.0f,  1.0f,  "M6 → Geo Warp"  },
-    { 47, MidiParam::Power,             1.0f, 12.0f,  "M7 → Power"     },
-    { 48, MidiParam::BlendMandelbrot,   0.0f,  1.0f,  "M8 → M.Blend"   },
+    { 41, MidiParam::JuliaCX,          -2.0f,  2.0f,  "M1 -> Julia X"   },
+    { 42, MidiParam::JuliaCY,          -2.0f,  2.0f,  "M2 -> Julia Y"   },
+    { 43, MidiParam::Zoom,              0.1f,  8.0f,  "M3 -> Zoom"      },
+    { 44, MidiParam::FormulaBlend,      0.0f,  1.0f,  "M4 -> FmlaBlend" },
+    { 45, MidiParam::ColorHue,          0.0f,  1.0f,  "M5 -> Color Hue" },
+    { 46, MidiParam::GeoWarp,           0.0f,  1.0f,  "M6 -> Geo Warp"  },
+    { 47, MidiParam::Power,             1.0f, 12.0f,  "M7 -> Power"     },
+    { 48, MidiParam::BlendMandelbrot,   0.0f,  1.0f,  "M8 -> M.Blend"   },
 };
 static constexpr int kSurgeMapsCount = 8;
 
-// ── applyDefaultSurgeMappings ─────────────────────────────────────────────────
+// -- applyDefaultSurgeMappings -------------------------------------------------
 
 void EquationEditor::applyDefaultSurgeMappings() {
     auto& maps = m_midiMapper.mappings();
 
-    // Remove any existing CC41–48 entries so we start clean
+    // Remove any existing CC41-48 entries so we start clean
     maps.erase(
         std::remove_if(maps.begin(), maps.end(), [](const MidiMapping& m) {
             return m.msgType == 0 && m.number >= 41 && m.number <= 48;
@@ -2940,7 +2940,7 @@ void EquationEditor::applyDefaultSurgeMappings() {
     }
 }
 
-// ── drawSurgeXTSection ────────────────────────────────────────────────────────
+// -- drawSurgeXTSection --------------------------------------------------------
 
 void EquationEditor::drawSurgeXTSection() {
     if (!ImGui::CollapsingHeader("Surge XT")) return;
@@ -2955,8 +2955,8 @@ void EquationEditor::drawSurgeXTSection() {
         m_midiOut.sendRaw(0xC0 | ch0, (uint8_t)m_surgePatch);      // PC
     };
 
-    // ── Patch browser ─────────────────────────────────────────────────────────
-    ImGui::TextDisabled("Patch browser — sends immediately to MIDI out");
+    // -- Patch browser ---------------------------------------------------------
+    ImGui::TextDisabled("Patch browser  -  sends immediately to MIDI out");
     ImGui::Spacing();
 
     // Bank input
@@ -2981,7 +2981,7 @@ void EquationEditor::drawSurgeXTSection() {
         ImGui::SetTooltip("Ctrl+click to type exact patch number\n"
                           "Combined index: %d", m_surgeBank * 128 + m_surgePatch);
 
-    // ── Auto-advance timer ────────────────────────────────────────────────────
+    // -- Auto-advance timer ----------------------------------------------------
     float now = (float)ImGui::GetTime();
     if (m_surgeAutoAdvance && m_midiOut.isOpen()) {
         if (now - m_surgeLastAdvance >= m_surgeAdvanceSecs) {
@@ -3040,15 +3040,15 @@ void EquationEditor::drawSurgeXTSection() {
 
     // MIDI out status reminder
     if (!m_midiOut.isOpen())
-        ImGui::TextColored({1.0f,0.6f,0.2f,1}, "  ⚠ MIDI out not connected — connect above");
+        ImGui::TextColored({1.0f,0.6f,0.2f,1}, "  (!) MIDI out not connected  -  connect above");
 
     ImGui::Separator();
 
-    // ── Macro CC mapping display (CC41–48) ────────────────────────────────────
-    ImGui::TextDisabled("Macro CCs  (CC41–48 = Surge XT Macros 1–8)");
+    // -- Macro CC mapping display (CC41-48) ------------------------------------
+    ImGui::TextDisabled("Macro CCs  (CC41-48 = Surge XT Macros 1-8)");
     ImGui::Spacing();
 
-    // Show each CC41–48 and what it's currently mapped to in MidiMapper
+    // Show each CC41-48 and what it's currently mapped to in MidiMapper
     const auto& maps = m_midiMapper.mappings();
     for (const auto& sm : kSurgeMaps) {
         // Find active mapping for this CC
@@ -3059,7 +3059,7 @@ void EquationEditor::drawSurgeXTSection() {
         ImGui::TextColored({0.7f,0.7f,0.7f,1}, "CC%-3d", sm.cc);
         ImGui::SameLine();
         if (found) {
-            ImGui::TextColored({0.3f,1.0f,0.5f,1}, "→ %-16s",
+            ImGui::TextColored({0.3f,1.0f,0.5f,1}, "-> %-16s",
                                midiParamName(found->param));
             ImGui::SameLine();
             ImGui::TextDisabled("[%.2f .. %.2f]", found->minVal, found->maxVal);
@@ -3073,15 +3073,15 @@ void EquationEditor::drawSurgeXTSection() {
     ImGui::Spacing();
     ImGui::Separator();
 
-    // ── Apply / Save buttons ──────────────────────────────────────────────────
+    // -- Apply / Save buttons --------------------------------------------------
     if (ImGui::Button("Apply default Surge XT mappings")) {
         applyDefaultSurgeMappings();
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Maps CC41–48 to:\n"
+        ImGui::SetTooltip("Maps CC41-48 to:\n"
                           "M1 Julia X  M2 Julia Y  M3 Zoom  M4 Formula Blend\n"
                           "M5 Color Hue  M6 Geo Warp  M7 Power  M8 M.Blend\n"
-                          "Existing CC41–48 mappings are replaced.");
+                          "Existing CC41-48 mappings are replaced.");
 
     ImGui::SameLine();
     if (ImGui::Button("Apply + Save as 'SurgeXT'")) {
@@ -3101,5 +3101,5 @@ void EquationEditor::drawSurgeXTSection() {
                           "~/.fractal_stream/presets/SurgeXT.ini");
 
     ImGui::Spacing();
-    ImGui::TextDisabled("In Surge XT: right-click a Macro knob → Assign MIDI CC → move the knob");
+    ImGui::TextDisabled("In Surge XT: right-click a Macro knob -> Assign MIDI CC -> move the knob");
 }

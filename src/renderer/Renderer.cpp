@@ -9,17 +9,20 @@
 #endif
 
 Renderer::~Renderer() {
-    if (m_pbo[0]) glDeleteBuffers(2, m_pbo);
-    if (m_vao)    glDeleteVertexArrays(1, &m_vao);
-    if (m_fbo)    glDeleteFramebuffers(1, &m_fbo);
-    if (m_fboTex) glDeleteTextures(1, &m_fboTex);
+    if (m_pbo[0])       glDeleteBuffers(2, m_pbo);
+    if (m_vao)          glDeleteVertexArrays(1, &m_vao);
+    if (m_fbo)          glDeleteFramebuffers(1, &m_fbo);
+    if (m_fboTex)       glDeleteTextures(1, &m_fboTex);
+    if (m_spectralFbo)  glDeleteFramebuffers(1, &m_spectralFbo);
+    if (m_spectralTex)  glDeleteTextures(1, &m_spectralTex);
 }
 
 void Renderer::init() {
     std::string sd = SHADERS_DIR;
-    m_shaderBlend.loadFromFiles  (sd + "/fractal.vert", sd + "/fractal.frag");
-    m_shaderBulb.loadFromFiles   (sd + "/fractal.vert", sd + "/mandelbulb.frag");
-    m_shaderDistort.loadFromFiles(sd + "/fractal.vert", sd + "/distortion.frag");
+    m_shaderBlend.loadFromFiles   (sd + "/fractal.vert", sd + "/fractal.frag");
+    m_shaderBulb.loadFromFiles    (sd + "/fractal.vert", sd + "/mandelbulb.frag");
+    m_shaderDistort.loadFromFiles (sd + "/fractal.vert", sd + "/distortion.frag");
+    m_shaderSpectral.loadFromFiles(sd + "/fractal.vert", sd + "/spectral.frag");
 
     // Empty VAO — vertex positions are generated in the vertex shader
     glGenVertexArrays(1, &m_vao);
@@ -44,6 +47,39 @@ void Renderer::ensureFBO(int w, int h) {
 
     m_fboW = w; m_fboH = h;
     m_pixels.resize(w * h * 3);
+}
+
+void Renderer::setSpectralParams(bool enabled, bool onStream,
+                                  const float band[4], const float visGain[4]) {
+    m_spectralEnabled  = enabled;
+    m_spectralOnStream = onStream;
+    for (int i = 0; i < 4; i++) {
+        m_fftBand[i]    = band[i];
+        m_fftVisGain[i] = visGain[i];
+    }
+}
+
+void Renderer::ensureSpectralFBO(int w, int h) {
+    if (m_spectralW == w && m_spectralH == h) return;
+    if (m_spectralFbo) glDeleteFramebuffers(1, &m_spectralFbo);
+    if (m_spectralTex) glDeleteTextures(1, &m_spectralTex);
+
+    glGenTextures(1, &m_spectralTex);
+    glBindTexture(GL_TEXTURE_2D, m_spectralTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &m_spectralFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_spectralFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_spectralTex, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    m_spectralW = w;
+    m_spectralH = h;
 }
 
 void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
@@ -158,8 +194,29 @@ void Renderer::render(int width, int height, float time,
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    // Blit FBO to default framebuffer
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_fbo);
+    // ── Spectral post-process pass ───────────────────────────────────────────
+    GLuint outputFbo = m_fbo;
+    if (m_spectralEnabled) {
+        ensureSpectralFBO(width, height);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_spectralFbo);
+        glViewport(0, 0, width, height);
+
+        m_shaderSpectral.use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_fboTex);
+        m_shaderSpectral.setInt       ("u_fbo_tex",        0);
+        m_shaderSpectral.setFloat2    ("u_resolution",    (float)width, (float)height);
+        m_shaderSpectral.setFloat     ("u_time",          time);
+        m_shaderSpectral.setFloatArray("u_fft_band",      m_fftBand,    4);
+        m_shaderSpectral.setFloatArray("u_fft_vis_gain",  m_fftVisGain, 4);
+
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        outputFbo = m_spectralFbo;
+    }
+
+    // Blit to default framebuffer
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, outputFbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
                       GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -187,8 +244,11 @@ const uint8_t* Renderer::fboPixels(int width, int height) {
     int writeIdx = m_pboIdx;
     int readIdx  = 1 - m_pboIdx;
 
+    // When spectral is active AND onStream, encode the post-processed frame
+    GLuint readFbo = (m_spectralEnabled && m_spectralOnStream) ? m_spectralFbo : m_fbo;
+
     // Queue async readback into writeIdx — GPU DMA, returns immediately
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_fbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[writeIdx]);
     glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE,
                  nullptr);  // nullptr = write into PBO at offset 0

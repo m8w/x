@@ -71,6 +71,9 @@ void ShaderProgram::setFloat3(const char* n, float x, float y, float z) const {
 void ShaderProgram::setInt(const char* n, int v) const {
     glUniform1i(glGetUniformLocation(m_id, n), v);
 }
+void ShaderProgram::setFloatArray(const char* n, const float* v, int count) const {
+    glUniform1fv(glGetUniformLocation(m_id, n), count, v);
+}
 void ShaderProgram::setBool(const char* n, bool v) const {
     glUniform1i(glGetUniformLocation(m_id, n), v ? 1 : 0);
 }

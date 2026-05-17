@@ -18,6 +18,7 @@ extern "C" {
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include "fx/FftChain.h"
 
 // One RTMP destination (YouTube, Twitch, etc.)
 struct DestSink {
@@ -60,6 +61,10 @@ public:
 
     // data = packed RGB24 pixels from glReadPixels, row 0 = bottom-left
     void pushFrame(const uint8_t* rgbData, int width, int height);
+
+    // FFT/AFT chain — set before start(); audio is processed in-place when
+    // fftChain->enabled && fftChain->onStream during active streaming.
+    FftChain*   fftChain     = nullptr;
 
     // Settings (apply before start())
     int         bitrate_kbps = 4000;

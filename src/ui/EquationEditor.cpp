@@ -22,11 +22,12 @@ EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
                                 VideoInput& videoIn, VideoInput& overlayIn,
                                 StreamOutput& streamOut,
                                 MidiInput& midiIn, MidiOutput& midiOut,
-                                MidiMapper& midiMapper, MidiGenerator& midiGen)
+                                MidiMapper& midiMapper, MidiGenerator& midiGen,
+                                FftChain& fftChain)
     : m_engine(engine), m_blend(blend), m_glitch(glitch), m_colorSynth(colorSynth),
       m_videoIn(videoIn), m_overlayIn(overlayIn), m_streamOut(streamOut),
       m_midiIn(midiIn), m_midiOut(midiOut),
-      m_midiMapper(midiMapper), m_midiGen(midiGen) {}
+      m_midiMapper(midiMapper), m_midiGen(midiGen), m_fftChain(fftChain) {}
 
 void EquationEditor::draw() {
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
@@ -51,6 +52,8 @@ void EquationEditor::draw() {
         drawChaosPanel();
     if (ImGui::CollapsingHeader("Distortion / Metaballs"))
         drawDistortionPanel();
+    if (ImGui::CollapsingHeader("FFT / AFT Spectral Chain"))
+        drawFftPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
         drawStreamPanel();
 
@@ -2426,6 +2429,111 @@ void EquationEditor::drawChaosPanel() {
     }
 }
 
+// -- FFT / AFT Spectral Chain --------------------------------------------------
+//
+// Two-stage chain:
+//   Audio path: Cooley-Tukey FFT -> spectral effects -> IFFT before AAC encode
+//   Visual path: audio band energy drives a post-process shader pass over the
+//                fractal FBO (chromatic aberration, spatial warp, brightness
+//                pulse, edge emboss — one effect per frequency band)
+//
+// "Apply to Stream" gates whether the processed output reaches the broadcast.
+// When off, the distortion is visible in the preview but the stream stays clean.
+
+void EquationEditor::drawFftPanel() {
+    auto& F = m_fftChain;
+
+    ImGui::Checkbox("Enable FFT / AFT Chain", &F.enabled);
+    if (!F.enabled) {
+        ImGui::TextDisabled("Enable to activate spectral audio and visual distortion.");
+        return;
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Output routing:");
+    ImGui::SameLine();
+    ImGui::Checkbox("Stream##fft", &F.onStream);
+    ImGui::SameLine();
+    ImGui::Checkbox("Record##fft", &F.onRecord);
+
+    // Live band energy meters
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("Live Band Energy:");
+    static const char* kBandNames[4] = {"Bass", "Low ", "Mid ", "High"};
+    for (int b = 0; b < 4; b++) {
+        ImGui::Text("%s", kBandNames[b]);
+        ImGui::SameLine();
+        char overlay[16];
+        snprintf(overlay, sizeof(overlay), "%.2f", F.bandEnergy[b]);
+        ImGui::ProgressBar(F.bandEnergy[b], ImVec2(-1.0f, 8.0f), overlay);
+    }
+
+    // Audio spectral effects
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Spectral Audio Effects --");
+    ImGui::Spacing();
+
+    ImGui::SliderFloat("Spectral Gate",  &F.gate,          0.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Silence frequency bins below this amplitude threshold");
+
+    ImGui::SliderFloat("Freq Shift",     &F.freqShift,    -1.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rotate the spectrum: positive = shift up, negative = shift down");
+
+    ImGui::SliderFloat("Smear",          &F.smear,         0.0f, 0.95f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hold previous frame magnitude: creates spectral reverb / blur");
+
+    ImGui::SliderFloat("Phase Scramble", &F.phaseScram,    0.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Randomise bin phases — destroys transients, creates washy texture");
+
+    ImGui::SliderFloat("Harmonic Boost", &F.harmonicBoost, 0.0f, 1.0f,  "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Amplify even harmonic bins (+2, +4, +6 dB per octave pair)");
+
+    // AFT adaptive mode
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- AFT Adaptive Frequency Transform --");
+    ImGui::Spacing();
+
+    ImGui::Checkbox("AFT Adaptive Mode", &F.aftEnabled);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Automatically equalise band levels so no band dominates");
+
+    if (F.aftEnabled) {
+        ImGui::SliderFloat("AFT Rate", &F.aftRate, 0.0f, 0.99f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Smoothing: 0 = instant response, 0.99 = very slow adapt");
+    }
+
+    // Visual coupling
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Visual Coupling (shown in preview always) --");
+    ImGui::Spacing();
+
+    ImGui::SliderFloat("Bass Visual",     &F.visualGain[0], 0.0f, 3.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Bass energy -> chromatic aberration + hue rotation");
+
+    ImGui::SliderFloat("Low-Mid Visual",  &F.visualGain[1], 0.0f, 3.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Low-mid energy -> spatial sine-wave warp displacement");
+
+    ImGui::SliderFloat("High-Mid Visual", &F.visualGain[2], 0.0f, 3.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("High-mid energy -> brightness pulse");
+
+    ImGui::SliderFloat("High Visual",     &F.visualGain[3], 0.0f, 3.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("High energy -> edge emboss / shimmer");
+}
+
 // -- INI helpers (file-local) --------------------------------------------------
 
 using IniMap = std::unordered_map<std::string, std::string>;
@@ -2539,6 +2647,20 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "random_cc=%d\nrandom_cc_min=%d\nrandom_cc_max=%d\nrandom_cc_count=%d\nrandom_cc_ch=%d\n",
             (int)G.randomCCEnabled, G.randomCCMin, G.randomCCMax, G.randomCCCount, G.randomCCChannel);
     fprintf(f, "trigger_midi_on_glitch=%d\n", (int)G.triggerMidiOnGlitch);
+
+    // [fft]
+    {
+        const auto& FC = m_fftChain;
+        fprintf(f, "\n[fft]\n");
+        fprintf(f, "enabled=%d\non_stream=%d\non_record=%d\n",
+                (int)FC.enabled, (int)FC.onStream, (int)FC.onRecord);
+        fprintf(f, "gate=%f\nfreq_shift=%f\nsmear=%f\nphase_scram=%f\nharmonic_boost=%f\n",
+                FC.gate, FC.freqShift, FC.smear, FC.phaseScram, FC.harmonicBoost);
+        fprintf(f, "aft_enabled=%d\naft_rate=%f\n",
+                (int)FC.aftEnabled, FC.aftRate);
+        fprintf(f, "vis_gain_0=%f\nvis_gain_1=%f\nvis_gain_2=%f\nvis_gain_3=%f\n",
+                FC.visualGain[0], FC.visualGain[1], FC.visualGain[2], FC.visualGain[3]);
+    }
 
     // [midi_gen]
     fprintf(f, "\n[midi_gen]\n");
@@ -2709,6 +2831,25 @@ void EquationEditor::loadSettings(const std::string& path) {
     G.randomCCCount     = ini_i(m, "glitch.random_cc_count",     G.randomCCCount);
     G.randomCCChannel      = ini_i(m, "glitch.random_cc_ch",           G.randomCCChannel);
     G.triggerMidiOnGlitch  = ini_b(m, "glitch.trigger_midi_on_glitch", G.triggerMidiOnGlitch);
+
+    // [fft]
+    {
+        auto& FC = m_fftChain;
+        FC.enabled       = ini_b(m, "fft.enabled",        FC.enabled);
+        FC.onStream      = ini_b(m, "fft.on_stream",      FC.onStream);
+        FC.onRecord      = ini_b(m, "fft.on_record",      FC.onRecord);
+        FC.gate          = ini_f(m, "fft.gate",           FC.gate);
+        FC.freqShift     = ini_f(m, "fft.freq_shift",     FC.freqShift);
+        FC.smear         = ini_f(m, "fft.smear",          FC.smear);
+        FC.phaseScram    = ini_f(m, "fft.phase_scram",    FC.phaseScram);
+        FC.harmonicBoost = ini_f(m, "fft.harmonic_boost", FC.harmonicBoost);
+        FC.aftEnabled    = ini_b(m, "fft.aft_enabled",    FC.aftEnabled);
+        FC.aftRate       = ini_f(m, "fft.aft_rate",       FC.aftRate);
+        FC.visualGain[0] = ini_f(m, "fft.vis_gain_0",    FC.visualGain[0]);
+        FC.visualGain[1] = ini_f(m, "fft.vis_gain_1",    FC.visualGain[1]);
+        FC.visualGain[2] = ini_f(m, "fft.vis_gain_2",    FC.visualGain[2]);
+        FC.visualGain[3] = ini_f(m, "fft.vis_gain_3",    FC.visualGain[3]);
+    }
 
     // [midi_gen]
     MG.enabled      = ini_b(m, "midi_gen.enabled",       MG.enabled);

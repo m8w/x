@@ -89,6 +89,7 @@ set(SOURCES
     src/fractal/BlendController.cpp
     src/fractal/GlitchEngine.cpp
     src/fractal/ColorSynth.cpp
+    src/fx/FftChain.cpp
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
     src/ui/EquationEditor.cpp

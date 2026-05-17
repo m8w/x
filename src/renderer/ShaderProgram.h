@@ -11,11 +11,12 @@ public:
     void use() const;
     GLuint id() const { return m_id; }
 
-    void setFloat (const char* name, float v) const;
-    void setFloat2(const char* name, float x, float y) const;
-    void setFloat3(const char* name, float x, float y, float z) const;
-    void setInt   (const char* name, int v)   const;
-    void setBool  (const char* name, bool v)  const;
+    void setFloat     (const char* name, float v) const;
+    void setFloat2    (const char* name, float x, float y) const;
+    void setFloat3    (const char* name, float x, float y, float z) const;
+    void setFloatArray(const char* name, const float* v, int count) const;
+    void setInt       (const char* name, int v)   const;
+    void setBool      (const char* name, bool v)  const;
 
 private:
     GLuint m_id = 0;

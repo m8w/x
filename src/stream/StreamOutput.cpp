@@ -414,6 +414,8 @@ void StreamOutput::audioCaptureLoop() {
                         if (!std::isfinite(s[i])) s[i] = 0.0f;
                 }
                 applyOverlayMix((float**)enc->data, m_audioSamplesPerFrame);
+                if (fftChain && fftChain->enabled && fftChain->onStream)
+                    fftChain->process((float**)enc->data, m_audioSamplesPerFrame, 2, 44100);
                 encodeAndDistributeAudio(enc);
                 av_frame_free(&enc);
             }
@@ -892,6 +894,8 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
                                    m_audioCtx->ch_layout.nb_channels,
                                    (AVSampleFormat)m_audioFrame->format);
             applyOverlayMix((float**)m_audioFrame->data, m_audioFrame->nb_samples);
+            if (fftChain && fftChain->enabled && fftChain->onStream)
+                fftChain->process((float**)m_audioFrame->data, m_audioFrame->nb_samples, 2, 44100);
             encodeAndDistributeAudio(m_audioFrame);
         }
     }

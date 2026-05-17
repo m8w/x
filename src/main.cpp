@@ -19,6 +19,7 @@
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include "midi/MidiOutput.h"
+#include "fx/FftChain.h"
 
 #include <cstdio>
 #include <string>
@@ -80,8 +81,11 @@ int main(int argc, char** argv) {
     MidiGenerator  midiGen;
     GlitchEngine   glitchEng;
     ColorSynth     colorSynth;
+    FftChain       fftChain;
     EquationEditor ui(engine, blend, glitchEng, colorSynth,
-                      videoIn, overlayIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
+                      videoIn, overlayIn, streamOut, midiIn, midiOut, midiMapper, midiGen,
+                      fftChain);
+    streamOut.fftChain = &fftChain;
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -189,6 +193,10 @@ int main(int argc, char** argv) {
                 overlayIn.releaseFrame(frame);
             }
         }
+
+        // Upload FFT spectral params to renderer (band energy from audio thread)
+        renderer.setSpectralParams(fftChain.enabled, fftChain.onStream,
+                                   fftChain.bandEnergy, fftChain.visualGain);
 
         // Render fractal + video blend
         int fw, fh;

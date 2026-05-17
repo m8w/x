@@ -10,6 +10,7 @@
 #include "midi/MidiOutput.h"
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
+#include "fx/FftChain.h"
 #include <string>
 #include <vector>
 
@@ -20,7 +21,8 @@ public:
                    VideoInput& videoIn, VideoInput& overlayIn,
                    StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
-                   MidiMapper& midiMapper, MidiGenerator& midiGen);
+                   MidiMapper& midiMapper, MidiGenerator& midiGen,
+                   FftChain& fftChain);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
     // Persist all panel state to / from an INI file.
@@ -39,6 +41,7 @@ private:
     MidiOutput&      m_midiOut;
     MidiMapper&      m_midiMapper;
     MidiGenerator&   m_midiGen;
+    FftChain&        m_fftChain;
 
     // Stream panel state
     int  m_bitrateKbps = 2500;
@@ -82,6 +85,7 @@ private:
     void drawColorSynthPanel();
     void drawDistortionPanel();
     void drawChaosPanel();
+    void drawFftPanel();
     void drawPresetsPanel();
     void drawSurgeXTSection();
 };

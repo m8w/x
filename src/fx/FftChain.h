@@ -18,6 +18,14 @@ public:
     bool onStream = true;   // gate audio + visual distortion to broadcast
     bool onRecord = true;   // gate to recording (future)
 
+    // ── Wet / Dry mix ─────────────────────────────────────────────────────────
+    // 0 = completely dry (bypass, no spectral processing)
+    // 1 = completely wet (full spectral chain, no dry signal)
+    // Intermediate values cross-fade between the dry original and the processed signal.
+    // Default 0 = safe bypass so enabling the chain never mutes audio until
+    // the user intentionally dials in wet.
+    float wet = 0.0f;
+
     // ── Spectral audio effects (0 = off) ─────────────────────────────────────
     float gate          = 0.0f;  // spectral gate threshold; zeroes quiet bins
     float freqShift     = 0.0f;  // bin rotation in +/- 1.0 units (~half-spectrum)

@@ -44,7 +44,32 @@ void FftChain::process(float** planes, int nbSamples, int channels, int /*sample
 
     // Band bin boundaries: bass / low-mid / high-mid / high
     // At 44100 Hz / 1024 bins: ~43 Hz/bin
-    static const int kBandLim[5] = { 0, 16, 64, 256, half };
+    const int kBandLim[5] = { 0, 16, 64, 256, half };
+
+    // Short-circuit: if wet=0, just update band energy from the dry signal and return
+    if (wet <= 0.0f) {
+        // Still compute band energy so meters stay live even in bypass
+        std::vector<std::complex<float>> buf(N);
+        float rawEnergy[4] = {};
+        float* samples = planes[0];
+        int copyLen = std::min(nbSamples, N);
+        for (int i = 0; i < N; i++)
+            buf[i] = (i < copyLen) ? std::complex<float>(samples[i], 0.0f)
+                                   : std::complex<float>(0.0f, 0.0f);
+        fft(buf.data(), N, false);
+        for (int b = 0; b < 4; b++) {
+            float sum = 0.0f;
+            for (int i = kBandLim[b]; i < kBandLim[b + 1]; i++) sum += std::abs(buf[i]);
+            int count = kBandLim[b + 1] - kBandLim[b];
+            rawEnergy[b] = (count > 0) ? sum / count : 0.0f;
+        }
+        const float kNorm = 20.0f, alpha = 0.25f;
+        for (int b = 0; b < 4; b++) {
+            float e = std::min(rawEnergy[b] * kNorm, 1.0f);
+            bandEnergy[b] = bandEnergy[b] * (1.0f - alpha) + e * alpha;
+        }
+        return;
+    }
 
     std::vector<std::complex<float>> buf(N);
     float rawEnergy[4] = {};
@@ -52,6 +77,10 @@ void FftChain::process(float** planes, int nbSamples, int channels, int /*sample
     for (int ch = 0; ch < std::min(channels, 2); ch++) {
         float* samples = planes[ch];
         int copyLen    = std::min(nbSamples, N);
+
+        // Save dry copy for wet/dry mix at write-back
+        float dry[FFT_SIZE];
+        for (int i = 0; i < copyLen; i++) dry[i] = samples[i];
 
         // Load into FFT buffer (zero-pad to N)
         for (int i = 0; i < N; i++)
@@ -137,8 +166,10 @@ void FftChain::process(float** planes, int nbSamples, int channels, int /*sample
         // ── Inverse FFT back to time domain ──────────────────────────────
         fft(buf.data(), N, true);
 
+        // Wet/dry crossfade: blend reconstructed (wet) with original (dry)
+        float dryGain = 1.0f - wet;
         for (int i = 0; i < copyLen; i++) {
-            float s = buf[i].real();
+            float s = dry[i] * dryGain + buf[i].real() * wet;
             samples[i] = std::max(-1.0f, std::min(1.0f, s));
         }
     }

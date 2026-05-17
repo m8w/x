@@ -2445,93 +2445,117 @@ void EquationEditor::drawFftPanel() {
 
     ImGui::Checkbox("Enable FFT / AFT Chain", &F.enabled);
     if (!F.enabled) {
-        ImGui::TextDisabled("Enable to activate spectral audio and visual distortion.");
+        ImGui::TextDisabled("Enable to use spectral audio + visual distortion.");
         return;
     }
 
-    ImGui::Spacing();
-    ImGui::TextDisabled("Output routing:");
-    ImGui::SameLine();
-    ImGui::Checkbox("Stream##fft", &F.onStream);
-    ImGui::SameLine();
-    ImGui::Checkbox("Record##fft", &F.onRecord);
-
-    // Live band energy meters
+    // ── Wet / Dry (primary control — shown first so enabling never silences audio) ──
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextDisabled("Live Band Energy:");
-    static const char* kBandNames[4] = {"Bass", "Low ", "Mid ", "High"};
-    for (int b = 0; b < 4; b++) {
-        ImGui::Text("%s", kBandNames[b]);
+    ImGui::Text("Wet / Dry Mix");
+    ImGui::SliderFloat("##wetdry", &F.wet, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 = bypass (original audio only)\n"
+                          "1 = fully processed (spectral chain only)\n"
+                          "Values in between blend both.");
+    // Friendly hint at 0
+    if (F.wet <= 0.01f)
+        ImGui::TextDisabled("(Wet=0: chain is active but audio is bypassed. Drag right to mix in effects.)");
+    else {
+        // Show routing toggles inline only when wet>0 so they're relevant
+        ImGui::TextDisabled("Apply processed signal to:");
         ImGui::SameLine();
-        char overlay[16];
-        snprintf(overlay, sizeof(overlay), "%.2f", F.bandEnergy[b]);
-        ImGui::ProgressBar(F.bandEnergy[b], ImVec2(-1.0f, 8.0f), overlay);
+        ImGui::Checkbox("Stream##fft", &F.onStream);
+        ImGui::SameLine();
+        ImGui::Checkbox("Record##fft", &F.onRecord);
     }
 
-    // Audio spectral effects
+    // ── Audio spectral effects ─────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextDisabled("-- Spectral Audio Effects --");
+    ImGui::TextDisabled("-- Audio Spectral Effects (drag sliders right) --");
     ImGui::Spacing();
 
-    ImGui::SliderFloat("Spectral Gate",  &F.gate,          0.0f, 1.0f,  "%.2f");
+    ImGui::SliderFloat("Gate",           &F.gate,          0.0f, 1.0f,  "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Silence frequency bins below this amplitude threshold");
+        ImGui::SetTooltip("Spectral gate: silences frequency bins below this threshold.\n"
+                          "0 = off  1 = aggressive gating");
 
     ImGui::SliderFloat("Freq Shift",     &F.freqShift,    -1.0f, 1.0f,  "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rotate the spectrum: positive = shift up, negative = shift down");
+        ImGui::SetTooltip("Rotate the spectrum: +1 = full shift up  -1 = full shift down.\n"
+                          "0 = no shift");
 
     ImGui::SliderFloat("Smear",          &F.smear,         0.0f, 0.95f, "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Hold previous frame magnitude: creates spectral reverb / blur");
+        ImGui::SetTooltip("Hold previous magnitude between frames — spectral reverb/blur.\n"
+                          "0 = off  0.95 = very long smear");
 
     ImGui::SliderFloat("Phase Scramble", &F.phaseScram,    0.0f, 1.0f,  "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Randomise bin phases — destroys transients, creates washy texture");
+        ImGui::SetTooltip("Randomise frequency-bin phases — destroys transients,\n"
+                          "creates cloudy/washy textures.  0 = off");
 
     ImGui::SliderFloat("Harmonic Boost", &F.harmonicBoost, 0.0f, 1.0f,  "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Amplify even harmonic bins (+2, +4, +6 dB per octave pair)");
+        ImGui::SetTooltip("Amplify even-harmonic bins — warm saturation effect.\n"
+                          "0 = off  1 = +6 dB per harmonic pair");
 
-    // AFT adaptive mode
+    // ── AFT adaptive mode ─────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextDisabled("-- AFT Adaptive Frequency Transform --");
+    ImGui::TextDisabled("-- AFT (Adaptive Frequency Transform) --");
     ImGui::Spacing();
 
-    ImGui::Checkbox("AFT Adaptive Mode", &F.aftEnabled);
+    ImGui::Checkbox("AFT Auto-Equalise", &F.aftEnabled);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Automatically equalise band levels so no band dominates");
+        ImGui::SetTooltip("Continuously re-balance band gain so no band dominates.\n"
+                          "Keeps spectral energy evenly spread across bass/low/mid/high.");
 
     if (F.aftEnabled) {
-        ImGui::SliderFloat("AFT Rate", &F.aftRate, 0.0f, 0.99f, "%.2f");
+        ImGui::SliderFloat("AFT Speed", &F.aftRate, 0.0f, 0.99f, "%.2f");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Smoothing: 0 = instant response, 0.99 = very slow adapt");
+            ImGui::SetTooltip("How quickly the adaptive gain tracks energy changes.\n"
+                              "0 = instant snap  0.99 = very slow / gentle drift");
     }
 
-    // Visual coupling
+    // ── Visual coupling ────────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextDisabled("-- Visual Coupling (shown in preview always) --");
+    ImGui::TextDisabled("-- Visual Coupling --");
     ImGui::Spacing();
 
-    ImGui::SliderFloat("Bass Visual",     &F.visualGain[0], 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Bass -> Visual",    &F.visualGain[0], 0.0f, 3.0f, "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Bass energy -> chromatic aberration + hue rotation");
+        ImGui::SetTooltip("Bass band energy drives chromatic aberration + hue rotation");
 
-    ImGui::SliderFloat("Low-Mid Visual",  &F.visualGain[1], 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Low -> Visual",     &F.visualGain[1], 0.0f, 3.0f, "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Low-mid energy -> spatial sine-wave warp displacement");
+        ImGui::SetTooltip("Low-mid band energy drives spatial sine-wave pixel warp");
 
-    ImGui::SliderFloat("High-Mid Visual", &F.visualGain[2], 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Mid -> Visual",     &F.visualGain[2], 0.0f, 3.0f, "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("High-mid energy -> brightness pulse");
+        ImGui::SetTooltip("High-mid band energy drives brightness pulse");
 
-    ImGui::SliderFloat("High Visual",     &F.visualGain[3], 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("High -> Visual",    &F.visualGain[3], 0.0f, 3.0f, "%.2f");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("High energy -> edge emboss / shimmer");
+        ImGui::SetTooltip("High band energy drives edge emboss / shimmer");
+
+    // ── Live analysis meters (READ-ONLY — display only, not sliders) ───────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Live Band Energy (read-only analysis meters) --");
+    ImGui::Spacing();
+
+    static const char* kBandLabel[4] = {"Bass  ", "Low   ", "Mid   ", "High  "};
+    for (int b = 0; b < 4; b++) {
+        ImGui::Text("%s %.2f", kBandLabel[b], F.bandEnergy[b]);
+        ImGui::SameLine(80.0f);
+        char id[16];
+        snprintf(id, sizeof(id), "##meter%d", b);
+        ImGui::ProgressBar(F.bandEnergy[b], ImVec2(-1.0f, 6.0f), "");
+    }
+    ImGui::TextDisabled("(These bars show live audio analysis. They are not sliders.)");
 }
 
 // -- INI helpers (file-local) --------------------------------------------------
@@ -2652,8 +2676,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
     {
         const auto& FC = m_fftChain;
         fprintf(f, "\n[fft]\n");
-        fprintf(f, "enabled=%d\non_stream=%d\non_record=%d\n",
-                (int)FC.enabled, (int)FC.onStream, (int)FC.onRecord);
+        fprintf(f, "enabled=%d\non_stream=%d\non_record=%d\nwet=%f\n",
+                (int)FC.enabled, (int)FC.onStream, (int)FC.onRecord, FC.wet);
         fprintf(f, "gate=%f\nfreq_shift=%f\nsmear=%f\nphase_scram=%f\nharmonic_boost=%f\n",
                 FC.gate, FC.freqShift, FC.smear, FC.phaseScram, FC.harmonicBoost);
         fprintf(f, "aft_enabled=%d\naft_rate=%f\n",
@@ -2838,6 +2862,7 @@ void EquationEditor::loadSettings(const std::string& path) {
         FC.enabled       = ini_b(m, "fft.enabled",        FC.enabled);
         FC.onStream      = ini_b(m, "fft.on_stream",      FC.onStream);
         FC.onRecord      = ini_b(m, "fft.on_record",      FC.onRecord);
+        FC.wet           = ini_f(m, "fft.wet",            FC.wet);
         FC.gate          = ini_f(m, "fft.gate",           FC.gate);
         FC.freqShift     = ini_f(m, "fft.freq_shift",     FC.freqShift);
         FC.smear         = ini_f(m, "fft.smear",          FC.smear);

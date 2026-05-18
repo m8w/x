@@ -1319,8 +1319,8 @@ void EquationEditor::drawMidiWindow() {
         }
 
         // -- BPM ---------------------------------------------------------------
-        ImGui::SetNextItemWidth(180);
-        ImGui::SliderFloat("BPM", &G.bpm, 20.0f, 280.0f, "%.0f");
+        ImGui::SetNextItemWidth(220);
+        ImGui::SliderFloat("BPM", &G.bpm, 20.0f, 280.0f, "%.0f BPM");
         ImGui::SameLine();
         if (G.playing) {
             ImGui::TextColored({1,0.7f,0.1f,1},"[*] PLAYING  step %d", G.liveStep);
@@ -1352,14 +1352,19 @@ void EquationEditor::drawMidiWindow() {
         // -- Note & Scale ------------------------------------------------------
         ImGui::TextDisabled("Note & Scale");
 
-        ImGui::SetNextItemWidth(55); ImGui::InputInt("Min note##G", &G.noteMin);
-        G.noteMin = std::max(0,  std::min(G.noteMin, G.noteMax-1));
+        ImGui::Text("Low note:"); ImGui::SameLine(80);
+        ImGui::SetNextItemWidth(180);
+        ImGui::SliderInt("##gen_lo", &G.noteMin, 0, 127, "%d");
+        G.noteMin = std::max(0, std::min(G.noteMin, G.noteMax - 1));
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(55); ImGui::InputInt("Max##G", &G.noteMax);
-        G.noteMax = std::max(G.noteMin+1, std::min(127, G.noteMax));
+        ImGui::TextDisabled("%s", midiNoteName(G.noteMin));
+
+        ImGui::Text("High note:"); ImGui::SameLine(80);
+        ImGui::SetNextItemWidth(180);
+        ImGui::SliderInt("##gen_hi", &G.noteMax, 0, 127, "%d");
+        G.noteMax = std::max(G.noteMin + 1, std::min(127, G.noteMax));
         ImGui::SameLine();
-        // Show note names
-        ImGui::TextDisabled("%s - %s", midiNoteName(G.noteMin), midiNoteName(G.noteMax));
+        ImGui::TextDisabled("%s", midiNoteName(G.noteMax));
 
         // Root key
         ImGui::SetNextItemWidth(80);
@@ -1461,8 +1466,8 @@ void EquationEditor::drawMidiWindow() {
         ImGui::Combo("Note len##G",  &G.noteLenIdx,  kRateLabels, 7);
         ImGui::SameLine();
         }
-        ImGui::SetNextItemWidth(60);
-        ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6);
+        ImGui::SetNextItemWidth(80);
+        ImGui::SliderInt("Chord##G", &G.chordSize, 1, 6, "%d notes");
 
         // -- Rests -------------------------------------------------------------
         ImGui::Separator();
@@ -1734,7 +1739,7 @@ void EquationEditor::drawMidiWindow() {
 // ════════════════════════════════════════════════════════════════════════════════
 void EquationEditor::drawGlitchPanel() {
     ImGui::SetNextWindowPos ({1280, 10},  ImGuiCond_Once);
-    ImGui::SetNextWindowSize({310, 440},  ImGuiCond_Once);
+    ImGui::SetNextWindowSize({350, 560},  ImGuiCond_Once);
     ImGui::Begin("Glitch Engine  -  UI3");
 
     auto& G = m_glitch;
@@ -1783,23 +1788,23 @@ void EquationEditor::drawGlitchPanel() {
     // -- Glitch type toggles ---------------------------------------------------
     ImGui::TextDisabled("Fractal Glitches");
     ImGui::Checkbox("Julia Jump",      &G.doJuliaJump);
-    ImGui::SameLine(120);
+    ImGui::SameLine(160);
     ImGui::Checkbox("Formula Flash",   &G.doFormulaFlash);
     if (G.doFormulaFlash) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(45);
-        ImGui::InputInt("##ffmin", &G.formulaFlashMin);
-        G.formulaFlashMin = std::max(0, std::min(G.formulaFlashMin, G.formulaFlashMax - 1));
-        ImGui::SameLine();
-        ImGui::TextDisabled("\xe2\x80\x93");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(45);
-        ImGui::InputInt("##ffmax", &G.formulaFlashMax);
-        G.formulaFlashMax = std::max(G.formulaFlashMin + 1, std::min(35, G.formulaFlashMax));
+        ImGui::Indent(14.0f);
+        ImGui::Text("From formula:"); ImGui::SameLine(100);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##ffmin", &G.formulaFlashMin, 1, 0, G.formulaFlashMax - 1, "ID %d"))
+            G.formulaFlashMin = std::max(0, std::min(G.formulaFlashMin, G.formulaFlashMax - 1));
+        ImGui::Text("To formula:  "); ImGui::SameLine(100);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##ffmax", &G.formulaFlashMax, 1, G.formulaFlashMin + 1, 35, "ID %d"))
+            G.formulaFlashMax = std::max(G.formulaFlashMin + 1, std::min(35, G.formulaFlashMax));
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Formula ID range for flash (0-35)\n"
                               "e.g. 22-35 = new Mandelbulber set only\n"
-                              "     0-35  = all formulas");
+                              "     0-35  = all formulas\nDrag to change");
+        ImGui::Unindent(14.0f);
     }
     ImGui::Checkbox("Zoom Punch",      &G.doZoomPunch);
     ImGui::SameLine(120);
@@ -1814,18 +1819,18 @@ void EquationEditor::drawGlitchPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Randomly jumps stream blend mode\n(Normal/Multiply/Screen/Overlay/...)");
     if (G.doBlendModeGlitch) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(40);
-        ImGui::InputInt("##bgmin", &G.blendGlitchMin);
-        G.blendGlitchMin = std::max(0, std::min(G.blendGlitchMin, G.blendGlitchMax));
-        ImGui::SameLine();
-        ImGui::TextDisabled("\xe2\x80\x93");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(40);
-        ImGui::InputInt("##bgmax", &G.blendGlitchMax);
-        G.blendGlitchMax = std::max(G.blendGlitchMin, std::min(41, G.blendGlitchMax));
+        ImGui::Indent(14.0f);
+        ImGui::Text("From mode:"); ImGui::SameLine(90);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##bgmin", &G.blendGlitchMin, 1, 0, G.blendGlitchMax, "mode %d"))
+            G.blendGlitchMin = std::max(0, std::min(G.blendGlitchMin, G.blendGlitchMax));
+        ImGui::Text("To mode:  "); ImGui::SameLine(90);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##bgmax", &G.blendGlitchMax, 1, G.blendGlitchMin, 41, "mode %d"))
+            G.blendGlitchMax = std::max(G.blendGlitchMin, std::min(41, G.blendGlitchMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Blend mode ID range (0=Normal ... 41=Luminosity)");
+            ImGui::SetTooltip("Blend mode ID range (0=Normal ... 41=Luminosity)\nDrag to change");
+        ImGui::Unindent(14.0f);
     }
     ImGui::Checkbox("Filter##fg",     &G.doFilterGlitch);
     if (ImGui::IsItemHovered())
@@ -1840,18 +1845,21 @@ void EquationEditor::drawGlitchPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Activates a random chaos warp mode\nand randomizes strength");
     if (G.doChaosGlitch) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(40);
-        ImGui::InputInt("##cgmin", &G.chaosGlitchModeMin);
-        G.chaosGlitchModeMin = std::max(1, std::min(G.chaosGlitchModeMin, G.chaosGlitchModeMax));
-        ImGui::SameLine();
-        ImGui::TextDisabled("\xe2\x80\x93");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(40);
-        ImGui::InputInt("##cgmax", &G.chaosGlitchModeMax);
-        G.chaosGlitchModeMax = std::max(G.chaosGlitchModeMin, std::min(7, G.chaosGlitchModeMax));
+        static const char* kChaosNames[] = {
+            "?", "Turbulence","Logistic","Henon","Shred","Lorenz","Clifford","Ikeda"
+        };
+        ImGui::Indent(14.0f);
+        ImGui::Text("From mode:"); ImGui::SameLine(90);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##cgmin", &G.chaosGlitchModeMin, 1, 1, G.chaosGlitchModeMax, kChaosNames[std::max(1,std::min(7,G.chaosGlitchModeMin))]))
+            G.chaosGlitchModeMin = std::max(1, std::min(G.chaosGlitchModeMin, G.chaosGlitchModeMax));
+        ImGui::Text("To mode:  "); ImGui::SameLine(90);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::DragInt("##cgmax", &G.chaosGlitchModeMax, 1, G.chaosGlitchModeMin, 7, kChaosNames[std::max(1,std::min(7,G.chaosGlitchModeMax))]))
+            G.chaosGlitchModeMax = std::max(G.chaosGlitchModeMin, std::min(7, G.chaosGlitchModeMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Chaos mode range\n1=Turbulence 2=Logistic 3=Hénon\n4=Shred 5=Lorenz 6=Clifford 7=Ikeda");
+            ImGui::SetTooltip("Chaos modes: 1=Turbulence 2=Logistic 3=Henon\n4=Shred 5=Lorenz 6=Clifford 7=Ikeda\nDrag to change");
+        ImGui::Unindent(14.0f);
     }
 
     ImGui::Spacing();
@@ -1863,19 +1871,29 @@ void EquationEditor::drawGlitchPanel() {
 
     // -- Ghost note range ------------------------------------------------------
     if (G.doGhostNote) {
+        ImGui::Indent(14.0f);
         ImGui::Spacing();
-        ImGui::TextDisabled("Ghost note range");
-        ImGui::SetNextItemWidth(60);
-        ImGui::InputInt("Min##gn", &G.noteMin);
+        ImGui::TextDisabled("Ghost note range:");
+        ImGui::Text("Low:");  ImGui::SameLine(55);
+        ImGui::SetNextItemWidth(160);
+        ImGui::SliderInt("##gn_lo", &G.noteMin, 0, 127, "%d");
         G.noteMin = std::max(0, std::min(G.noteMin, G.noteMax - 1));
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(60);
-        ImGui::InputInt("Max##gn", &G.noteMax);
+        ImGui::TextDisabled("%s", midiNoteName(G.noteMin));
+
+        ImGui::Text("High:"); ImGui::SameLine(55);
+        ImGui::SetNextItemWidth(160);
+        ImGui::SliderInt("##gn_hi", &G.noteMax, 0, 127, "%d");
         G.noteMax = std::max(G.noteMin + 1, std::min(127, G.noteMax));
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(50);
-        ImGui::InputInt("Ch##gn", &G.midiChannel);
+        ImGui::TextDisabled("%s", midiNoteName(G.noteMax));
+
+        ImGui::Text("Chan:"); ImGui::SameLine(55);
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderInt("##gn_ch", &G.midiChannel, 1, 16, "Channel %d");
         G.midiChannel = std::max(1, std::min(16, G.midiChannel));
+        ImGui::Spacing();
+        ImGui::Unindent(14.0f);
     }
 
     // -- Glitch->Sound coupling -------------------------------------------------
@@ -1894,28 +1912,30 @@ void EquationEditor::drawGlitchPanel() {
                           "Map those CC numbers via MIDI Mapper to blend/filter\n"
                           "params to link glitch chaos directly to visuals.");
     if (G.randomCCEnabled) {
-        ImGui::SetNextItemWidth(55);
-        ImGui::InputInt("Count##rcc", &G.randomCCCount);
-        G.randomCCCount = std::max(1, std::min(16, G.randomCCCount));
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(50);
-        ImGui::InputInt("Ch##rcc", &G.randomCCChannel);
-        G.randomCCChannel = std::max(1, std::min(16, G.randomCCChannel));
-        ImGui::TextDisabled("CC range:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(48);
-        ImGui::InputInt("##rccmin", &G.randomCCMin);
-        G.randomCCMin = std::max(0, std::min(G.randomCCMin, G.randomCCMax));
-        ImGui::SameLine();
-        ImGui::TextDisabled("\xe2\x80\x93");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(48);
-        ImGui::InputInt("##rccmax", &G.randomCCMax);
-        G.randomCCMax = std::max(G.randomCCMin, std::min(127, G.randomCCMax));
+        ImGui::Indent(14.0f);
+        ImGui::Text("Count:"); ImGui::SameLine(60);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##rcc_count", &G.randomCCCount, 1, 16, "%d CCs"))
+            G.randomCCCount = std::max(1, std::min(16, G.randomCCCount));
+
+        ImGui::Text("Channel:"); ImGui::SameLine(60);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##rcc_ch", &G.randomCCChannel, 1, 16, "Ch %d"))
+            G.randomCCChannel = std::max(1, std::min(16, G.randomCCChannel));
+
+        ImGui::Text("CC from:"); ImGui::SameLine(60);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##rccmin", &G.randomCCMin, 0, 127, "CC %d"))
+            G.randomCCMin = std::max(0, std::min(G.randomCCMin, G.randomCCMax));
+        ImGui::Text("CC to:  "); ImGui::SameLine(60);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##rccmax", &G.randomCCMax, 0, 127, "CC %d"))
+            G.randomCCMax = std::max(G.randomCCMin, std::min(127, G.randomCCMax));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("CC numbers to randomly emit (e.g. 20-30).\n"
-                              "Add those as mappings in MIDI Mapper to link\n"
-                              "them to OverlayBlend, StreamBlendMode, etc.");
+            ImGui::SetTooltip("CC numbers to randomly emit on each glitch.\n"
+                              "Add those CCs in MIDI Mapper to link them\n"
+                              "to blend/filter params.");
+        ImGui::Unindent(14.0f);
     }
 
     ImGui::Separator();

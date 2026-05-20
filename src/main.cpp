@@ -20,6 +20,7 @@
 #include "midi/MidiGenerator.h"
 #include "midi/MidiOutput.h"
 #include "fx/FftChain.h"
+#include "stream/RecordOutput.h"
 
 #include <cstdio>
 #include <string>
@@ -82,10 +83,12 @@ int main(int argc, char** argv) {
     GlitchEngine   glitchEng;
     ColorSynth     colorSynth;
     FftChain       fftChain;
+    RecordOutput   recOut;
     EquationEditor ui(engine, blend, glitchEng, colorSynth,
                       videoIn, overlayIn, streamOut, midiIn, midiOut, midiMapper, midiGen,
-                      fftChain);
+                      fftChain, recOut);
     streamOut.fftChain = &fftChain;
+    streamOut.recOut   = &recOut;
 
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
@@ -212,6 +215,11 @@ int main(int argc, char** argv) {
             streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
         }
 
+        // Encode frame to local file if recording
+        if (recOut.isRecording()) {
+            recOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
+        }
+
         // ImGui overlay
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -223,6 +231,7 @@ int main(int argc, char** argv) {
         glfwSwapBuffers(window);
     }
 
+    recOut.stop();
     streamOut.stop();
 
     // Auto-save session so next launch resumes where we left off

@@ -11,6 +11,7 @@
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include "fx/FftChain.h"
+#include "stream/RecordOutput.h"
 #include <string>
 #include <vector>
 
@@ -22,7 +23,8 @@ public:
                    StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
                    MidiMapper& midiMapper, MidiGenerator& midiGen,
-                   FftChain& fftChain);
+                   FftChain& fftChain,
+                   RecordOutput& recOut);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
     // Persist all panel state to / from an INI file.
@@ -42,6 +44,7 @@ private:
     MidiMapper&      m_midiMapper;
     MidiGenerator&   m_midiGen;
     FftChain&        m_fftChain;
+    RecordOutput&    m_recOut;
 
     // Stream panel state
     int  m_bitrateKbps = 2500;
@@ -60,6 +63,15 @@ private:
     // Stream timer
     std::chrono::steady_clock::time_point m_streamStartTime;
     bool m_wasStreaming = false;
+
+    // Record panel state
+    char  m_recPath[512]       = {};
+    int   m_recResIdx          = 0;       // 0=4K, 1=8K
+    int   m_recBitrateKbps     = 35000;
+    int   m_recFpsIdx          = 0;       // 0=30, 1=60
+    float m_recTargetHours     = 11.916f; // 11h 55m
+    std::chrono::steady_clock::time_point m_recStartTime;
+    bool  m_wasRecording       = false;
 
     // Preset panel state
     char                     m_presetName[64] = "";
@@ -86,6 +98,7 @@ private:
     void drawDistortionPanel();
     void drawChaosPanel();
     void drawFftPanel();
+    void drawRecordPanel();
     void drawPresetsPanel();
     void drawSurgeXTSection();
 };

@@ -23,11 +23,13 @@ EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
                                 StreamOutput& streamOut,
                                 MidiInput& midiIn, MidiOutput& midiOut,
                                 MidiMapper& midiMapper, MidiGenerator& midiGen,
-                                FftChain& fftChain)
+                                FftChain& fftChain,
+                                RecordOutput& recOut)
     : m_engine(engine), m_blend(blend), m_glitch(glitch), m_colorSynth(colorSynth),
       m_videoIn(videoIn), m_overlayIn(overlayIn), m_streamOut(streamOut),
       m_midiIn(midiIn), m_midiOut(midiOut),
-      m_midiMapper(midiMapper), m_midiGen(midiGen), m_fftChain(fftChain) {}
+      m_midiMapper(midiMapper), m_midiGen(midiGen), m_fftChain(fftChain),
+      m_recOut(recOut) {}
 
 void EquationEditor::draw() {
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
@@ -54,6 +56,8 @@ void EquationEditor::draw() {
         drawDistortionPanel();
     if (ImGui::CollapsingHeader("FFT / AFT Spectral Chain"))
         drawFftPanel();
+    if (ImGui::CollapsingHeader("Recording (4K / 8K)"))
+        drawRecordPanel();
     if (ImGui::CollapsingHeader("Stream Output"))
         drawStreamPanel();
 
@@ -784,6 +788,115 @@ static bool isLocalPath(const std::string& url) {
 static bool isRestreamDest(const DestSink& s) {
     return s.name == "Restream" ||
            s.url.rfind("rtmp://live.restream.io/live/", 0) == 0;
+}
+
+void EquationEditor::drawRecordPanel() {
+    // -- Output file path ------------------------------------------------------
+    ImGui::Text("Output file:");
+    if (!m_recPath[0]) {
+        const char* home = getenv("HOME");
+        snprintf(m_recPath, sizeof(m_recPath), "%s/fractal_record.mp4",
+                 home ? home : ".");
+    }
+    ImGui::SetNextItemWidth(-80);
+    ImGui::InputText("##recpath", m_recPath, sizeof(m_recPath));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Auto##rec")) {
+        time_t now = time(nullptr);
+        struct tm* t = localtime(&now);
+        const char* home = getenv("HOME");
+        snprintf(m_recPath, sizeof(m_recPath),
+                 "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
+                 home ? home : ".",
+                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                 t->tm_hour, t->tm_min, t->tm_sec);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Auto-generate a timestamped filename");
+
+    // -- Resolution & FPS ------------------------------------------------------
+    static const char* kRecRes[] = {
+        "4K  (3840 x 2160)  [Recommended for YouTube]",
+        "8K  (7680 x 4320)  [Needs fast GPU or CPU]"
+    };
+    ImGui::Combo("Resolution##rec", &m_recResIdx, kRecRes, 2);
+    if (m_recResIdx == 1)
+        ImGui::TextColored({1.0f, 0.8f, 0.2f, 1.0f},
+            "  8K: uses HEVC (NVIDIA/Apple GPU) or libx265 CPU");
+
+    static const char* kFpsLabels[] = {"30 fps", "60 fps"};
+    ImGui::Combo("Frame rate##rec", &m_recFpsIdx, kFpsLabels, 2);
+
+    // -- Bitrate ---------------------------------------------------------------
+    ImGui::SetNextItemWidth(220);
+    ImGui::SliderInt("Bitrate (kbps)##rec", &m_recBitrateKbps, 1000, 80000);
+    ImGui::SameLine();
+    ImGui::Text("%.0f Mbps", m_recBitrateKbps / 1000.0f);
+
+    // -- YouTube size calculator -----------------------------------------------
+    ImGui::Separator();
+    ImGui::TextDisabled("YouTube upload limits: 256 GB / 12 hours");
+
+    ImGui::SetNextItemWidth(220);
+    ImGui::SliderFloat("Target duration (hr)##rec", &m_recTargetHours, 0.5f, 12.0f, "%.2f hr");
+
+    double targetSecs = m_recTargetHours * 3600.0;
+    double estGB      = RecordOutput::estimatedSizeGB(m_recBitrateKbps, targetSecs);
+    int    maxKbps    = RecordOutput::safeBitrateKbps(targetSecs);
+    bool   fits       = (estGB < 256.0 && m_recTargetHours <= 12.0f);
+
+    ImVec4 col = fits ? ImVec4(0.2f, 1.0f, 0.2f, 1.0f) : ImVec4(1.0f, 0.4f, 0.1f, 1.0f);
+    ImGui::TextColored(col, "Est. size:  %.1f GB   %s",
+                       estGB, fits ? "(fits YouTube limits)" : "(EXCEEDS YouTube 256 GB limit!)");
+    ImGui::TextDisabled("Safe max bitrate for %.2f hr target: %d kbps (%.0f Mbps)",
+                        m_recTargetHours, maxKbps, maxKbps / 1000.0);
+    if (!fits) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Use safe max##rec"))
+            m_recBitrateKbps = maxKbps;
+    }
+
+    // -- Start / Stop ----------------------------------------------------------
+    ImGui::Separator();
+
+    if (!m_recOut.isRecording()) {
+        if (!m_wasRecording) {
+            // Apply settings every frame before start so sliders are live
+            m_recOut.resolution  = (m_recResIdx == 0) ? RecordOutput::Resolution::k4K
+                                                       : RecordOutput::Resolution::k8K;
+            m_recOut.bitrateKbps = m_recBitrateKbps;
+            m_recOut.fps         = (m_recFpsIdx == 0) ? 30 : 60;
+            m_recOut.outputPath  = m_recPath;
+        }
+        if (ImGui::Button("Start Recording  [o]")) {
+            m_recOut.resolution  = (m_recResIdx == 0) ? RecordOutput::Resolution::k4K
+                                                       : RecordOutput::Resolution::k8K;
+            m_recOut.bitrateKbps = m_recBitrateKbps;
+            m_recOut.fps         = (m_recFpsIdx == 0) ? 30 : 60;
+            m_recOut.outputPath  = m_recPath;
+            m_recOut.start();
+        }
+        m_wasRecording = false;
+    } else {
+        if (!m_wasRecording) {
+            m_recStartTime = std::chrono::steady_clock::now();
+            m_wasRecording = true;
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.1f, 0.1f, 1.0f));
+        if (ImGui::Button("Stop Recording  [x]")) m_recOut.stop();
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+
+        auto elapsed = std::chrono::steady_clock::now() - m_recStartTime;
+        int  totalSec = (int)std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        int  hh = totalSec / 3600, mm = (totalSec % 3600) / 60, ss = totalSec % 60;
+        double writtenGB = RecordOutput::estimatedSizeGB(m_recBitrateKbps, totalSec);
+
+        ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f},
+            "[*] REC  %02d:%02d:%02d   ~%.1f GB", hh, mm, ss, writtenGB);
+        ImGui::TextDisabled("→ %s", m_recPath);
+    }
 }
 
 void EquationEditor::drawStreamPanel() {
@@ -2706,6 +2819,11 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 FC.visualGain[0], FC.visualGain[1], FC.visualGain[2], FC.visualGain[3]);
     }
 
+    // [record]
+    fprintf(f, "\n[record]\n");
+    fprintf(f, "path=%s\nres_idx=%d\nbitrate_kbps=%d\nfps_idx=%d\ntarget_hours=%f\n",
+            m_recPath, m_recResIdx, m_recBitrateKbps, m_recFpsIdx, m_recTargetHours);
+
     // [midi_gen]
     fprintf(f, "\n[midi_gen]\n");
     fprintf(f, "enabled=%d\nnote_enabled=%d\n", (int)MG.enabled, (int)MG.noteEnabled);
@@ -2894,6 +3012,16 @@ void EquationEditor::loadSettings(const std::string& path) {
         FC.visualGain[1] = ini_f(m, "fft.vis_gain_1",    FC.visualGain[1]);
         FC.visualGain[2] = ini_f(m, "fft.vis_gain_2",    FC.visualGain[2]);
         FC.visualGain[3] = ini_f(m, "fft.vis_gain_3",    FC.visualGain[3]);
+    }
+
+    // [record]
+    {
+        std::string rp = ini_s(m, "record.path", "");
+        if (!rp.empty()) strncpy(m_recPath, rp.c_str(), sizeof(m_recPath) - 1);
+        m_recResIdx      = ini_i(m, "record.res_idx",      m_recResIdx);
+        m_recBitrateKbps = ini_i(m, "record.bitrate_kbps", m_recBitrateKbps);
+        m_recFpsIdx      = ini_i(m, "record.fps_idx",      m_recFpsIdx);
+        m_recTargetHours = ini_f(m, "record.target_hours", m_recTargetHours);
     }
 
     // [midi_gen]

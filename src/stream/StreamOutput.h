@@ -19,6 +19,7 @@ extern "C" {
 #include <cstdint>
 #include <memory>
 #include "fx/FftChain.h"
+#include "RecordOutput.h"
 
 // One RTMP destination (YouTube, Twitch, etc.)
 struct DestSink {
@@ -64,7 +65,10 @@ public:
 
     // FFT/AFT chain — set before start(); audio is processed in-place when
     // fftChain->enabled && fftChain->onStream during active streaming.
-    FftChain*   fftChain     = nullptr;
+    FftChain*      fftChain  = nullptr;
+    // Local recorder — when set, audio is forwarded before stream FFT so the
+    // recording gets clean audio regardless of the FFT chain state.
+    RecordOutput*  recOut    = nullptr;
 
     // Settings (apply before start())
     int         bitrate_kbps = 4000;

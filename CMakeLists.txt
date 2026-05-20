@@ -92,6 +92,7 @@ set(SOURCES
     src/fx/FftChain.cpp
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
+    src/stream/RecordOutput.cpp
     src/ui/EquationEditor.cpp
     src/ui/FilePicker_linux.cpp
     src/remote/RemoteControl.cpp

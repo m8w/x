@@ -414,6 +414,11 @@ void StreamOutput::audioCaptureLoop() {
                         if (!std::isfinite(s[i])) s[i] = 0.0f;
                 }
                 applyOverlayMix((float**)enc->data, m_audioSamplesPerFrame);
+                // Forward to recorder before FFT so recording gets clean audio
+                if (recOut && recOut->isRecording()) {
+                    float* planes[2] = {(float*)enc->data[0], (float*)enc->data[1]};
+                    recOut->pushAudio(planes, m_audioSamplesPerFrame);
+                }
                 if (fftChain && fftChain->enabled && fftChain->onStream)
                     fftChain->process((float**)enc->data, m_audioSamplesPerFrame, 2, 44100);
                 encodeAndDistributeAudio(enc);
@@ -894,6 +899,12 @@ void StreamOutput::pushFrame(const uint8_t* rgbData, int width, int height) {
                                    m_audioCtx->ch_layout.nb_channels,
                                    (AVSampleFormat)m_audioFrame->format);
             applyOverlayMix((float**)m_audioFrame->data, m_audioFrame->nb_samples);
+            // Forward to recorder before FFT
+            if (recOut && recOut->isRecording()) {
+                float* planes[2] = {(float*)m_audioFrame->data[0],
+                                    (float*)m_audioFrame->data[1]};
+                recOut->pushAudio(planes, m_audioFrame->nb_samples);
+            }
             if (fftChain && fftChain->enabled && fftChain->onStream)
                 fftChain->process((float**)m_audioFrame->data, m_audioFrame->nb_samples, 2, 44100);
             encodeAndDistributeAudio(m_audioFrame);

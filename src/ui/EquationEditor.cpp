@@ -790,29 +790,51 @@ static bool isRestreamDest(const DestSink& s) {
            s.url.rfind("rtmp://live.restream.io/live/", 0) == 0;
 }
 
+// Generate a timestamped default recording path: ~/fractal_YYYYMMDD_HHMMSS.mp4
+static std::string makeRecordPath() {
+    time_t now = time(nullptr);
+    struct tm* t = localtime(&now);
+    const char* home = getenv("HOME");
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
+             home ? home : ".",
+             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+             t->tm_hour, t->tm_min, t->tm_sec);
+    return buf;
+}
+
 void EquationEditor::drawRecordPanel() {
     // -- Output file path ------------------------------------------------------
-    ImGui::Text("Output file:");
+    // Always start with a fresh timestamp if the field has never been set
     if (!m_recPath[0]) {
-        const char* home = getenv("HOME");
-        snprintf(m_recPath, sizeof(m_recPath), "%s/fractal_record.mp4",
-                 home ? home : ".");
+        std::string p = makeRecordPath();
+        strncpy(m_recPath, p.c_str(), sizeof(m_recPath) - 1);
     }
-    ImGui::SetNextItemWidth(-80);
+
+    ImGui::Text("Output file:");
+    ImGui::SetNextItemWidth(-140);
     ImGui::InputText("##recpath", m_recPath, sizeof(m_recPath));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Full path for the recording.\n"
+                          "Edit directly or use Browse to pick a folder.");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Auto##rec")) {
-        time_t now = time(nullptr);
-        struct tm* t = localtime(&now);
-        const char* home = getenv("HOME");
-        snprintf(m_recPath, sizeof(m_recPath),
-                 "%s/fractal_%04d%02d%02d_%02d%02d%02d.mp4",
-                 home ? home : ".",
-                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-                 t->tm_hour, t->tm_min, t->tm_sec);
+    if (ImGui::SmallButton("Browse##rec")) {
+        // Open save dialog pre-filled with the current (timestamped) name
+        std::string picked = pickSaveFile(m_recPath);
+        if (!picked.empty())
+            strncpy(m_recPath, picked.c_str(), sizeof(m_recPath) - 1);
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Auto-generate a timestamped filename");
+        ImGui::SetTooltip("Open a file browser to choose where to save");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("New ts##rec")) {
+        // Stamp a fresh timestamp so this recording won't overwrite a previous one
+        std::string p = makeRecordPath();
+        strncpy(m_recPath, p.c_str(), sizeof(m_recPath) - 1);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Refresh the timestamp in the filename\n"
+                          "(use this before each new recording)");
 
     // -- Resolution & FPS ------------------------------------------------------
     static const char* kRecRes[] = {
@@ -884,7 +906,12 @@ void EquationEditor::drawRecordPanel() {
         }
 
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.1f, 0.1f, 1.0f));
-        if (ImGui::Button("Stop Recording  [x]")) m_recOut.stop();
+        if (ImGui::Button("Stop Recording  [x]")) {
+            m_recOut.stop();
+            // Pre-stamp a new filename so the next recording never overwrites this one
+            std::string p = makeRecordPath();
+            strncpy(m_recPath, p.c_str(), sizeof(m_recPath) - 1);
+        }
         ImGui::PopStyleColor();
         ImGui::SameLine();
 

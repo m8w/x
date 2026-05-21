@@ -37,7 +37,7 @@ bool RecordOutput::tryOpenVideoEncoder(const char* name, int w, int h) {
     ctx->time_base    = {1, fps};
     ctx->framerate    = {fps, 1};
     ctx->gop_size     = fps * 2;
-    ctx->max_b_frames = 2;      // B-frames ok for file recording (no latency req)
+    ctx->max_b_frames = 0;      // no B-frames: avoids pts<dts muxer warnings
     ctx->pix_fmt      = AV_PIX_FMT_YUV420P;
     ctx->flags       |= AV_CODEC_FLAG_GLOBAL_HEADER;
 

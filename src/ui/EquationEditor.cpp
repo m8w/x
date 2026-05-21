@@ -485,37 +485,51 @@ void EquationEditor::drawVideoPanel() {
     // -- Live Camera -----------------------------------------------------------
     ImGui::Separator();
     ImGui::TextUnformatted("Live Camera Input");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("iPhone users: enable Continuity Camera in iOS Settings > General > AirPlay\n"
+                          "and keep your iPhone nearby — it appears here automatically as a camera.\n"
+                          "\n"
+                          "macOS permissions: System Settings > Privacy & Security > Camera\n"
+                          "and grant access to your terminal app (Terminal / iTerm2).");
 
     // Refresh camera list
-    if (m_cameraListDirty || ImGui::Button("Refresh cameras")) {
-        m_cameraList = VideoInput::listCameras();
-        m_cameraIdx  = 0;
+    if (m_cameraListDirty || ImGui::Button("Refresh")) {
+        m_cameraInfoList = VideoInput::listCameras();
+        m_cameraIdx      = 0;
         m_cameraListDirty = false;
     }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rescan for cameras. Connect your iPhone first, then Refresh.");
 
-    if (m_cameraList.empty()) {
+    if (m_cameraInfoList.empty()) {
         ImGui::SameLine();
-        ImGui::TextDisabled("(no cameras detected)");
+        ImGui::TextColored({1.0f, 0.6f, 0.1f, 1.0f}, "No cameras found");
+        ImGui::TextDisabled("  macOS: System Settings > Privacy > Camera → allow your terminal");
+        ImGui::TextDisabled("  iPhone: enable Continuity Camera in iOS Settings, then Refresh");
     } else {
-        // Build a null-delimited list for ImGui::Combo
         std::string comboItems;
-        for (const auto& n : m_cameraList) { comboItems += n; comboItems += '\0'; }
+        for (const auto& ci : m_cameraInfoList) {
+            // Mark iPhone / Continuity Camera entries so they stand out
+            std::string label = ci.name;
+            if (label.find("iPhone") != std::string::npos ||
+                label.find("Continuity") != std::string::npos)
+                label = "[iPhone]  " + label;
+            comboItems += label;
+            comboItems += '\0';
+        }
         comboItems += '\0';
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::Combo("##camlist", &m_cameraIdx, comboItems.c_str());
 
-        ImGui::BeginGroup();
         if (ImGui::Button("Open Camera")) {
-            m_videoIn.openCamera(m_cameraIdx);
+            if (m_cameraIdx >= 0 && m_cameraIdx < (int)m_cameraInfoList.size())
+                m_videoIn.openCameraByName(m_cameraInfoList[m_cameraIdx].devStr);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Close##cam")) {
+        if (ImGui::Button("Close##cam"))
             m_videoIn.close();
-        }
-        ImGui::EndGroup();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Opens the selected camera as the primary video texture.\n"
-                              "The fractal will map from the live camera feed.");
+            ImGui::SetTooltip("Opens the selected camera as the primary video texture.");
     }
 
     // -- Overlay video layer ---------------------------------------------------
@@ -2200,9 +2214,18 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::Combo("Layer Blend##cs", &C.blendMode, kCSBlendModes, 42);
     ImGui::SliderFloat("Opacity##cs", &C.opacity, 0.0f, 1.0f, "%.2f");
 
+    // -- Mode switch -----------------------------------------------------------
     ImGui::Separator();
-    ImGui::TextDisabled("-- Primary Color (HSL) -----------------");
+    static const char* kSynthModes[] = { "HSL  (hue / saturation / lightness)",
+                                          "RGB  (red / green / blue channels)" };
+    ImGui::SetNextItemWidth(-1);
+    ImGui::Combo("Color mode##cs", &C.synthMode, kSynthModes, 2);
 
+    ImGui::Separator();
+
+    if (C.synthMode == 0) {
+    // ── HSL mode ──────────────────────────────────────────────────────────────
+    ImGui::TextDisabled("-- Primary Color (HSL) -----------------");
     ImGui::SliderFloat("Hue",        &C.hueBase, 0.0f, 1.0f);
     ImGui::SliderFloat("Saturation", &C.satBase, 0.0f, 1.0f);
     ImGui::SliderFloat("Luminance",  &C.lumBase, 0.0f, 1.0f);
@@ -2426,6 +2449,74 @@ void EquationEditor::drawColorSynthPanel() {
     if (ImGui::SmallButton("Off")) {
         C.enabled = false;
     }
+    } // end synthMode == 0 (HSL)
+
+    if (C.synthMode == 1) {
+    // ── RGB mode ──────────────────────────────────────────────────────────────
+    ImGui::TextDisabled("-- Primary RGB -------------------------");
+    ImGui::SliderFloat("Red##rgbp",   &C.rBase, 0.0f, 1.0f);
+    ImGui::SliderFloat("Green##rgbp", &C.gBase, 0.0f, 1.0f);
+    ImGui::SliderFloat("Blue##rgbp",  &C.bBase, 0.0f, 1.0f);
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Alternate RGB (blends at altRate) ---");
+    ImGui::SliderFloat("Red##rgba",   &C.rAlt,  0.0f, 1.0f);
+    ImGui::SliderFloat("Green##rgba", &C.gAlt,  0.0f, 1.0f);
+    ImGui::SliderFloat("Blue##rgba",  &C.bAlt,  0.0f, 1.0f);
+    ImGui::SliderFloat("Alt rate##rgbr", &C.altRate, 0.01f, 8.0f, "%.2f Hz");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Per-channel oscillators -------------");
+    ImGui::PushItemWidth(130);
+    ImGui::SliderFloat("R amp##rgo", &C.rOscAmp,  0.0f, 1.0f);
+    ImGui::SameLine();
+    ImGui::SliderFloat("R rate##rgo", &C.rOscRate, 0.0f, 4.0f, "%.2f");
+    ImGui::SliderFloat("G amp##rgo", &C.gOscAmp,  0.0f, 1.0f);
+    ImGui::SameLine();
+    ImGui::SliderFloat("G rate##rgo", &C.gOscRate, 0.0f, 4.0f, "%.2f");
+    ImGui::SliderFloat("B amp##rgo", &C.bOscAmp,  0.0f, 1.0f);
+    ImGui::SameLine();
+    ImGui::SliderFloat("B rate##rgo", &C.bOscRate, 0.0f, 4.0f, "%.2f");
+    ImGui::PopItemWidth();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- MIDI reaction -----------------------");
+    ImGui::SliderFloat("MIDI R sens##rgbm", &C.midiRSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("MIDI G sens##rgbm", &C.midiGSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("MIDI B sens##rgbm", &C.midiBSens, 0.0f, 1.0f);
+    ImGui::SliderFloat("Decay##rgbm",       &C.midiDecay, 0.1f, 8.0f, "%.2f s");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Quick starts:");
+    if (ImGui::SmallButton("RGB Cycle"))  {
+        C.rBase=1; C.gBase=0; C.bBase=0;
+        C.rAlt=0;  C.gAlt=1;  C.bAlt=1;
+        C.rOscAmp=0.5f; C.rOscRate=0.33f;
+        C.gOscAmp=0.5f; C.gOscRate=0.57f;
+        C.bOscAmp=0.5f; C.bOscRate=0.21f;
+        C.altRate=0.4f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("RGB Fire")) {
+        C.rBase=1.0f; C.gBase=0.3f; C.bBase=0.0f;
+        C.rAlt=1.0f;  C.gAlt=0.8f;  C.bAlt=0.0f;
+        C.rOscAmp=0.05f; C.rOscRate=1.1f;
+        C.gOscAmp=0.3f;  C.gOscRate=2.3f;
+        C.bOscAmp=0.05f; C.bOscRate=0.8f;
+        C.altRate=2.0f; C.midiRSens=0.1f; C.midiGSens=0.6f; C.midiBSens=0.0f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Ice")) {
+        C.rBase=0.1f; C.gBase=0.6f; C.bBase=1.0f;
+        C.rAlt=0.0f;  C.gAlt=0.9f;  C.bAlt=0.7f;
+        C.rOscAmp=0.1f; C.rOscRate=0.4f;
+        C.gOscAmp=0.2f; C.gOscRate=0.7f;
+        C.bOscAmp=0.3f; C.bOscRate=0.2f;
+        C.altRate=0.3f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Off##rgb")) C.enabled = false;
+    } // end synthMode == 1 (RGB)
 
     // -- Glitch color coupling -------------------------------------------------
     ImGui::Separator();
@@ -2808,6 +2899,14 @@ void EquationEditor::saveSettings(const std::string& path) const {
     fprintf(f, "blend_mode=%d\nopacity=%f\n", C.blendMode, C.opacity);
     fprintf(f, "glitch_color_react=%d\nglitch_hue_sens=%f\nglitch_sat_sens=%f\nglitch_lum_sens=%f\n",
             (int)C.glitchColorReact, C.glitchHueSens, C.glitchSatSens, C.glitchLumSens);
+    fprintf(f, "synth_mode=%d\n", C.synthMode);
+    fprintf(f, "r_base=%f\ng_base=%f\nb_base=%f\n", C.rBase, C.gBase, C.bBase);
+    fprintf(f, "r_alt=%f\ng_alt=%f\nb_alt=%f\n", C.rAlt, C.gAlt, C.bAlt);
+    fprintf(f, "r_osc_amp=%f\nr_osc_rate=%f\n", C.rOscAmp, C.rOscRate);
+    fprintf(f, "g_osc_amp=%f\ng_osc_rate=%f\n", C.gOscAmp, C.gOscRate);
+    fprintf(f, "b_osc_amp=%f\nb_osc_rate=%f\n", C.bOscAmp, C.bOscRate);
+    fprintf(f, "midi_r_sens=%f\nmidi_g_sens=%f\nmidi_b_sens=%f\n",
+            C.midiRSens, C.midiGSens, C.midiBSens);
 
     // [glitch]
     fprintf(f, "\n[glitch]\n");
@@ -2985,6 +3084,22 @@ void EquationEditor::loadSettings(const std::string& path) {
     C.glitchHueSens    = ini_f(m, "color.glitch_hue_sens",   C.glitchHueSens);
     C.glitchSatSens    = ini_f(m, "color.glitch_sat_sens",   C.glitchSatSens);
     C.glitchLumSens    = ini_f(m, "color.glitch_lum_sens",   C.glitchLumSens);
+    C.synthMode    = ini_i(m, "color.synth_mode",    C.synthMode);
+    C.rBase        = ini_f(m, "color.r_base",        C.rBase);
+    C.gBase        = ini_f(m, "color.g_base",        C.gBase);
+    C.bBase        = ini_f(m, "color.b_base",        C.bBase);
+    C.rAlt         = ini_f(m, "color.r_alt",         C.rAlt);
+    C.gAlt         = ini_f(m, "color.g_alt",         C.gAlt);
+    C.bAlt         = ini_f(m, "color.b_alt",         C.bAlt);
+    C.rOscAmp      = ini_f(m, "color.r_osc_amp",     C.rOscAmp);
+    C.rOscRate     = ini_f(m, "color.r_osc_rate",    C.rOscRate);
+    C.gOscAmp      = ini_f(m, "color.g_osc_amp",     C.gOscAmp);
+    C.gOscRate     = ini_f(m, "color.g_osc_rate",    C.gOscRate);
+    C.bOscAmp      = ini_f(m, "color.b_osc_amp",     C.bOscAmp);
+    C.bOscRate     = ini_f(m, "color.b_osc_rate",    C.bOscRate);
+    C.midiRSens    = ini_f(m, "color.midi_r_sens",   C.midiRSens);
+    C.midiGSens    = ini_f(m, "color.midi_g_sens",   C.midiGSens);
+    C.midiBSens    = ini_f(m, "color.midi_b_sens",   C.midiBSens);
 
     // [glitch]
     G.enabled        = ini_b(m, "glitch.enabled",       G.enabled);

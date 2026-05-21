@@ -56,9 +56,9 @@ private:
     char m_newUrl[512]  = "";
 
     // Camera picker state
-    std::vector<std::string> m_cameraList;
-    int                      m_cameraIdx  = 0;
-    bool                     m_cameraListDirty = true;
+    std::vector<VideoInput::CameraInfo> m_cameraInfoList;
+    int                                 m_cameraIdx       = 0;
+    bool                                m_cameraListDirty = true;
 
     // Stream timer
     std::chrono::steady_clock::time_point m_streamStartTime;

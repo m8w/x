@@ -18,13 +18,15 @@ public:
 
     bool open(const std::string& path);           // local file
     bool openCamera(int deviceIdx);               // live camera (avfoundation/v4l2)
+    bool openCameraByName(const std::string& devStr, int fps = 30); // use raw device string
     void close();
     bool isOpen()   const { return m_fmtCtx != nullptr; }
     bool isCamera() const { return m_isCamera; }
 
-    // Returns detected camera names (index = device index for openCamera()).
-    // macOS: avfoundation video devices. Linux: /dev/videoN devices.
-    static std::vector<std::string> listCameras();
+    struct CameraInfo { std::string name; std::string devStr; };
+    // Returns detected cameras. name = human-readable, devStr = pass to openCameraByName.
+    // macOS: avfoundation video devices (includes iPhone Continuity Camera when connected).
+    static std::vector<CameraInfo> listCameras();
 
     // Returns the next decoded frame in RGB24.
     // Caller must call releaseFrame() when done.

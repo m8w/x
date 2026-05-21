@@ -26,6 +26,11 @@
 struct ColorSynth {
     bool  enabled       = false;
 
+    // ── Mode ─────────────────────────────────────────────────────────────────
+    // 0 = HSL  — hue/saturation/luminance (current behaviour)
+    // 1 = RGB  — direct red/green/blue per-channel oscillators
+    int   synthMode     = 0;
+
     // ── Primary HSL ──────────────────────────────────────────────────────────
     float hueBase       = 0.0f;   // 0–1 wrapping hue
     float satBase       = 0.8f;
@@ -36,6 +41,23 @@ struct ColorSynth {
     float satAlt        = 0.9f;
     float lumAlt        = 0.45f;
     float altRate       = 0.5f;   // Hz — oscillation frequency between colours
+
+    // ── RGB mode: primary colour ──────────────────────────────────────────────
+    float rBase         = 1.0f;
+    float gBase         = 0.2f;
+    float bBase         = 0.5f;
+    // ── RGB mode: alternate colour (alternates at altRate Hz) ─────────────────
+    float rAlt          = 0.1f;
+    float gAlt          = 0.8f;
+    float bAlt          = 0.2f;
+    // ── RGB mode: per-channel oscillators ─────────────────────────────────────
+    float rOscAmp       = 0.25f;  float rOscRate = 0.31f;  // Hz
+    float gOscAmp       = 0.20f;  float gOscRate = 0.47f;
+    float bOscAmp       = 0.30f;  float bOscRate = 0.19f;
+    // ── RGB mode: MIDI sensitivity per channel ─────────────────────────────────
+    float midiRSens     = 0.5f;
+    float midiGSens     = 0.3f;
+    float midiBSens     = 0.6f;
 
     // ── Hue oscillator ────────────────────────────────────────────────────────
     float hueOscAmp     = 0.08f;  // max hue shift (0 = no oscillation)
@@ -81,5 +103,8 @@ private:
     float m_hueImpulse  = 0.0f;
     float m_satImpulse  = 0.0f;
     float m_lumImpulse  = 0.0f;
+    float m_rImpulse    = 0.0f;
+    float m_gImpulse    = 0.0f;
+    float m_bImpulse    = 0.0f;
     bool  m_wasInGlitch = false;
 };

@@ -24,8 +24,8 @@ VideoInput::~VideoInput() {
 
 // ── Camera enumeration ────────────────────────────────────────────────────────
 
-std::vector<std::string> VideoInput::listCameras() {
-    std::vector<std::string> result;
+std::vector<VideoInput::CameraInfo> VideoInput::listCameras() {
+    std::vector<CameraInfo> result;
     avdevice_register_all();
 
 #if defined(__APPLE__)
@@ -33,6 +33,7 @@ std::vector<std::string> VideoInput::listCameras() {
     if (!fmt) return result;
     AVDeviceInfoList* devList = nullptr;
     if (avdevice_list_input_sources(fmt, nullptr, nullptr, &devList) >= 0 && devList) {
+        int vidIdx = 0;
         for (int i = 0; i < devList->nb_devices; i++) {
             AVDeviceInfo* d = devList->devices[i];
             bool hasVideo = false;
@@ -40,17 +41,23 @@ std::vector<std::string> VideoInput::listCameras() {
                 if (d->media_types[j] == AVMEDIA_TYPE_VIDEO) { hasVideo = true; break; }
             }
             if (hasVideo) {
-                const char* desc = d->device_description ? d->device_description : d->device_name;
-                result.push_back(desc);
+                CameraInfo ci;
+                ci.name   = d->device_description ? d->device_description : d->device_name;
+                ci.devStr = std::to_string(vidIdx++);   // avfoundation video-device index
+                result.push_back(ci);
             }
         }
         avdevice_free_list_devices(&devList);
     }
+    if (result.empty())
+        fprintf(stderr, "VideoInput: no cameras found via avfoundation.\n"
+                "  → Check System Settings > Privacy & Security > Camera\n"
+                "    and grant access to your terminal app.\n");
 #elif defined(__linux__)
     for (int i = 0; i < 8; i++) {
         std::string dev = "/dev/video" + std::to_string(i);
         if (access(dev.c_str(), F_OK) == 0)
-            result.push_back(dev);
+            result.push_back({dev, dev});
     }
 #endif
     return result;
@@ -58,20 +65,17 @@ std::vector<std::string> VideoInput::listCameras() {
 
 // ── Camera open ───────────────────────────────────────────────────────────────
 
-bool VideoInput::openCamera(int idx) {
+bool VideoInput::openCameraByName(const std::string& devStr, int fps) {
     close();
     m_isCamera = true;
     avdevice_register_all();
 
     const AVInputFormat* fmt = nullptr;
-    std::string devStr;
 
 #if defined(__APPLE__)
     fmt = av_find_input_format("avfoundation");
-    devStr = std::to_string(idx);
 #elif defined(__linux__)
     fmt = av_find_input_format("v4l2");
-    devStr = "/dev/video" + std::to_string(idx);
 #else
     fprintf(stderr, "VideoInput: camera capture not supported on this platform\n");
     m_isCamera = false;
@@ -84,21 +88,35 @@ bool VideoInput::openCamera(int idx) {
         return false;
     }
 
-    AVDictionary* opts = nullptr;
-    av_dict_set(&opts, "framerate", "30", 0);
-#ifdef __APPLE__
-    // uyvy422 is the native format for most Mac webcams — avoids colour conversion
-    av_dict_set(&opts, "pixel_format", "uyvy422", 0);
-#endif
-
     m_path = "cam:" + devStr;
+
+    // Try open without specifying pixel format — let the device choose its native format.
+    // avfoundation on newer macOS / Continuity Camera uses nv12/420v, not uyvy422.
+    AVDictionary* opts = nullptr;
+    char fpsBuf[16];
+    snprintf(fpsBuf, sizeof(fpsBuf), "%d", fps);
+    av_dict_set(&opts, "framerate", fpsBuf, 0);
     int ret = avformat_open_input(&m_fmtCtx, devStr.c_str(), fmt, &opts);
     av_dict_free(&opts);
 
     if (ret != 0) {
+        // Fallback: try uyvy422 (native for older FaceTime HD cameras)
+        opts = nullptr;
+        av_dict_set(&opts, "framerate",    fpsBuf,   0);
+        av_dict_set(&opts, "pixel_format", "uyvy422", 0);
+        ret = avformat_open_input(&m_fmtCtx, devStr.c_str(), fmt, &opts);
+        av_dict_free(&opts);
+    }
+
+    if (ret != 0) {
         char errbuf[128];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        fprintf(stderr, "VideoInput: cannot open camera %d: %s\n", idx, errbuf);
+        fprintf(stderr, "VideoInput: cannot open camera '%s': %s\n", devStr.c_str(), errbuf);
+#ifdef __APPLE__
+        fprintf(stderr, "  → If this is a permission error, go to\n"
+                "    System Settings > Privacy & Security > Camera\n"
+                "    and grant access to your terminal app (Terminal / iTerm2).\n");
+#endif
         m_isCamera = false;
         return false;
     }
@@ -107,8 +125,18 @@ bool VideoInput::openCamera(int idx) {
         fprintf(stderr, "VideoInput: camera has no stream info\n");
         return false;
     }
-    fprintf(stderr, "VideoInput: camera %d opened\n", idx);
+    fprintf(stderr, "VideoInput: camera '%s' opened\n", devStr.c_str());
     return initCodec();
+}
+
+bool VideoInput::openCamera(int idx) {
+    auto cameras = listCameras();
+    if (idx < 0 || idx >= (int)cameras.size()) {
+        fprintf(stderr, "VideoInput: camera index %d out of range (%d cameras)\n",
+                idx, (int)cameras.size());
+        return false;
+    }
+    return openCameraByName(cameras[idx].devStr);
 }
 
 // ── File open ─────────────────────────────────────────────────────────────────

@@ -3225,21 +3225,25 @@ void EquationEditor::loadSettings(const std::string& path) {
     m_surgeLastAdvance  = (float)ImGui::GetTime();
     {
         std::string dev = ini_s(m, "stream.audio_device", m_streamOut.audioDevice);
-        m_streamOut.audioDevice = dev;
+        if (!m_streamOut.isStreaming())
+            m_streamOut.audioDevice = dev;
     }
     {
         std::string vp = ini_s(m, "stream.video_path", "");
         if (!vp.empty()) {
             strncpy(m_videoPath, vp.c_str(), sizeof(m_videoPath) - 1);
-            m_videoIn.open(vp);
+            if (!m_streamOut.isStreaming() && !m_recOut.isRecording())
+                m_videoIn.open(vp);
         }
     }
     {
         std::string op = ini_s(m, "stream.overlay_path", "");
         if (!op.empty()) {
             strncpy(m_overlayPath, op.c_str(), sizeof(m_overlayPath) - 1);
-            m_overlayIn.open(op);
-            m_streamOut.overlayAudioPath = op;
+            if (!m_streamOut.isStreaming() && !m_recOut.isRecording()) {
+                m_overlayIn.open(op);
+                m_streamOut.overlayAudioPath = op;
+            }
         }
         m_engine.overlayBlend    = ini_f(m, "stream.overlay_blend",    m_engine.overlayBlend);
     }
@@ -3250,33 +3254,36 @@ void EquationEditor::loadSettings(const std::string& path) {
     m_engine.ovrFilterA      = ini_f(m, "stream.ovr_fa",            m_engine.ovrFilterA);
     m_engine.ovrFilterB      = ini_f(m, "stream.ovr_fb",            m_engine.ovrFilterB);
     m_engine.streamBlendMode = ini_i(m, "stream.stream_blend_mode", m_engine.streamBlendMode);
-    int ndest = ini_i(m, "stream.dest_count", 0);
-    if (ndest > 0) {
-        // Remove existing destinations, then restore saved ones
-        while (m_streamOut.destCount() > 0) m_streamOut.removeDestination(0);
-        for (int i = 0; i < ndest; i++) {
-            std::string pfx = "stream.dest" + std::to_string(i);
-            std::string dname = ini_s(m, pfx + "_name", "");
-            std::string durl  = ini_s(m, pfx + "_url",  "");
-            bool den          = ini_b(m, pfx + "_enabled", true);
-            if (!dname.empty()) {
-                m_streamOut.addDestination(dname, durl);
-                m_streamOut.dest(m_streamOut.destCount() - 1).enabled = den;
+    // Don't touch live destinations while streaming — removing sinks blocks on
+    // thread::join() and disconnects the live RTMP connection.
+    if (!m_streamOut.isStreaming()) {
+        int ndest = ini_i(m, "stream.dest_count", 0);
+        if (ndest > 0) {
+            while (m_streamOut.destCount() > 0) m_streamOut.removeDestination(0);
+            for (int i = 0; i < ndest; i++) {
+                std::string pfx = "stream.dest" + std::to_string(i);
+                std::string dname = ini_s(m, pfx + "_name", "");
+                std::string durl  = ini_s(m, pfx + "_url",  "");
+                bool den          = ini_b(m, pfx + "_enabled", true);
+                if (!dname.empty()) {
+                    m_streamOut.addDestination(dname, durl);
+                    m_streamOut.dest(m_streamOut.destCount() - 1).enabled = den;
+                }
             }
         }
-    }
 
-    // Ensure the Restream destination is always present (user's primary service)
-    bool hasRestream = false;
-    for (int i = 0; i < m_streamOut.destCount(); i++) {
-        const auto& d = m_streamOut.dest(i);
-        if (d.name == "Restream" ||
-            d.url.rfind("rtmp://live.restream.io/live/", 0) == 0) {
-            hasRestream = true; break;
+        // Ensure the Restream destination is always present
+        bool hasRestream = false;
+        for (int i = 0; i < m_streamOut.destCount(); i++) {
+            const auto& d = m_streamOut.dest(i);
+            if (d.name == "Restream" ||
+                d.url.rfind("rtmp://live.restream.io/live/", 0) == 0) {
+                hasRestream = true; break;
+            }
         }
+        if (!hasRestream)
+            m_streamOut.addDestination("Restream", "rtmp://live.restream.io/live/");
     }
-    if (!hasRestream)
-        m_streamOut.addDestination("Restream", "rtmp://live.restream.io/live/");
 }
 
 // -- Presets panel -------------------------------------------------------------
@@ -3306,6 +3313,13 @@ void EquationEditor::drawPresetsPanel() {
         ImGui::SetTooltip("Overwrite the auto-saved last session now");
 
     ImGui::Spacing();
+
+    if (m_streamOut.isStreaming() || m_recOut.isRecording()) {
+        ImGui::TextColored({1.0f, 0.85f, 0.2f, 1.0f},
+            "Live: visual/fractal/color/MIDI settings load instantly.");
+        ImGui::TextDisabled("Stream destinations and video sources are unchanged.");
+        ImGui::Spacing();
+    }
 
     // Preset list
     if (m_presetList.empty()) {

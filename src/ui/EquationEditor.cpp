@@ -539,20 +539,26 @@ void EquationEditor::drawVideoPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
 #ifdef __APPLE__
-            "Capture any full-screen app (e.g. Milkdrop / Butterchurn) as the video texture.\n"
+            "ONE MONITOR SETUP:\n"
+            "  Refresh → App Windows → select Butterchurn → Capture Window\n"
+            "  Uses CGWindowListCreateImage — reads the window's layer directly,\n"
+            "  works even when it's hidden behind this window.\n"
             "\n"
-            "Requires: System Settings > Privacy & Security > Screen Recording\n"
-            "          → grant access to your terminal app, then relaunch.\n"
-            "\n"
-            "Window capture: lists visible on-screen windows via CoreGraphics.\n"
-            "  avfoundation region capture may crop to the window's position on screen."
+            "Requires Screen Recording permission:\n"
+            "  System Settings > Privacy & Security > Screen Recording\n"
+            "  → grant access to your terminal app, then relaunch."
 #else
-            "Capture any full-screen app (e.g. Milkdrop / Butterchurn) as the video texture.\n"
+            "ONE MONITOR SETUP (Linux):\n"
+            "  Click 'Launch Virtual Display' — starts an invisible Xvfb display.\n"
+            "  Run your visualizer on it:  DISPLAY=:99 ./butterchurn\n"
+            "  Then Refresh Monitors → select ':99' → Capture Screen.\n"
             "\n"
-            "Screen capture uses x11grab.  Window capture requires wmctrl:\n"
-            "  sudo apt install wmctrl\n"
+            "TWO MONITOR SETUP:\n"
+            "  Run visualizer full-screen on the other monitor,\n"
+            "  select it in Monitors → Capture Screen.\n"
             "\n"
-            "Run the visualizer full-screen first, then select the monitor it's on."
+            "Window capture needs wmctrl:  sudo apt install wmctrl\n"
+            "(only works if the window is not covered by another window)"
 #endif
         );
 
@@ -570,10 +576,9 @@ void EquationEditor::drawVideoPanel() {
         ImGui::SameLine();
         ImGui::TextColored({1.0f, 0.6f, 0.1f, 1.0f}, "No screens found");
 #ifdef __APPLE__
-        ImGui::TextDisabled("  System Settings > Privacy & Security > Screen Recording");
-        ImGui::TextDisabled("  → grant access, then relaunch the app");
+        ImGui::TextDisabled("  System Settings > Privacy > Screen Recording → allow terminal");
 #else
-        ImGui::TextDisabled("  Make sure DISPLAY is set (run from a desktop terminal)");
+        ImGui::TextDisabled("  Run from a desktop terminal with DISPLAY set");
 #endif
     } else {
         std::string scrItems;
@@ -587,13 +592,48 @@ void EquationEditor::drawVideoPanel() {
                 m_videoIn.openScreenCapture(m_screenInfoList[m_screenIdx].devStr);
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Captures the selected monitor as the primary video texture.\n"
-                              "Run your visualizer full-screen on that monitor first.");
+            ImGui::SetTooltip("Captures the selected monitor as the video texture.\n"
+                              "For single monitor: use the Virtual Display button below,\n"
+                              "then run your visualizer with DISPLAY=:99 <app>.");
     }
+
+    // -- Virtual display (Linux single-monitor) --------------------------------
+#ifdef __linux__
+    ImGui::Spacing();
+    ImGui::TextDisabled("Single-monitor: Virtual Display");
+    static char s_virtDisp[16] = "";
+    static bool s_virtActive   = false;
+    if (!s_virtActive) {
+        if (ImGui::Button("Launch Virtual Display  :99")) {
+            std::string d = VideoInput::launchVirtualDisplay(99, 1920, 1080);
+            if (!d.empty()) {
+                snprintf(s_virtDisp, sizeof(s_virtDisp), "%s", d.c_str());
+                s_virtActive = true;
+                m_screenListDirty = true;  // re-scan to show :99
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Starts an invisible Xvfb X display on :99.\n"
+                              "Then open a terminal and run:\n"
+                              "  DISPLAY=:99 ./butterchurn\n"
+                              "Then Refresh Monitors and select :99.");
+        ImGui::TextDisabled("Requires Xvfb:  sudo apt install xvfb");
+    } else {
+        ImGui::TextColored({0.2f,1.0f,0.4f,1.0f},
+            "Virtual display active on %s  (1920x1080)", s_virtDisp);
+        ImGui::TextDisabled("Run:  DISPLAY=%s ./butterchurn", s_virtDisp);
+        ImGui::SameLine();
+        if (ImGui::Button("Refresh Monitors"))
+            m_screenListDirty = true;
+    }
+#endif
 
     // -- Windows ---------------------------------------------------------------
     ImGui::Spacing();
     ImGui::TextDisabled("App Windows");
+#ifdef __APPLE__
+    ImGui::TextDisabled("Single-monitor: select your window below — works even when hidden");
+#endif
     if (m_windowListDirty || ImGui::Button("Refresh##win")) {
         m_windowInfoList  = VideoInput::listWindows();
         m_windowIdx       = 0;
@@ -601,7 +641,8 @@ void EquationEditor::drawVideoPanel() {
     }
 #ifndef __APPLE__
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Requires wmctrl:  sudo apt install wmctrl");
+        ImGui::SetTooltip("Requires wmctrl:  sudo apt install wmctrl\n"
+                          "Note: window must not be fully hidden behind other windows.");
 #endif
     if (m_windowInfoList.empty()) {
         ImGui::SameLine();
@@ -625,7 +666,15 @@ void EquationEditor::drawVideoPanel() {
                 m_videoIn.openWindowCapture(m_windowInfoList[m_windowIdx]);
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Captures only the selected window's screen region.");
+            ImGui::SetTooltip(
+#ifdef __APPLE__
+                "Reads the window's pixel buffer via CoreGraphics.\n"
+                "Works even when this fractal window is on top."
+#else
+                "Captures the window's screen region via x11grab.\n"
+                "The window must be at least partially visible."
+#endif
+            );
     }
 
     // -- Overlay video layer ---------------------------------------------------

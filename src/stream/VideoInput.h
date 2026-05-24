@@ -6,6 +6,9 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavdevice/avdevice.h>
 }
+#ifdef __APPLE__
+#include <CoreGraphics/CoreGraphics.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -20,7 +23,7 @@ public:
     bool openCamera(int deviceIdx);               // live camera (avfoundation/v4l2)
     bool openCameraByName(const std::string& devStr, int fps = 30);
     void close();
-    bool isOpen()          const { return m_fmtCtx != nullptr; }
+    bool isOpen()          const { return m_fmtCtx != nullptr || m_useCGImage; }
     bool isCamera()        const { return m_isCamera; }
     bool isScreenCapture() const { return m_isScreen; }
 
@@ -35,8 +38,11 @@ public:
     bool openScreenCapture(const std::string& devStr, int fps = 30);
 
     // Window capture.  Fill a WindowInfo from listWindows() then pass to openWindowCapture().
-    // Linux  : enumerates via wmctrl; capture uses x11grab with window geometry.
-    // macOS  : enumerates via CGWindowList; capture uses avfoundation region.
+    // macOS  : uses CGWindowListCreateImage — captures even when the window is behind
+    //          other windows (works on a single monitor setup).
+    // Linux  : uses x11grab region; the window must not be fully occluded.
+    //          For single-monitor use, run the visualizer on an Xvfb virtual display
+    //          and capture that display via openScreenCapture(":99.0").
     struct WindowInfo {
         std::string title;
         std::string devStr;   // platform-specific; pass opaquely to openWindowCapture
@@ -45,12 +51,13 @@ public:
     static std::vector<WindowInfo> listWindows();
     bool openWindowCapture(const WindowInfo& win, int fps = 30);
 
-    // Returns the next decoded frame in RGB24.
-    // Caller must call releaseFrame() when done.
-    // Returns nullptr if no frame available (end of file / camera not ready yet).
-    // Force output RGB frame to this resolution (upscales/downscales via swscale).
-    // Pass 0,0 to use the source's native resolution (default).
-    // Call each frame from main.cpp with the FBO size to keep camera at full screen.
+    // Linux helper: launch an Xvfb virtual display on the given display number.
+    // Returns the display string (e.g. ":99") on success, "" on failure.
+    // After calling this, run your visualizer with DISPLAY=:99 <app>,
+    // then openScreenCapture(":99.0") to capture it.
+    static std::string launchVirtualDisplay(int displayNum = 99,
+                                            int w = 1920, int h = 1080);
+
     void setOutputSize(int w, int h) { m_outW = w; m_outH = h; }
 
     AVFrame* nextFrame();
@@ -64,24 +71,32 @@ private:
     AVFormatContext* m_fmtCtx    = nullptr;
     AVCodecContext*  m_codecCtx  = nullptr;
     SwsContext*      m_swsCtx    = nullptr;
-    AVFrame*         m_frame     = nullptr;   // decoded (HW or SW)
-    AVFrame*         m_frameSW   = nullptr;   // CPU copy when using HW decode
-    AVFrame*         m_frameRGB  = nullptr;   // converted RGB24
+    AVFrame*         m_frame     = nullptr;
+    AVFrame*         m_frameSW   = nullptr;
+    AVFrame*         m_frameRGB  = nullptr;
     AVPacket*        m_pkt       = nullptr;
-    AVBufferRef*     m_hwDevCtx  = nullptr;   // VideoToolbox device (macOS only)
+    AVBufferRef*     m_hwDevCtx  = nullptr;
     bool             m_useHW     = false;
     int              m_streamIdx = -1;
     int              m_width     = 0;
     int              m_height    = 0;
     AVPixelFormat    m_lastPixFmt= AV_PIX_FMT_NONE;
-    int              m_srcW      = 0;   // source frame size (for swscale invalidation)
+    int              m_srcW      = 0;
     int              m_srcH      = 0;
     bool             m_isCamera  = false;
     bool             m_isScreen  = false;
-    int              m_outW      = 0;   // 0 = use native source size
+    int              m_outW      = 0;
     int              m_outH      = 0;
     std::string      m_path;
 
+    // macOS CoreGraphics window-capture mode (single-monitor capable)
+    bool             m_useCGImage  = false;
+#ifdef __APPLE__
+    CGWindowID       m_cgWindowID  = kCGNullWindowID;
+#endif
+    SwsContext*      m_cgSwsCtx    = nullptr;  // BGRA→RGB24 for CGImage path
+
     bool initCodec();
     void ensureSwsCtx(AVPixelFormat srcFmt, int w, int h);
+    AVFrame* nextFrameCGImage();   // macOS CoreGraphics path
 };

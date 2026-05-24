@@ -4,10 +4,11 @@
 #include <cstdlib>
 #ifdef __APPLE__
 #include <libavutil/hwcontext_videotoolbox.h>
-#include <CoreGraphics/CoreGraphics.h>
+// CoreGraphics included via VideoInput.h
 #endif
 #ifndef __APPLE__
 #include <unistd.h>
+#include <time.h>
 #endif
 
 VideoInput::VideoInput() {
@@ -247,6 +248,8 @@ void VideoInput::ensureSwsCtx(AVPixelFormat srcFmt, int srcW, int srcH) {
 }
 
 AVFrame* VideoInput::nextFrame() {
+    if (m_useCGImage) return nextFrameCGImage();
+
     while (av_read_frame(m_fmtCtx, m_pkt) >= 0) {
         if (m_pkt->stream_index != m_streamIdx) {
             av_packet_unref(m_pkt);
@@ -302,12 +305,17 @@ void VideoInput::releaseFrame(AVFrame* /*frame*/) {
 
 void VideoInput::close() {
     if (m_swsCtx)    { sws_freeContext(m_swsCtx);         m_swsCtx   = nullptr; }
+    if (m_cgSwsCtx)  { sws_freeContext(m_cgSwsCtx);       m_cgSwsCtx = nullptr; }
     if (m_codecCtx)  { avcodec_free_context(&m_codecCtx); }
     if (m_fmtCtx)    { avformat_close_input(&m_fmtCtx);   }
     if (m_hwDevCtx)  { av_buffer_unref(&m_hwDevCtx);      m_hwDevCtx = nullptr; }
     m_useHW      = false;
     m_isCamera   = false;
     m_isScreen   = false;
+    m_useCGImage = false;
+#ifdef __APPLE__
+    m_cgWindowID = kCGNullWindowID;
+#endif
     m_streamIdx  = -1;
     m_lastPixFmt = AV_PIX_FMT_NONE;
     m_srcW = 0; m_srcH = 0;
@@ -549,71 +557,31 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
     close();
     m_isCamera = true;
     m_isScreen = true;
-    avdevice_register_all();
-
-    AVDictionary* opts = nullptr;
-    char fpsBuf[16];
-    snprintf(fpsBuf, sizeof(fpsBuf), "%d", fps);
 
 #if defined(__APPLE__)
-    // On macOS, find which screen the window is on and capture that screen's region.
-    // avfoundation screen capture supports -offset_x/-offset_y/-video_size on some builds.
-    // Find the avfoundation screen device index for the display containing this window.
-    const AVInputFormat* fmt = av_find_input_format("avfoundation");
-    if (!fmt) { m_isCamera = m_isScreen = false; return false; }
+    // macOS: Use CGWindowListCreateImage which reads the window server layer buffer
+    // directly.  This works even when the window is behind other windows (single-monitor).
+    // We don't go through FFmpeg at all — nextFrameCGImage() polls CoreGraphics each frame.
+    CGWindowID wid = (CGWindowID)std::stoul(win.devStr);
+    m_cgWindowID = wid;
+    m_useCGImage = true;
+    m_width      = (win.w > 0) ? (win.w & ~1) : 2;
+    m_height     = (win.h > 0) ? (win.h & ~1) : 2;
+    m_path       = "window:" + win.title;
 
-    // Use CoreGraphics to figure out which avfoundation screen index contains this window.
-    // Walk avfoundation screens and match display bounds to window position.
-    int screenIdx = -1;
-    {
-        AVDeviceInfoList* devList = nullptr;
-        avdevice_list_input_sources(fmt, nullptr, nullptr, &devList);
-        int vidIdx = 0;
-        if (devList) {
-            for (int i = 0; i < devList->nb_devices && screenIdx < 0; i++) {
-                bool hasVideo = false;
-                for (int j = 0; j < devList->devices[i]->nb_media_types; j++)
-                    if (devList->devices[i]->media_types[j] == AVMEDIA_TYPE_VIDEO)
-                        { hasVideo = true; break; }
-                if (!hasVideo) continue;
-                std::string name = devList->devices[i]->device_description
-                                 ? devList->devices[i]->device_description : "";
-                if (name.find("screen") != std::string::npos ||
-                    name.find("Screen") != std::string::npos)
-                    screenIdx = vidIdx;  // take first screen device if any ambiguity
-                vidIdx++;
-            }
-            avdevice_free_list_devices(&devList);
-        }
-    }
-    if (screenIdx < 0) screenIdx = 0;  // fallback
+    // Pre-allocate output frame
+    av_frame_unref(m_frameRGB);
+    m_frameRGB->format = AV_PIX_FMT_RGB24;
+    m_frameRGB->width  = m_width;
+    m_frameRGB->height = m_height;
+    av_frame_get_buffer(m_frameRGB, 0);
 
-    std::string inputStr = std::to_string(screenIdx) + ":none";
-    av_dict_set(&opts, "framerate",    fpsBuf,                                        0);
-    av_dict_set(&opts, "capture_cursor","1",                                           0);
-    av_dict_set(&opts, "pixel_format", "bgr0",                                         0);
-    char wbuf[32], hbuf[32], xbuf[32], ybuf[32];
-    snprintf(wbuf, sizeof(wbuf), "%d", win.w);
-    snprintf(hbuf, sizeof(hbuf), "%d", win.h);
-    snprintf(xbuf, sizeof(xbuf), "%d", win.x);
-    snprintf(ybuf, sizeof(ybuf), "%d", win.y);
-    av_dict_set(&opts, "video_size", (std::string(wbuf) + "x" + hbuf).c_str(), 0);
-    av_dict_set(&opts, "offset_x",   xbuf, 0);
-    av_dict_set(&opts, "offset_y",   ybuf, 0);
-
-    m_path = "window:" + win.title;
-    int ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
-    av_dict_free(&opts);
-    if (ret != 0) {
-        // offset_x/y may not be supported — fall back to full screen capture of that screen
-        av_dict_set(&opts, "framerate",     fpsBuf, 0);
-        av_dict_set(&opts, "capture_cursor","1",    0);
-        av_dict_set(&opts, "pixel_format",  "bgr0", 0);
-        ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
-        av_dict_free(&opts);
-    }
+    fprintf(stderr, "VideoInput: CGImage window capture '%s' (wid %u)  %dx%d\n",
+            win.title.c_str(), wid, m_width, m_height);
+    return true;
 
 #elif defined(__linux__)
+    avdevice_register_all();
     const AVInputFormat* fmt = av_find_input_format("x11grab");
     if (!fmt) {
         fprintf(stderr, "VideoInput: x11grab not available\n");
@@ -623,19 +591,20 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
     const char* disp = getenv("DISPLAY");
     if (!disp) disp = ":0";
 
-    // Clamp window bounds to positive (some window managers report negative coords)
     int x = std::max(0, win.x);
     int y = std::max(0, win.y);
-    // x11grab requires even width/height
-    int w = (win.w) & ~1;
-    int h = (win.h) & ~1;
+    int w = win.w & ~1;
+    int h = win.h & ~1;
     if (w < 2) w = 2;
     if (h < 2) h = 2;
 
     char inputStr[128];
     snprintf(inputStr, sizeof(inputStr), "%s+%d,%d", disp, x, y);
-    char sizeBuf[32];
+    char sizeBuf[32], fpsBuf[16];
     snprintf(sizeBuf, sizeof(sizeBuf), "%dx%d", w, h);
+    snprintf(fpsBuf,  sizeof(fpsBuf),  "%d",    fps);
+
+    AVDictionary* opts = nullptr;
     av_dict_set(&opts, "video_size",  sizeBuf, 0);
     av_dict_set(&opts, "framerate",   fpsBuf,  0);
     av_dict_set(&opts, "draw_mouse",  "1",     0);
@@ -644,25 +613,121 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
     m_path = "window:" + win.title;
     int ret = avformat_open_input(&m_fmtCtx, inputStr, fmt, &opts);
     av_dict_free(&opts);
-#else
-    fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
-    m_isCamera = m_isScreen = false;
-    return false;
-    int ret = -1;  // suppress unused warning
-#endif
 
     if (ret != 0) {
         char errbuf[128];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        fprintf(stderr, "VideoInput: cannot open window '%s': %s\n",
+        fprintf(stderr, "VideoInput: cannot open window region '%s': %s\n",
                 win.title.c_str(), errbuf);
         m_isCamera = m_isScreen = false;
         return false;
     }
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
-        fprintf(stderr, "VideoInput: window capture stream info failed\n");
+        fprintf(stderr, "VideoInput: window region stream info failed\n");
         return false;
     }
-    fprintf(stderr, "VideoInput: window capture '%s' opened\n", win.title.c_str());
+    fprintf(stderr, "VideoInput: x11grab window capture '%s'  %dx%d @%d,%d\n",
+            win.title.c_str(), w, h, x, y);
     return initCodec();
+
+#else
+    fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
+    m_isCamera = m_isScreen = false;
+    return false;
+#endif
+}
+
+// ── macOS CoreGraphics frame pump ─────────────────────────────────────────────
+// Reads one frame from the window layer buffer without needing the window to be
+// frontmost — works on a single-monitor setup where both apps share one screen.
+
+AVFrame* VideoInput::nextFrameCGImage() {
+#ifdef __APPLE__
+    if (m_cgWindowID == kCGNullWindowID) return nullptr;
+
+    // kCGRectNull → use the window's own bounds
+    CGImageRef img = CGWindowListCreateImage(
+        kCGRectNull,
+        kCGWindowListOptionIncludingWindow,
+        m_cgWindowID,
+        kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque);
+    if (!img) return nullptr;
+
+    size_t imgW     = CGImageGetWidth(img);
+    size_t imgH     = CGImageGetHeight(img);
+    size_t rowBytes = CGImageGetBytesPerRow(img);
+
+    CGDataProviderRef dp  = CGImageGetDataProvider(img);
+    CFDataRef rawData     = CGDataProviderCopyData(dp);
+    if (!rawData) { CGImageRelease(img); return nullptr; }
+
+    const uint8_t* pixels = CFDataGetBytePtr(rawData);
+
+    int dstW = (m_outW > 0) ? m_outW : (int)(imgW & ~1);
+    int dstH = (m_outH > 0) ? m_outH : (int)(imgH & ~1);
+    if (dstW < 2) dstW = 2;
+    if (dstH < 2) dstH = 2;
+
+    // Rebuild sws + output frame if size changed
+    if (dstW != m_width || dstH != m_height || !m_cgSwsCtx) {
+        if (m_cgSwsCtx) { sws_freeContext(m_cgSwsCtx); m_cgSwsCtx = nullptr; }
+        av_frame_unref(m_frameRGB);
+        m_width  = dstW;
+        m_height = dstH;
+        m_frameRGB->format = AV_PIX_FMT_RGB24;
+        m_frameRGB->width  = dstW;
+        m_frameRGB->height = dstH;
+        av_frame_get_buffer(m_frameRGB, 0);
+    }
+    if (!m_cgSwsCtx) {
+        m_cgSwsCtx = sws_getContext(
+            (int)imgW, (int)imgH, AV_PIX_FMT_BGRA,
+            dstW, dstH, AV_PIX_FMT_RGB24,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+    }
+    if (!m_cgSwsCtx) { CFRelease(rawData); CGImageRelease(img); return nullptr; }
+
+    av_frame_make_writable(m_frameRGB);
+    const uint8_t* srcData[4]  = { pixels, nullptr, nullptr, nullptr };
+    int            srcStride[4] = { (int)rowBytes, 0, 0, 0 };
+    sws_scale(m_cgSwsCtx, srcData, srcStride, 0, (int)imgH,
+              m_frameRGB->data, m_frameRGB->linesize);
+
+    CFRelease(rawData);
+    CGImageRelease(img);
+    return m_frameRGB;
+#else
+    return nullptr;
+#endif
+}
+
+// ── Virtual display (Linux Xvfb) ─────────────────────────────────────────────
+
+std::string VideoInput::launchVirtualDisplay(int displayNum, int w, int h) {
+#ifdef __linux__
+    // Check Xvfb is available
+    if (system("which Xvfb >/dev/null 2>&1") != 0) {
+        fprintf(stderr, "VideoInput: Xvfb not found — install with: sudo apt install xvfb\n");
+        return "";
+    }
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+             "Xvfb :%d -screen 0 %dx%dx24 +iglx &>/dev/null &",
+             displayNum, w, h);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "VideoInput: failed to launch Xvfb :%d\n", displayNum);
+        return "";
+    }
+    // Give Xvfb a moment to start
+    struct timespec ts = {0, 300000000L};  // 300 ms
+    nanosleep(&ts, nullptr);
+
+    char dispStr[16];
+    snprintf(dispStr, sizeof(dispStr), ":%d", displayNum);
+    fprintf(stderr, "VideoInput: Xvfb started on %s  (%dx%d)\n", dispStr, w, h);
+    return dispStr;
+#else
+    (void)displayNum; (void)w; (void)h;
+    return "";
+#endif
 }

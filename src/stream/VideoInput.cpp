@@ -1,7 +1,10 @@
 #include "VideoInput.h"
 #include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #ifdef __APPLE__
 #include <libavutil/hwcontext_videotoolbox.h>
+#include <CoreGraphics/CoreGraphics.h>
 #endif
 #ifndef __APPLE__
 #include <unistd.h>
@@ -304,9 +307,362 @@ void VideoInput::close() {
     if (m_hwDevCtx)  { av_buffer_unref(&m_hwDevCtx);      m_hwDevCtx = nullptr; }
     m_useHW      = false;
     m_isCamera   = false;
+    m_isScreen   = false;
     m_streamIdx  = -1;
     m_lastPixFmt = AV_PIX_FMT_NONE;
     m_srcW = 0; m_srcH = 0;
     m_outW = 0; m_outH = 0;
     av_frame_unref(m_frameSW);
+}
+
+// ── Screen enumeration ────────────────────────────────────────────────────────
+
+std::vector<VideoInput::ScreenInfo> VideoInput::listScreens() {
+    std::vector<ScreenInfo> result;
+    avdevice_register_all();
+
+#if defined(__APPLE__)
+    const AVInputFormat* fmt = av_find_input_format("avfoundation");
+    if (!fmt) return result;
+    AVDeviceInfoList* devList = nullptr;
+    if (avdevice_list_input_sources(fmt, nullptr, nullptr, &devList) >= 0 && devList) {
+        int vidIdx = 0;
+        for (int i = 0; i < devList->nb_devices; i++) {
+            AVDeviceInfo* d = devList->devices[i];
+            bool hasVideo = false;
+            for (int j = 0; j < d->nb_media_types; j++)
+                if (d->media_types[j] == AVMEDIA_TYPE_VIDEO) { hasVideo = true; break; }
+            if (!hasVideo) continue;
+            std::string name = d->device_description ? d->device_description
+                                                     : (d->device_name ? d->device_name : "");
+            if (name.find("screen") != std::string::npos ||
+                name.find("Screen") != std::string::npos ||
+                name.find("display") != std::string::npos) {
+                result.push_back({name, std::to_string(vidIdx)});
+            }
+            vidIdx++;
+        }
+        avdevice_free_list_devices(&devList);
+    }
+    if (result.empty())
+        fprintf(stderr, "VideoInput: no screen devices found via avfoundation.\n"
+                "  → System Settings > Privacy & Security > Screen Recording\n"
+                "    and grant access to your terminal app.\n");
+
+#elif defined(__linux__)
+    const char* disp = getenv("DISPLAY");
+    if (!disp) disp = ":0";
+
+    // Use xrandr to enumerate monitors with their offsets/sizes
+    FILE* f = popen("xrandr --listmonitors 2>/dev/null", "r");
+    if (f) {
+        char line[512];
+        bool gotAny = false;
+        while (fgets(line, sizeof(line), f)) {
+            // Line format: " 0: +*eDP-1 1920/309x1080/173+0+0  eDP-1"
+            int idx; char flags[8]; int pw, phys_w, ph, phys_h, ox, oy; char mname[64];
+            // Parse the "WxH+OX+OY" geometry block
+            if (sscanf(line, " %d: %7s %d/%*dx%d/%*d+%d+%d %63s",
+                       &idx, flags, &pw, &ph, &ox, &oy, mname) >= 7) {
+                ScreenInfo si;
+                si.name   = std::string(mname) + "  (" + std::to_string(pw) + "x"
+                          + std::to_string(ph) + "  offset " + std::to_string(ox) + ","
+                          + std::to_string(oy) + ")";
+                // devStr: "display+ox,oy WxH"  (space separates display from size)
+                si.devStr = std::string(disp) + "+" + std::to_string(ox) + ","
+                          + std::to_string(oy) + " " + std::to_string(pw) + "x"
+                          + std::to_string(ph);
+                result.push_back(si);
+                gotAny = true;
+            }
+        }
+        pclose(f);
+        if (!gotAny)
+            result.push_back({"Full screen (" + std::string(disp) + ")",
+                               std::string(disp)});
+    } else {
+        result.push_back({"Full screen (" + std::string(disp) + ")",
+                           std::string(disp)});
+    }
+#endif
+    return result;
+}
+
+// ── Screen open ───────────────────────────────────────────────────────────────
+
+bool VideoInput::openScreenCapture(const std::string& devStr, int fps) {
+    close();
+    m_isCamera = true;   // live source: no looping
+    m_isScreen = true;
+    avdevice_register_all();
+
+    const AVInputFormat* fmt = nullptr;
+    std::string inputStr;
+    AVDictionary* opts = nullptr;
+    char fpsBuf[16];
+    snprintf(fpsBuf, sizeof(fpsBuf), "%d", fps);
+
+#if defined(__APPLE__)
+    fmt = av_find_input_format("avfoundation");
+    if (!fmt) { m_isCamera = m_isScreen = false; return false; }
+    inputStr = devStr + ":none";  // video_idx:no_audio
+    av_dict_set(&opts, "framerate",       fpsBuf, 0);
+    av_dict_set(&opts, "capture_cursor",  "1",    0);
+    av_dict_set(&opts, "pixel_format",    "bgr0",  0);
+
+#elif defined(__linux__)
+    fmt = av_find_input_format("x11grab");
+    if (!fmt) {
+        fprintf(stderr, "VideoInput: x11grab not available (compile FFmpeg with --enable-x11grab)\n");
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    // devStr: ":0.0"  or  ":0.0+ox,oy WxH"
+    auto space = devStr.find(' ');
+    if (space != std::string::npos) {
+        inputStr = devStr.substr(0, space);
+        av_dict_set(&opts, "video_size", devStr.substr(space + 1).c_str(), 0);
+    } else {
+        inputStr = devStr;
+    }
+    av_dict_set(&opts, "framerate",   fpsBuf, 0);
+    av_dict_set(&opts, "draw_mouse",  "1",    0);
+    av_dict_set(&opts, "probesize",   "32",   0);
+#else
+    fprintf(stderr, "VideoInput: screen capture not supported on this platform\n");
+    m_isCamera = m_isScreen = false;
+    return false;
+#endif
+
+    m_path = "screen:" + devStr;
+    int ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
+    av_dict_free(&opts);
+
+    if (ret != 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        fprintf(stderr, "VideoInput: cannot open screen '%s': %s\n", devStr.c_str(), errbuf);
+#ifdef __APPLE__
+        fprintf(stderr, "  → System Settings > Privacy & Security > Screen Recording\n"
+                "    and grant access to your terminal app.\n");
+#endif
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        fprintf(stderr, "VideoInput: screen capture stream info failed\n");
+        return false;
+    }
+    fprintf(stderr, "VideoInput: screen capture '%s' opened\n", devStr.c_str());
+    return initCodec();
+}
+
+// ── Window enumeration ────────────────────────────────────────────────────────
+
+std::vector<VideoInput::WindowInfo> VideoInput::listWindows() {
+    std::vector<WindowInfo> result;
+
+#if defined(__APPLE__)
+    CFArrayRef list = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID);
+    if (!list) return result;
+
+    for (CFIndex i = 0; i < CFArrayGetCount(list); i++) {
+        auto* dict = (CFDictionaryRef)CFArrayGetValueAtIndex(list, i);
+
+        // Window must be on-screen layer (layer 0 = normal windows)
+        int layer = 0;
+        if (auto* n = (CFNumberRef)CFDictionaryGetValue(dict, kCGWindowLayer))
+            CFNumberGetValue(n, kCFNumberIntType, &layer);
+        if (layer != 0) continue;
+
+        // Get window title (may be NULL for some windows)
+        std::string title;
+        if (auto* s = (CFStringRef)CFDictionaryGetValue(dict, kCGWindowName)) {
+            char buf[256] = {};
+            if (CFStringGetCString(s, buf, sizeof(buf), kCFStringEncodingUTF8))
+                title = buf;
+        }
+        // Fall back to owning application name
+        if (title.empty()) {
+            if (auto* s = (CFStringRef)CFDictionaryGetValue(dict, kCGWindowOwnerName)) {
+                char buf[256] = {};
+                if (CFStringGetCString(s, buf, sizeof(buf), kCFStringEncodingUTF8))
+                    title = std::string("[") + buf + "]";
+            }
+        }
+        if (title.empty()) continue;
+
+        // Bounds
+        CGRect bounds = CGRectZero;
+        if (auto* bd = (CFDictionaryRef)CFDictionaryGetValue(dict, kCGWindowBounds))
+            CGRectMakeWithDictionaryRepresentation(bd, &bounds);
+        if (bounds.size.width < 50 || bounds.size.height < 50) continue;
+
+        // Window ID as devStr (for openWindowCapture to determine screen index)
+        int winID = 0;
+        if (auto* n = (CFNumberRef)CFDictionaryGetValue(dict, kCGWindowNumber))
+            CFNumberGetValue(n, kCFNumberIntType, &winID);
+
+        WindowInfo wi;
+        wi.title  = title;
+        wi.x = (int)bounds.origin.x;
+        wi.y = (int)bounds.origin.y;
+        wi.w = (int)bounds.size.width;
+        wi.h = (int)bounds.size.height;
+        wi.devStr = std::to_string(winID);  // opaque: window ID
+        result.push_back(wi);
+    }
+    CFRelease(list);
+
+#elif defined(__linux__)
+    // wmctrl -lG: 0xWINID  desktop  x  y  w  h  hostname  title
+    FILE* f = popen("wmctrl -lG 2>/dev/null", "r");
+    if (!f) {
+        fprintf(stderr, "VideoInput: wmctrl not found — install with: sudo apt install wmctrl\n");
+        return result;
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        unsigned long winId = 0;
+        int desktop = 0, x = 0, y = 0, w = 0, h = 0;
+        char host[64] = {};
+        char title[512] = {};
+        int n = sscanf(line, "0x%lx %d %d %d %d %d %63s %511[^\n]",
+                       &winId, &desktop, &x, &y, &w, &h, host, title);
+        if (n < 7 || w < 50 || h < 50) continue;
+        WindowInfo wi;
+        wi.title  = (n >= 8 && title[0]) ? title : "(unnamed)";
+        wi.x = x; wi.y = y; wi.w = w; wi.h = h;
+        wi.devStr = std::to_string(winId);
+        result.push_back(wi);
+    }
+    pclose(f);
+#endif
+    return result;
+}
+
+// ── Window capture open ───────────────────────────────────────────────────────
+
+bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
+    close();
+    m_isCamera = true;
+    m_isScreen = true;
+    avdevice_register_all();
+
+    AVDictionary* opts = nullptr;
+    char fpsBuf[16];
+    snprintf(fpsBuf, sizeof(fpsBuf), "%d", fps);
+
+#if defined(__APPLE__)
+    // On macOS, find which screen the window is on and capture that screen's region.
+    // avfoundation screen capture supports -offset_x/-offset_y/-video_size on some builds.
+    // Find the avfoundation screen device index for the display containing this window.
+    const AVInputFormat* fmt = av_find_input_format("avfoundation");
+    if (!fmt) { m_isCamera = m_isScreen = false; return false; }
+
+    // Use CoreGraphics to figure out which avfoundation screen index contains this window.
+    // Walk avfoundation screens and match display bounds to window position.
+    int screenIdx = -1;
+    {
+        AVDeviceInfoList* devList = nullptr;
+        avdevice_list_input_sources(fmt, nullptr, nullptr, &devList);
+        int vidIdx = 0;
+        if (devList) {
+            for (int i = 0; i < devList->nb_devices && screenIdx < 0; i++) {
+                bool hasVideo = false;
+                for (int j = 0; j < devList->devices[i]->nb_media_types; j++)
+                    if (devList->devices[i]->media_types[j] == AVMEDIA_TYPE_VIDEO)
+                        { hasVideo = true; break; }
+                if (!hasVideo) continue;
+                std::string name = devList->devices[i]->device_description
+                                 ? devList->devices[i]->device_description : "";
+                if (name.find("screen") != std::string::npos ||
+                    name.find("Screen") != std::string::npos)
+                    screenIdx = vidIdx;  // take first screen device if any ambiguity
+                vidIdx++;
+            }
+            avdevice_free_list_devices(&devList);
+        }
+    }
+    if (screenIdx < 0) screenIdx = 0;  // fallback
+
+    std::string inputStr = std::to_string(screenIdx) + ":none";
+    av_dict_set(&opts, "framerate",    fpsBuf,                                        0);
+    av_dict_set(&opts, "capture_cursor","1",                                           0);
+    av_dict_set(&opts, "pixel_format", "bgr0",                                         0);
+    char wbuf[32], hbuf[32], xbuf[32], ybuf[32];
+    snprintf(wbuf, sizeof(wbuf), "%d", win.w);
+    snprintf(hbuf, sizeof(hbuf), "%d", win.h);
+    snprintf(xbuf, sizeof(xbuf), "%d", win.x);
+    snprintf(ybuf, sizeof(ybuf), "%d", win.y);
+    av_dict_set(&opts, "video_size", (std::string(wbuf) + "x" + hbuf).c_str(), 0);
+    av_dict_set(&opts, "offset_x",   xbuf, 0);
+    av_dict_set(&opts, "offset_y",   ybuf, 0);
+
+    m_path = "window:" + win.title;
+    int ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
+    av_dict_free(&opts);
+    if (ret != 0) {
+        // offset_x/y may not be supported — fall back to full screen capture of that screen
+        av_dict_set(&opts, "framerate",     fpsBuf, 0);
+        av_dict_set(&opts, "capture_cursor","1",    0);
+        av_dict_set(&opts, "pixel_format",  "bgr0", 0);
+        ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
+        av_dict_free(&opts);
+    }
+
+#elif defined(__linux__)
+    const AVInputFormat* fmt = av_find_input_format("x11grab");
+    if (!fmt) {
+        fprintf(stderr, "VideoInput: x11grab not available\n");
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    const char* disp = getenv("DISPLAY");
+    if (!disp) disp = ":0";
+
+    // Clamp window bounds to positive (some window managers report negative coords)
+    int x = std::max(0, win.x);
+    int y = std::max(0, win.y);
+    // x11grab requires even width/height
+    int w = (win.w) & ~1;
+    int h = (win.h) & ~1;
+    if (w < 2) w = 2;
+    if (h < 2) h = 2;
+
+    char inputStr[128];
+    snprintf(inputStr, sizeof(inputStr), "%s+%d,%d", disp, x, y);
+    char sizeBuf[32];
+    snprintf(sizeBuf, sizeof(sizeBuf), "%dx%d", w, h);
+    av_dict_set(&opts, "video_size",  sizeBuf, 0);
+    av_dict_set(&opts, "framerate",   fpsBuf,  0);
+    av_dict_set(&opts, "draw_mouse",  "1",     0);
+    av_dict_set(&opts, "probesize",   "32",    0);
+
+    m_path = "window:" + win.title;
+    int ret = avformat_open_input(&m_fmtCtx, inputStr, fmt, &opts);
+    av_dict_free(&opts);
+#else
+    fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
+    m_isCamera = m_isScreen = false;
+    return false;
+    int ret = -1;  // suppress unused warning
+#endif
+
+    if (ret != 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        fprintf(stderr, "VideoInput: cannot open window '%s': %s\n",
+                win.title.c_str(), errbuf);
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        fprintf(stderr, "VideoInput: window capture stream info failed\n");
+        return false;
+    }
+    fprintf(stderr, "VideoInput: window capture '%s' opened\n", win.title.c_str());
+    return initCodec();
 }

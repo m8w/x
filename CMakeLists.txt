@@ -142,6 +142,7 @@ if(APPLE)
         "-framework CoreMIDI"
         "-framework CoreAudio"
         "-framework CoreFoundation"
+        "-framework CoreGraphics"
         "-framework UniformTypeIdentifiers"
         glfw
         ${FFMPEG_LIBRARIES}

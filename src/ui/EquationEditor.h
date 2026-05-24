@@ -60,6 +60,14 @@ private:
     int                                 m_cameraIdx       = 0;
     bool                                m_cameraListDirty = true;
 
+    // Screen / window capture state
+    std::vector<VideoInput::ScreenInfo> m_screenInfoList;
+    int                                 m_screenIdx       = 0;
+    bool                                m_screenListDirty = true;
+    std::vector<VideoInput::WindowInfo> m_windowInfoList;
+    int                                 m_windowIdx       = 0;
+    bool                                m_windowListDirty = true;
+
     // Stream timer
     std::chrono::steady_clock::time_point m_streamStartTime;
     bool m_wasStreaming = false;

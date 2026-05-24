@@ -9,7 +9,7 @@ extern "C" {
 #include <string>
 #include <vector>
 
-// Decodes local video files or live capture devices (webcam/camera).
+// Decodes local video files, live cameras, or screen/window captures.
 // Returns RGB24 AVFrames ready for upload to a GL texture.
 class VideoInput {
 public:
@@ -18,15 +18,32 @@ public:
 
     bool open(const std::string& path);           // local file
     bool openCamera(int deviceIdx);               // live camera (avfoundation/v4l2)
-    bool openCameraByName(const std::string& devStr, int fps = 30); // use raw device string
+    bool openCameraByName(const std::string& devStr, int fps = 30);
     void close();
-    bool isOpen()   const { return m_fmtCtx != nullptr; }
-    bool isCamera() const { return m_isCamera; }
+    bool isOpen()          const { return m_fmtCtx != nullptr; }
+    bool isCamera()        const { return m_isCamera; }
+    bool isScreenCapture() const { return m_isScreen; }
 
     struct CameraInfo { std::string name; std::string devStr; };
-    // Returns detected cameras. name = human-readable, devStr = pass to openCameraByName.
-    // macOS: avfoundation video devices (includes iPhone Continuity Camera when connected).
     static std::vector<CameraInfo> listCameras();
+
+    // Screen / monitor capture.
+    // devStr on macOS  : avfoundation video-device index string (e.g. "1")
+    // devStr on Linux  : ":0.0" for whole display, or ":0.0+ox,oy WxH" for a monitor
+    struct ScreenInfo { std::string name; std::string devStr; };
+    static std::vector<ScreenInfo> listScreens();
+    bool openScreenCapture(const std::string& devStr, int fps = 30);
+
+    // Window capture.  Fill a WindowInfo from listWindows() then pass to openWindowCapture().
+    // Linux  : enumerates via wmctrl; capture uses x11grab with window geometry.
+    // macOS  : enumerates via CGWindowList; capture uses avfoundation region.
+    struct WindowInfo {
+        std::string title;
+        std::string devStr;   // platform-specific; pass opaquely to openWindowCapture
+        int x = 0, y = 0, w = 0, h = 0;
+    };
+    static std::vector<WindowInfo> listWindows();
+    bool openWindowCapture(const WindowInfo& win, int fps = 30);
 
     // Returns the next decoded frame in RGB24.
     // Caller must call releaseFrame() when done.
@@ -60,6 +77,7 @@ private:
     int              m_srcW      = 0;   // source frame size (for swscale invalidation)
     int              m_srcH      = 0;
     bool             m_isCamera  = false;
+    bool             m_isScreen  = false;
     int              m_outW      = 0;   // 0 = use native source size
     int              m_outH      = 0;
     std::string      m_path;

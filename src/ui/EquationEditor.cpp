@@ -473,13 +473,14 @@ void EquationEditor::drawVideoPanel() {
 
     ImGui::Separator();
     if (m_videoIn.isOpen()) {
-        const char* srcLabel = m_videoIn.isCamera() ? "Live cam" : "Playing";
+        const char* srcLabel = m_videoIn.isScreenCapture() ? "Screen" :
+                               m_videoIn.isCamera()        ? "Live cam" : "Playing";
         ImGui::TextColored({0.2f,1.0f,0.4f,1.0f}, "%s: %dx%d  %s",
                            srcLabel,
                            m_videoIn.width(), m_videoIn.height(),
                            m_videoIn.path().c_str());
     } else {
-        ImGui::TextDisabled("No video  -  Browse for a file or open a camera below");
+        ImGui::TextDisabled("No video  -  Browse for a file, camera, or screen below");
     }
 
     // -- Live Camera -----------------------------------------------------------
@@ -530,6 +531,101 @@ void EquationEditor::drawVideoPanel() {
             m_videoIn.close();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Opens the selected camera as the primary video texture.");
+    }
+
+    // -- Screen / App Window Capture -------------------------------------------
+    ImGui::Separator();
+    ImGui::TextUnformatted("Screen / App Window Capture");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+#ifdef __APPLE__
+            "Capture any full-screen app (e.g. Milkdrop / Butterchurn) as the video texture.\n"
+            "\n"
+            "Requires: System Settings > Privacy & Security > Screen Recording\n"
+            "          → grant access to your terminal app, then relaunch.\n"
+            "\n"
+            "Window capture: lists visible on-screen windows via CoreGraphics.\n"
+            "  avfoundation region capture may crop to the window's position on screen."
+#else
+            "Capture any full-screen app (e.g. Milkdrop / Butterchurn) as the video texture.\n"
+            "\n"
+            "Screen capture uses x11grab.  Window capture requires wmctrl:\n"
+            "  sudo apt install wmctrl\n"
+            "\n"
+            "Run the visualizer full-screen first, then select the monitor it's on."
+#endif
+        );
+
+    // -- Screens ---------------------------------------------------------------
+    ImGui::TextDisabled("Monitors");
+    if (m_screenListDirty || ImGui::Button("Refresh##scr")) {
+        m_screenInfoList  = VideoInput::listScreens();
+        m_screenIdx       = 0;
+        m_screenListDirty = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Close##scr")) m_videoIn.close();
+
+    if (m_screenInfoList.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored({1.0f, 0.6f, 0.1f, 1.0f}, "No screens found");
+#ifdef __APPLE__
+        ImGui::TextDisabled("  System Settings > Privacy & Security > Screen Recording");
+        ImGui::TextDisabled("  → grant access, then relaunch the app");
+#else
+        ImGui::TextDisabled("  Make sure DISPLAY is set (run from a desktop terminal)");
+#endif
+    } else {
+        std::string scrItems;
+        for (auto& s : m_screenInfoList) { scrItems += s.name; scrItems += '\0'; }
+        scrItems += '\0';
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::Combo("##scrlist", &m_screenIdx, scrItems.c_str());
+
+        if (ImGui::Button("Capture Screen")) {
+            if (m_screenIdx >= 0 && m_screenIdx < (int)m_screenInfoList.size())
+                m_videoIn.openScreenCapture(m_screenInfoList[m_screenIdx].devStr);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Captures the selected monitor as the primary video texture.\n"
+                              "Run your visualizer full-screen on that monitor first.");
+    }
+
+    // -- Windows ---------------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("App Windows");
+    if (m_windowListDirty || ImGui::Button("Refresh##win")) {
+        m_windowInfoList  = VideoInput::listWindows();
+        m_windowIdx       = 0;
+        m_windowListDirty = false;
+    }
+#ifndef __APPLE__
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Requires wmctrl:  sudo apt install wmctrl");
+#endif
+    if (m_windowInfoList.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("No windows  (click Refresh)");
+#ifdef __linux__
+        ImGui::TextDisabled("  sudo apt install wmctrl");
+#endif
+    } else {
+        std::string winItems;
+        for (auto& w : m_windowInfoList) {
+            winItems += w.title + "  (" + std::to_string(w.w) + "x"
+                      + std::to_string(w.h) + ")";
+            winItems += '\0';
+        }
+        winItems += '\0';
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::Combo("##winlist", &m_windowIdx, winItems.c_str());
+
+        if (ImGui::Button("Capture Window")) {
+            if (m_windowIdx >= 0 && m_windowIdx < (int)m_windowInfoList.size())
+                m_videoIn.openWindowCapture(m_windowInfoList[m_windowIdx]);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Captures only the selected window's screen region.");
     }
 
     // -- Overlay video layer ---------------------------------------------------

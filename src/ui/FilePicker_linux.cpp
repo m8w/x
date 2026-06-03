@@ -1,4 +1,4 @@
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #include "FilePicker.h"
 #include <cstdio>
 #include <array>

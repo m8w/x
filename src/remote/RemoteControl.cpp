@@ -1,7 +1,14 @@
 #include "RemoteControl.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
+#ifdef _WIN32
+#  include <winsock2.h>
+#  pragma comment(lib, "ws2_32.lib")
+#  define sock_close closesocket
+#else
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <unistd.h>
+#  define sock_close close
+#endif
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -179,11 +186,19 @@ RemoteControl::~RemoteControl() { stop(); }
 
 bool RemoteControl::start(int port) {
     m_port     = port;
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
     m_serverFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (m_serverFd < 0) { perror("RemoteControl: socket"); return false; }
+    if (m_serverFd == kInvalidSocket) { perror("RemoteControl: socket"); return false; }
 
     int opt = 1;
+#ifdef _WIN32
+    setsockopt(m_serverFd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#else
     setsockopt(m_serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
 
     sockaddr_in addr{};
     addr.sin_family      = AF_INET;
@@ -191,10 +206,10 @@ bool RemoteControl::start(int port) {
     addr.sin_port        = htons((uint16_t)port);
 
     if (bind(m_serverFd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("RemoteControl: bind"); close(m_serverFd); m_serverFd = -1; return false;
+        perror("RemoteControl: bind"); sock_close(m_serverFd); m_serverFd = kInvalidSocket; return false;
     }
     if (listen(m_serverFd, 8) < 0) {
-        perror("RemoteControl: listen"); close(m_serverFd); m_serverFd = -1; return false;
+        perror("RemoteControl: listen"); sock_close(m_serverFd); m_serverFd = kInvalidSocket; return false;
     }
 
     m_running = true;
@@ -204,22 +219,35 @@ bool RemoteControl::start(int port) {
 
 void RemoteControl::stop() {
     m_running = false;
-    if (m_serverFd >= 0) { shutdown(m_serverFd, SHUT_RDWR); close(m_serverFd); m_serverFd = -1; }
+    if (m_serverFd != kInvalidSocket) {
+        shutdown(m_serverFd,
+#ifdef _WIN32
+            SD_BOTH
+#else
+            SHUT_RDWR
+#endif
+        );
+        sock_close(m_serverFd);
+        m_serverFd = kInvalidSocket;
+    }
     if (m_thread.joinable()) m_thread.join();
+#ifdef _WIN32
+    WSACleanup();
+#endif
 }
 
 // ── Server loop ───────────────────────────────────────────────────────────────
 
 void RemoteControl::serverLoop() {
     while (m_running) {
-        int clientFd = accept(m_serverFd, nullptr, nullptr);
-        if (clientFd < 0) break;
+        SocketFd clientFd = accept(m_serverFd, nullptr, nullptr);
+        if (clientFd == kInvalidSocket) break;
         handleClient(clientFd);
-        close(clientFd);
+        sock_close(clientFd);
     }
 }
 
-void RemoteControl::handleClient(int fd) {
+void RemoteControl::handleClient(SocketFd fd) {
     char buf[4096] = {};
     int  n = (int)recv(fd, buf, sizeof(buf) - 1, 0);
     if (n <= 0) return;
@@ -293,6 +321,6 @@ void RemoteControl::handleClient(int fd) {
         "Connection: close\r\n\r\n",
         statusCode, contentType.c_str(), body.size());
 
-    ::send(fd, header, (size_t)hlen, 0);
-    ::send(fd, body.c_str(), body.size(), 0);
+    ::send(fd, header, (int)hlen, 0);
+    ::send(fd, body.c_str(), (int)body.size(), 0);
 }

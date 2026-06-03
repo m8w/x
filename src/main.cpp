@@ -24,8 +24,10 @@
 
 #include <cstdio>
 #include <string>
-#include <ifaddrs.h>
-#include <arpa/inet.h>
+#ifndef _WIN32
+#  include <ifaddrs.h>
+#  include <arpa/inet.h>
+#endif
 extern "C" {
 #include <libavutil/log.h>
 }
@@ -95,6 +97,7 @@ int main(int argc, char** argv) {
     if (remote.start(7777)) {
         // Print all non-loopback IPv4 addresses so user knows what to type
         fprintf(stderr, "\n=== Phone remote ===\n");
+#ifndef _WIN32
         struct ifaddrs* ifap = nullptr;
         if (getifaddrs(&ifap) == 0) {
             for (auto* ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -106,6 +109,9 @@ int main(int argc, char** argv) {
             }
             freeifaddrs(ifap);
         }
+#else
+        fprintf(stderr, "  http://localhost:7777\n");
+#endif
         fprintf(stderr, "====================\n\n");
     }
 

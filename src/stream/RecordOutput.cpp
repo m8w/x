@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
-#include <sys/stat.h>
+#include <filesystem>
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
@@ -105,15 +105,10 @@ bool RecordOutput::start() {
 
     // Create parent directories
     {
-        std::string dir = outputPath;
-        auto slash = dir.rfind('/');
-        if (slash != std::string::npos) {
-            dir = dir.substr(0, slash);
-            for (size_t i = 1; i <= dir.size(); ++i) {
-                if (i == dir.size() || dir[i] == '/') {
-                    mkdir(dir.substr(0, i).c_str(), 0755);
-                }
-            }
+        auto parent = std::filesystem::path(outputPath).parent_path();
+        if (!parent.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
         }
     }
 

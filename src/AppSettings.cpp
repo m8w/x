@@ -1,47 +1,63 @@
 #include "AppSettings.h"
-#include <cstdlib>
-#include <cstring>
 #include <algorithm>
-#include <sys/stat.h>
-#include <dirent.h>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 static std::string homeDir() {
+#ifdef _WIN32
+    const char* appdata = getenv("APPDATA");
+    return appdata ? appdata : "C:\\Temp";
+#else
     const char* h = getenv("HOME");
     return h ? h : "/tmp";
+#endif
 }
 
 std::string AppSettings::dataDir() {
+#ifdef _WIN32
+    return homeDir() + "\\fractal_stream";
+#else
     return homeDir() + "/.fractal_stream";
+#endif
 }
 
 std::string AppSettings::presetsDir() {
+#ifdef _WIN32
+    return dataDir() + "\\presets";
+#else
     return dataDir() + "/presets";
+#endif
 }
 
 std::string AppSettings::lastPath() {
+#ifdef _WIN32
+    return dataDir() + "\\last.ini";
+#else
     return dataDir() + "/last.ini";
+#endif
 }
 
 std::string AppSettings::presetPath(const std::string& name) {
+#ifdef _WIN32
+    return presetsDir() + "\\" + name + ".ini";
+#else
     return presetsDir() + "/" + name + ".ini";
+#endif
 }
 
 void AppSettings::ensureDirs() {
-    mkdir(dataDir().c_str(),    0755);
-    mkdir(presetsDir().c_str(), 0755);
+    fs::create_directories(dataDir());
+    fs::create_directories(presetsDir());
 }
 
 std::vector<std::string> AppSettings::listPresets() {
     std::vector<std::string> out;
-    DIR* d = opendir(presetsDir().c_str());
-    if (!d) return out;
-    struct dirent* e;
-    while ((e = readdir(d)) != nullptr) {
-        std::string n = e->d_name;
-        if (n.size() > 4 && n.substr(n.size() - 4) == ".ini")
-            out.push_back(n.substr(0, n.size() - 4));
+    std::error_code ec;
+    for (auto& entry : fs::directory_iterator(presetsDir(), ec)) {
+        if (entry.path().extension() == ".ini")
+            out.push_back(entry.path().stem().string());
     }
-    closedir(d);
     std::sort(out.begin(), out.end());
     return out;
 }

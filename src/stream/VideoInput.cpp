@@ -6,7 +6,9 @@
 #include <libavutil/hwcontext_videotoolbox.h>
 // CoreGraphics included via VideoInput.h
 #endif
-#ifndef __APPLE__
+#ifdef _WIN32
+#include <windows.h>
+#elif !defined(__APPLE__)
 #include <unistd.h>
 #include <time.h>
 #endif
@@ -63,6 +65,25 @@ std::vector<VideoInput::CameraInfo> VideoInput::listCameras() {
         if (access(dev.c_str(), F_OK) == 0)
             result.push_back({dev, dev});
     }
+#elif defined(_WIN32)
+    const AVInputFormat* fmt = av_find_input_format("dshow");
+    if (fmt) {
+        AVDeviceInfoList* devList = nullptr;
+        if (avdevice_list_input_sources(fmt, "video=dummy", nullptr, &devList) >= 0 && devList) {
+            for (int i = 0; i < devList->nb_devices; i++) {
+                AVDeviceInfo* d = devList->devices[i];
+                bool hasVideo = false;
+                for (int j = 0; j < d->nb_media_types; j++)
+                    if (d->media_types[j] == AVMEDIA_TYPE_VIDEO) { hasVideo = true; break; }
+                if (!hasVideo) continue;
+                std::string name = d->device_description ? d->device_description
+                                                         : (d->device_name ? d->device_name : "");
+                std::string devStr = "video=" + name;
+                result.push_back({name, devStr});
+            }
+            avdevice_free_list_devices(&devList);
+        }
+    }
 #endif
     return result;
 }
@@ -78,6 +99,8 @@ bool VideoInput::openCameraByName(const std::string& devStr, int fps) {
 
 #if defined(__APPLE__)
     fmt = av_find_input_format("avfoundation");
+#elif defined(_WIN32)
+    fmt = av_find_input_format("dshow");
 #elif defined(__linux__)
     fmt = av_find_input_format("v4l2");
 #else
@@ -392,6 +415,9 @@ std::vector<VideoInput::ScreenInfo> VideoInput::listScreens() {
         result.push_back({"Full screen (" + std::string(disp) + ")",
                            std::string(disp)});
     }
+#elif defined(_WIN32)
+    // Enumerate monitors via gdigrab device list
+    result.push_back({"Full desktop", "desktop"});
 #endif
     return result;
 }
@@ -436,6 +462,17 @@ bool VideoInput::openScreenCapture(const std::string& devStr, int fps) {
     av_dict_set(&opts, "framerate",   fpsBuf, 0);
     av_dict_set(&opts, "draw_mouse",  "1",    0);
     av_dict_set(&opts, "probesize",   "32",   0);
+#elif defined(_WIN32)
+    fmt = av_find_input_format("gdigrab");
+    if (!fmt) {
+        fprintf(stderr, "VideoInput: gdigrab not available\n");
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    // devStr: "desktop" or a window title prefix
+    inputStr = devStr;
+    av_dict_set(&opts, "framerate",  fpsBuf, 0);
+    av_dict_set(&opts, "draw_mouse", "1",    0);
 #else
     fprintf(stderr, "VideoInput: screen capture not supported on this platform\n");
     m_isCamera = m_isScreen = false;
@@ -547,6 +584,26 @@ std::vector<VideoInput::WindowInfo> VideoInput::listWindows() {
         result.push_back(wi);
     }
     pclose(f);
+#elif defined(_WIN32)
+    struct EnumData { std::vector<WindowInfo>* out; };
+    EnumData ed{ &result };
+    EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+        auto* ed = reinterpret_cast<EnumData*>(lp);
+        if (!IsWindowVisible(hwnd)) return TRUE;
+        char title[512] = {};
+        GetWindowTextA(hwnd, title, sizeof(title));
+        if (!title[0]) return TRUE;
+        RECT r{};
+        GetWindowRect(hwnd, &r);
+        int w = r.right - r.left, h = r.bottom - r.top;
+        if (w < 50 || h < 50) return TRUE;
+        WindowInfo wi;
+        wi.title  = title;
+        wi.x = r.left; wi.y = r.top; wi.w = w; wi.h = h;
+        wi.devStr = "title=" + std::string(title);
+        ed->out->push_back(wi);
+        return TRUE;
+    }, (LPARAM)&ed);
 #endif
     return result;
 }
@@ -630,6 +687,46 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
             win.title.c_str(), w, h, x, y);
     return initCodec();
 
+#else
+    fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
+    m_isCamera = m_isScreen = false;
+    return false;
+#elif defined(_WIN32)
+    avdevice_register_all();
+    const AVInputFormat* fmt = av_find_input_format("gdigrab");
+    if (!fmt) {
+        fprintf(stderr, "VideoInput: gdigrab not available\n");
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+
+    // gdigrab uses "title=WindowTitle" to capture a specific window
+    std::string inputStr = win.devStr;  // "title=..."
+    char fpsBuf[16];
+    snprintf(fpsBuf, sizeof(fpsBuf), "%d", fps);
+
+    AVDictionary* opts = nullptr;
+    av_dict_set(&opts, "framerate",  fpsBuf, 0);
+    av_dict_set(&opts, "draw_mouse", "1",    0);
+
+    m_path = "window:" + win.title;
+    int ret = avformat_open_input(&m_fmtCtx, inputStr.c_str(), fmt, &opts);
+    av_dict_free(&opts);
+
+    if (ret != 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        fprintf(stderr, "VideoInput: cannot open gdigrab window '%s': %s\n",
+                win.title.c_str(), errbuf);
+        m_isCamera = m_isScreen = false;
+        return false;
+    }
+    if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        fprintf(stderr, "VideoInput: gdigrab window stream info failed\n");
+        return false;
+    }
+    fprintf(stderr, "VideoInput: gdigrab window capture '%s'\n", win.title.c_str());
+    return initCodec();
 #else
     fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
     m_isCamera = m_isScreen = false;

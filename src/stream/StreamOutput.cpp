@@ -4,7 +4,7 @@
 #include <cmath>
 #include <vector>
 #include <chrono>
-#include <sys/stat.h>   // mkdir / stat for local recording dir creation
+#include <filesystem>
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
@@ -105,17 +105,10 @@ bool StreamOutput::openSink(DestSink& s) {
     const bool isLocalFile = s.url.find("://") == std::string::npos;
     if (isLocalFile) {
         // Create parent directory tree (e.g. /Volumes/Seagate/fractal stream/part 1)
-        std::string dir = s.url;
-        auto slash = dir.rfind('/');
-        if (slash != std::string::npos) {
-            dir = dir.substr(0, slash);
-            // mkdir each component
-            for (size_t i = 1; i <= dir.size(); ++i) {
-                if (i == dir.size() || dir[i] == '/') {
-                    std::string part = dir.substr(0, i);
-                    mkdir(part.c_str(), 0755);  // ok if already exists
-                }
-            }
+        auto parent = std::filesystem::path(s.url).parent_path();
+        if (!parent.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
         }
     }
     if (avformat_alloc_output_context2(&s.fmtCtx, nullptr,

@@ -19,6 +19,16 @@ if(APPLE)
     add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
 
+# ── Windows / MSYS2: prefer static linking for portability ───────────────────
+if(WIN32)
+    # MSYS2 sets CMAKE_PREFIX_PATH via toolchain; pkg-config finds mingw packages
+    add_compile_definitions(
+        UNICODE _UNICODE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+endif()
+
 # ── Third-party (submodules + bundled) ───────────────────────────────────────
 set(IMGUI_DIR  ${CMAKE_SOURCE_DIR}/third_party/imgui)
 set(GLM_DIR    ${CMAKE_SOURCE_DIR}/third_party/glm)
@@ -30,6 +40,9 @@ find_package(glfw3  REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale libswresample libavdevice)
+if(NOT APPLE)
+    find_package(GLEW REQUIRED)
+endif()
 
 # ── RtMidi: prefer system package, fall back to bundled third_party/rtmidi ───
 pkg_check_modules(RTMIDI QUIET rtmidi)
@@ -52,21 +65,22 @@ else()
     set(RTMIDI_EXTRA_INCLUDES ${RTMIDI_DIR})
     if(APPLE)
         set(RTMIDI_LINK_LIBS "")   # CoreMIDI added below in framework block
+    elseif(WIN32)
+        set(RTMIDI_LINK_LIBS winmm)
     else()
         set(RTMIDI_LINK_LIBS asound)   # ALSA on Linux
     endif()
     # Tell RtMidi which backend to compile
     if(APPLE)
         add_compile_definitions(__MACOSX_CORE__)
+    elseif(WIN32)
+        add_compile_definitions(__WINDOWS_MM__)
     else()
         add_compile_definitions(__LINUX_ALSA__)
     endif()
 endif()
 
-# ── GLEW (Linux only) ─────────────────────────────────────────────────────────
-if(NOT APPLE)
-    find_package(GLEW REQUIRED)
-endif()
+# ── GLEW (Linux + Windows, not macOS) ────────────────────────────────────────
 
 # ── ImGui sources ─────────────────────────────────────────────────────────────
 set(IMGUI_SOURCES
@@ -94,7 +108,6 @@ set(SOURCES
     src/stream/StreamOutput.cpp
     src/stream/RecordOutput.cpp
     src/ui/EquationEditor.cpp
-    src/ui/FilePicker_linux.cpp
     src/remote/RemoteControl.cpp
     src/midi/MidiInput.cpp
     src/midi/MidiMapper.cpp
@@ -104,6 +117,10 @@ set(SOURCES
 
 if(APPLE)
     list(APPEND SOURCES src/ui/FilePicker.mm)
+elseif(WIN32)
+    list(APPEND SOURCES src/ui/FilePicker_windows.cpp)
+else()
+    list(APPEND SOURCES src/ui/FilePicker_linux.cpp)
 endif()
 
 add_executable(fractal_stream ${SOURCES} ${IMGUI_SOURCES} ${RTMIDI_EXTRA_SOURCES})
@@ -130,6 +147,14 @@ else()
     )
 endif()
 
+# On Windows, embed the shaders directory path as a resource-relative path so
+# the installed binary can find shaders next to the exe.
+if(WIN32)
+    target_compile_definitions(fractal_stream PRIVATE
+        SHADERS_DIR_RELATIVE="shaders"
+    )
+endif()
+
 # ── Link ──────────────────────────────────────────────────────────────────────
 if(APPLE)
     target_link_libraries(fractal_stream PRIVATE
@@ -147,6 +172,20 @@ if(APPLE)
         glfw
         ${FFMPEG_LIBRARIES}
         ${RTMIDI_LINK_LIBS}
+    )
+elseif(WIN32)
+    target_link_libraries(fractal_stream PRIVATE
+        OpenGL::GL
+        GLEW::GLEW
+        glfw
+        ${FFMPEG_LIBRARIES}
+        ${RTMIDI_LINK_LIBS}
+        ws2_32
+        ole32
+        oleaut32
+        uuid
+        strmiids
+        winmm
     )
 else()
     target_link_libraries(fractal_stream PRIVATE

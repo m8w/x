@@ -152,6 +152,54 @@ void EquationEditor::drawFractalPanel() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("0 = pure Formula A   1 = pure Formula B   0.5 = crossfade");
 
+    // -- Auto-cycle formulas randomly -----------------------------------------
+    {
+        static bool   cycleA         = false;
+        static float  cycleAInterval = 10.0f;
+        static double cycleANext     = 0.0;
+        static bool   cycleB         = false;
+        static float  cycleBInterval = 15.0f;
+        static double cycleBNext     = 0.0;
+
+        double now = ImGui::GetTime();
+
+        ImGui::Checkbox("Random cycle A##cyc", &cycleA);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Randomly picks a new Formula A every N seconds.");
+        if (cycleA) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120);
+            ImGui::SliderFloat("##cycAint", &cycleAInterval, 1.0f, 120.0f, "%.0f sec");
+            if (now >= cycleANext) {
+                int pick = std::rand() % kNumFormulas;
+                if (pick == m_engine.formula) pick = (pick + 1) % kNumFormulas;
+                m_engine.formula = pick;
+                cycleANext = now + cycleAInterval;
+            }
+            float remaining = (float)(cycleANext - now);
+            ImGui::SameLine();
+            ImGui::TextDisabled("next: %.0fs", remaining > 0 ? remaining : 0.f);
+        }
+
+        ImGui::Checkbox("Random cycle B##cyc", &cycleB);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Randomly picks a new Formula B every N seconds.");
+        if (cycleB) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120);
+            ImGui::SliderFloat("##cycBint", &cycleBInterval, 1.0f, 120.0f, "%.0f sec");
+            if (now >= cycleBNext) {
+                int pick = std::rand() % kNumFormulas;
+                if (pick == m_engine.formulaB) pick = (pick + 1) % kNumFormulas;
+                m_engine.formulaB = pick;
+                cycleBNext = now + cycleBInterval;
+            }
+            float remaining = (float)(cycleBNext - now);
+            ImGui::SameLine();
+            ImGui::TextDisabled("next: %.0fs", remaining > 0 ? remaining : 0.f);
+        }
+    }
+
     // -- Formula extra parameter (used by Time-spiral and Polar warp) ----------
     ImGui::Separator();
     ImGui::TextDisabled("Formula extra param  (Time-spiral speed / Polar warp twist)");

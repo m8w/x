@@ -15,12 +15,13 @@ public:
     void use() const;
     GLuint id() const { return m_id; }
 
-    void setFloat (const char* name, float v) const;
-    void setFloat2(const char* name, float x, float y) const;
-    void setFloat3(const char* name, float x, float y, float z) const;
-    void setFloat4(const char* name, float x, float y, float z, float w) const;
-    void setInt   (const char* name, int v)   const;
-    void setBool  (const char* name, bool v)  const;
+    void setFloat     (const char* name, float v) const;
+    void setFloat2    (const char* name, float x, float y) const;
+    void setFloat3    (const char* name, float x, float y, float z) const;
+    void setFloat4    (const char* name, float x, float y, float z, float w) const;
+    void setFloatArray(const char* name, const float* v, int count) const;
+    void setInt       (const char* name, int v)   const;
+    void setBool      (const char* name, bool v)  const;
 
     // Convenience aliases matching MilkDropGLRenderer call sites
     void setVec2(const char* n, float x, float y) const { setFloat2(n, x, y); }

@@ -33,6 +33,26 @@ uniform int   u_geo_kaleid;        // 0=off  N=number of kaleidoscope segments (
 uniform int   u_layer_count;       // 1–4: spatial layer repetition
 uniform float u_layer_offset;      // gap between layers
 uniform sampler2D u_video_tex;
+uniform sampler2D u_overlay_tex;   // second video layer
+uniform float     u_overlay_blend; // 0=fractal only  1=overlay only  0.5=50/50
+
+// ── Video filters ─────────────────────────────────────────────────────────────
+// Applied independently to the primary video and the overlay stream.
+// Color filters (IDs 0–11) work on any stream.
+// Spatial filters (IDs 12–18) only applied to overlay (has screen UV).
+uniform int   u_vid_filter;      // primary video filter ID
+uniform float u_vid_fa;          // filter param A
+uniform float u_vid_fb;          // filter param B
+uniform int   u_ovr_filter;      // overlay filter ID
+uniform float u_ovr_fa;          // overlay filter param A
+uniform float u_ovr_fb;          // overlay filter param B
+uniform vec2  u_overlay_size;    // overlay texture size (pixels) for spatial filters
+
+// ── Stream blend mode ─────────────────────────────────────────────────────────
+// How the fractal+primary composite blends with the overlay stream.
+// 0=Normal  1=Multiply  2=Screen  3=Overlay  4=SoftLight  5=HardLight
+// 6=Difference  7=Exclusion  8=ColorDodge  9=ColorBurn  10=Darken  11=Lighten  12=Addition
+uniform int u_stream_blend_mode;
 
 // ── Chaos Effects ─────────────────────────────────────────────────────────────
 uniform int   u_chaos_mode;     // 0=off  1=turbulence  2=logistic  3=henon  4=shred
@@ -45,7 +65,8 @@ uniform bool  u_cs_enabled;
 uniform vec3  u_cs_hsl;         // primary HSL (hue 0-1 wrapping, sat 0-1, lum 0-1)
 uniform vec3  u_cs_hsl_alt;     // alternate HSL
 uniform float u_cs_alt_blend;   // 0=primary  1=alt  (oscillates)
-uniform int   u_cs_mode;        // 0=replace  1=multiply  2=screen
+uniform int   u_cs_mode;        // 0–41 GIMP blend mode (same set as stream blend)
+uniform float u_cs_opacity;    // 0=no synth  1=full synth blend
 uniform float u_cs_hue_spread;  // hue range spread across escape value
 uniform float u_cs_lum_spread;  // lum range spread across escape value
 
@@ -213,6 +234,107 @@ vec2 eval_formula(int f, vec2 z, vec2 z_prev, vec2 seed) {
         vec2 zw  = polar2cart(r, th);       // back to Cartesian
         return csqr(zw) + seed;
     }
+
+    // ── Mandelbulber 2 extended set (IDs 22–35) ───────────────────────────────
+
+    // 22 — Buffalo: abs on BOTH Re and Im of z² before adding c
+    //   Distinct from Burning Ship (which folds before squaring) and Celtic
+    //   (which only folds Re).  Produces symmetric four-quadrant structures.
+    if (f == 22) {
+        vec2 z2 = csqr(z);
+        return vec2(abs(z2.x), abs(z2.y)) + seed;
+    }
+
+    // 23 — Perpendicular Celtic: fold Im(z²) only, leave Re(z²) unchanged.
+    //   Counterpart to Celtic (f=13) which folds Re; produces distinct
+    //   vertical-axis symmetric filaments.
+    if (f == 23) {
+        vec2 z2 = csqr(z);
+        return vec2(z2.x, abs(z2.y)) + seed;
+    }
+
+    // 24 — tanh(z) + c: complex hyperbolic tangent.
+    //   Produces enclosed bounded regions with smooth gradient halos;
+    //   related to ctan (f=11) but with hyperbolic instead of circular poles.
+    if (f == 24) return ctanh(z) + seed;
+
+    // 25 — Nova (Newton z³−1 + c perturbation):
+    //   Standard Newton step plus an additive c term.  Keeps the three-root
+    //   convergence basins of Newton while the c perturbation distorts them.
+    if (f == 25) {
+        vec2 den = 3.0 * csqr(z);
+        if (cabs2(den) < 1e-12) return z + seed;
+        return z - cdiv(ccube(z) - vec2(1.0, 0.0), den) + seed;
+    }
+
+    // 26 — Lambda: z(1−z)·c
+    //   Completely different topology — fixed points at 0 and 1; produces
+    //   Douady rabbit / airplane / basilica families depending on c.
+    if (f == 26) return cmul(cmul(z, vec2(1.0, 0.0) - z), seed);
+
+    // 27 — Barnsley 1: IFS branching on sign of Re(z·conj(c))
+    //   Two affine branches selected per iteration by the sign of the inner
+    //   product; generates fern-like IFS attractors in the filled Julia set.
+    if (f == 27) {
+        if (dot(z, seed) >= 0.0)
+            return cmul(z - vec2(1.0, 0.0), seed);
+        else
+            return cmul(z + vec2(1.0, 0.0), seed);
+    }
+
+    // 28 — SimFp: sinh(z) + z² + c
+    //   Hybrid hyperbolic-polynomial; the two terms compete, producing
+    //   complex basins that combine lobe structures from both functions.
+    if (f == 28) return csinh(z) + csqr(z) + seed;
+
+    // 29 — Ikenaga: z³ + (c−1)z − c
+    //   Cubic with a linear (c−1)z perturbation; richer basin structure
+    //   than plain z³+c, inspired by the Ikenaga fractal from Mandelbulber.
+    if (f == 29) return ccube(z) + cmul(seed - vec2(1.0, 0.0), z) - seed;
+
+    // 30 — Rudy: z² + c/z
+    //   Rational map — the inverse term c/z creates ring-shaped structures
+    //   and a pole at the origin that distorts nearby orbits dramatically.
+    if (f == 30) {
+        if (cabs2(z) < 1e-10) return seed;
+        return csqr(z) + cdiv(seed, z);
+    }
+
+    // 31 — Magnet II: ((z³+3(c−1)z+(c−1)(c−2))/(3z²+3(c−2)z+(c−1)(c−2)+1))²
+    //   Second-order magnetic attractor rational map.  Produces complex
+    //   interlocking domains; paired with Magnet I (f=14) for A↔B blend.
+    if (f == 31) {
+        vec2 c1  = seed - vec2(1.0, 0.0);          // c−1
+        vec2 c2  = seed - vec2(2.0, 0.0);          // c−2
+        vec2 c12 = cmul(c1, c2);                    // (c−1)(c−2)
+        vec2 num = ccube(z) + 3.0*cmul(c1, z) + c12;
+        vec2 den = 3.0*csqr(z) + 3.0*cmul(c2, z) + c12 + vec2(1.0, 0.0);
+        if (cabs2(den) < 1e-10) return z;
+        return csqr(cdiv(num, den));
+    }
+
+    // 32 — z⁴ + c: fourth power Mandelbrot
+    //   Three-fold symmetry axis; produces the classic 4-lobed Mandelbrot
+    //   shape.  Richer fine structure than z² at the same iteration count.
+    if (f == 32) return cpow_r(z, 4.0) + seed;
+
+    // 33 — Glynn: z^1.5 + c (fractional power)
+    //   Non-integer exponent via polar form; produces asymmetric branching
+    //   dendrites — the classic "Glynn fractal" shape.
+    if (f == 33) return cpow_r(z, 1.5) + seed;
+
+    // 34 — Mandelbar Celtic: conjugate z before Celtic fold
+    //   Apply conjugation first, then fold only Re(conj(z)²).  Combines
+    //   the three-fold Mandelbar symmetry with Celtic's one-sided fold.
+    if (f == 34) {
+        vec2 z2 = csqr(cconj(z));
+        return vec2(abs(z2.x), z2.y) + seed;
+    }
+
+    // 35 — Magnitude-coupled: z² · sin(|z|) + c
+    //   Scales each iteration by the sine of the orbit radius, injecting
+    //   concentric ring modulation into the escape path.
+    if (f == 35) return cmul(csqr(z), vec2(sin(length(z)), 0.0)) + seed;
 
     return csqr(z) + seed;  // fallback
 }
@@ -460,7 +582,317 @@ vec2 apply_chaos(vec2 p, float t) {
         return p + vec2(d * sw * 0.25, 0.0);
     }
 
+    // ── Mode 5: Lorenz — slice of the Lorenz strange attractor ───────────────
+    // Integrates the Lorenz ODE (σ=10, ρ=28, β=8/3) from the pixel position
+    // for a few Euler steps.  The (x,y) displacement is used as a warp vector.
+    // Produces the characteristic butterfly-wing flow fields.
+    if (u_chaos_mode == 5) {
+        const float sigma = 10.0, rho = 28.0, beta = 2.667;
+        float dt = 0.008 * sw;
+        float x = p.x * sc * 2.0;
+        float y = p.y * sc * 2.0;
+        float z = st * 10.0 + 10.0;           // z seeded from time, not UV
+        for (int i = 0; i < 6; i++) {
+            float dx =  sigma * (y - x);
+            float dy =  x * (rho - z) - y;
+            float dz =  x * y - beta * z;
+            x += dx * dt;  y += dy * dt;  z += dz * dt;
+        }
+        return p + clamp(vec2(x, y) * 0.012, -1.5, 1.5) * sw;
+    }
+
+    // ── Mode 6: Clifford — Clifford strange attractor warp ───────────────────
+    // xₙ₊₁ = sin(a·yₙ) + c·cos(a·xₙ)
+    // yₙ₊₁ = sin(b·xₙ) + d·cos(b·yₙ)
+    // a,b,c,d driven by strength and scale.  The attractor basin drives the UV
+    // displacement, producing swirling asymmetric folded structures.
+    if (u_chaos_mode == 6) {
+        float a = -1.4 + sw * 0.6;
+        float b =  1.6 - sw * 0.3;
+        float c2=  1.0;
+        float d =  0.7 + sw * 0.3;
+        vec2 h = p * sc;
+        for (int i = 0; i < 6; i++) {
+            h = vec2(sin(a * h.y) + c2 * cos(a * h.x),
+                     sin(b * h.x) + d  * cos(b * h.y));
+        }
+        return p + clamp(h * 0.15, -1.5, 1.5) * sw * 0.5;
+    }
+
+    // ── Mode 7: Ikeda — Ikeda laser-cavity map warp ──────────────────────────
+    // Complex map: z_{n+1} = 1 + μ·z_n·exp(i·t_n)
+    //   where t_n = 0.4 − 6/(1+|z_n|²)
+    // μ (gain) sweeps from 0.6 (ordered) → 0.95 (chaotic) with strength.
+    // Produces spiralling laser-cavity-style chaotic structures.
+    if (u_chaos_mode == 7) {
+        float mu = 0.6 + sw * 0.35;
+        vec2 h = p * sc;
+        for (int i = 0; i < 6; i++) {
+            float t  = 0.4 - 6.0 / (1.0 + dot(h, h));
+            float cr = cos(t), sr = sin(t);
+            h = vec2(1.0 + mu * (h.x * cr - h.y * sr),
+                           mu * (h.x * sr + h.y * cr));
+        }
+        return p + clamp(h * 0.08, -1.5, 1.5) * sw;
+    }
+
     return p;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// VIDEO FILTER LIBRARY  (GIMP-inspired)
+// apply_color_filter: color-only filters, no texture lookups — works on any stream.
+// sample_overlay_filtered: spatial filters for the overlay (needs screen UV).
+// blend_streams: GIMP layer blend modes between two RGB colours.
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── Noise helper for film grain ───────────────────────────────────────────────
+float _grain(vec2 uv, float t) {
+    return fract(sin(dot(uv * 1000.0 + t * 37.3, vec2(12.9898, 78.233))) * 43758.545);
+}
+
+// ── Color-only filter (IDs 0–11) ─────────────────────────────────────────────
+// a, b = filter parameters (see UI labels for meaning per filter).
+vec3 apply_color_filter(vec3 col, int mode, float a, float b) {
+    if (mode == 0) return col;  // 0 — None
+
+    // 1 — Brightness / Contrast
+    // a = brightness offset (-1..1)   b = contrast multiplier (0..2)
+    if (mode == 1) return clamp((col + a) * b, 0.0, 1.0);
+
+    // 2 — Saturation  (a = 0 → greyscale, 1 → normal, 2 → vivid)
+    if (mode == 2) {
+        float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        return clamp(mix(vec3(lum), col, a), 0.0, 1.0);
+    }
+
+    // 3 — Hue Rotate  (a = rotation 0..1 wrapping)
+    if (mode == 3) {
+        vec3 hsl = rgb2hsl(col);
+        hsl.x = fract(hsl.x + a);
+        return hsl2rgb(hsl);
+    }
+
+    // 4 — Posterize  (a = number of levels 2..16)
+    if (mode == 4) {
+        float lvl = max(2.0, a);
+        return floor(col * lvl + 0.5) / lvl;
+    }
+
+    // 5 — Invert
+    if (mode == 5) return 1.0 - col;
+
+    // 6 — Sepia
+    if (mode == 6) {
+        float g = dot(col, vec3(0.299, 0.587, 0.114));
+        vec3 sepia = vec3(g * 1.08, g * 0.88, g * 0.62);
+        return clamp(mix(col, sepia, a), 0.0, 1.0);
+    }
+
+    // 7 — Threshold  (a = split point 0..1)
+    if (mode == 7) {
+        float lum = dot(col, vec3(0.299, 0.587, 0.114));
+        return vec3(step(a, lum));
+    }
+
+    // 8 — Solarize  (partial invert above threshold a)
+    if (mode == 8) {
+        return mix(col, 1.0 - col, step(a, col));
+    }
+
+    // 9 — Warm  (push reds/yellows, a = strength)
+    if (mode == 9) return clamp(col + vec3(a*0.2, a*0.07, -a*0.1), 0.0, 1.0);
+
+    // 10 — Cool  (push blues/cyans, a = strength)
+    if (mode == 10) return clamp(col + vec3(-a*0.1, a*0.04, a*0.2), 0.0, 1.0);
+
+    // 11 — Vibrance  (boost unsaturated colours, leave saturated ones alone)
+    if (mode == 11) {
+        float maxC = max(col.r, max(col.g, col.b));
+        float minC = min(col.r, min(col.g, col.b));
+        float sat = maxC - minC;
+        float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        float boost = a * (1.0 - sat);     // more boost where already desaturated
+        return clamp(mix(vec3(lum), col, 1.0 + boost), 0.0, 1.0);
+    }
+
+    return col;
+}
+
+// ── Spatial filters for overlay (IDs 12–18, require screen UV) ───────────────
+// Samples the overlay texture with spatial operations.
+// texelSz = vec2(1)/u_overlay_size.
+vec3 sample_overlay_filtered(vec2 uv, int mode, float a, float b, vec2 texelSz) {
+    // For non-spatial modes, just sample and let apply_color_filter handle it
+    if (mode < 12) return texture(u_overlay_tex, uv).rgb;
+
+    // 12 — Pixelate / Mosaic  (a = block size in screen fraction)
+    if (mode == 12) {
+        float sz = max(texelSz.x, a * 0.05);
+        vec2 blocked = floor(uv / sz) * sz + sz * 0.5;
+        return texture(u_overlay_tex, blocked).rgb;
+    }
+
+    // 13 — Ripple / Wave  (a = amplitude, b = frequency)
+    if (mode == 13) {
+        vec2 rUV = uv + vec2(
+            sin(uv.y * b * 20.0 + u_time * 3.0) * a * 0.04,
+            cos(uv.x * b * 20.0 + u_time * 2.5) * a * 0.04
+        );
+        return texture(u_overlay_tex, clamp(rUV, 0.0, 1.0)).rgb;
+    }
+
+    // 14 — Edge Detect (Sobel)
+    if (mode == 14) {
+        vec2 t = texelSz;
+        vec3 tl = texture(u_overlay_tex, uv + vec2(-t.x,  t.y)).rgb;
+        vec3 tc = texture(u_overlay_tex, uv + vec2( 0.0,  t.y)).rgb;
+        vec3 tr = texture(u_overlay_tex, uv + vec2( t.x,  t.y)).rgb;
+        vec3 ml = texture(u_overlay_tex, uv + vec2(-t.x,  0.0)).rgb;
+        vec3 mr = texture(u_overlay_tex, uv + vec2( t.x,  0.0)).rgb;
+        vec3 bl = texture(u_overlay_tex, uv + vec2(-t.x, -t.y)).rgb;
+        vec3 bc = texture(u_overlay_tex, uv + vec2( 0.0, -t.y)).rgb;
+        vec3 br = texture(u_overlay_tex, uv + vec2( t.x, -t.y)).rgb;
+        vec3 Gx = -tl + tr - 2.0*ml + 2.0*mr - bl + br;
+        vec3 Gy = -tl - 2.0*tc - tr + bl + 2.0*bc + br;
+        return clamp(sqrt(Gx*Gx + Gy*Gy) * a, 0.0, 1.0);
+    }
+
+    // 15 — Emboss
+    if (mode == 15) {
+        vec2 t = texelSz;
+        vec3 c0 = texture(u_overlay_tex, uv).rgb;
+        vec3 cx = texture(u_overlay_tex, uv + vec2(t.x, t.y)).rgb;
+        return clamp((c0 - cx) * a + 0.5, 0.0, 1.0);
+    }
+
+    // 16 — Sharpen  (a = strength 0..3)
+    if (mode == 16) {
+        vec2 t = texelSz;
+        vec3 c = texture(u_overlay_tex, uv).rgb;
+        vec3 blur = (texture(u_overlay_tex, uv + vec2( t.x, 0.0)).rgb +
+                     texture(u_overlay_tex, uv + vec2(-t.x, 0.0)).rgb +
+                     texture(u_overlay_tex, uv + vec2(0.0,  t.y)).rgb +
+                     texture(u_overlay_tex, uv + vec2(0.0, -t.y)).rgb) * 0.25;
+        return clamp(c + (c - blur) * a, 0.0, 1.0);
+    }
+
+    // 17 — Bloom / Glow  (a = threshold, b = radius steps 1..4)
+    if (mode == 17) {
+        vec3 base = texture(u_overlay_tex, uv).rgb;
+        vec3 bloom = vec3(0.0);
+        float weight = 0.0;
+        int steps = int(clamp(b, 1.0, 4.0));
+        for (int dx = -steps; dx <= steps; dx++) {
+            for (int dy = -steps; dy <= steps; dy++) {
+                vec2 off = vec2(float(dx), float(dy)) * texelSz * 3.0;
+                vec3 s = texture(u_overlay_tex, uv + off).rgb;
+                float bright = dot(s, vec3(0.299, 0.587, 0.114));
+                float w = max(0.0, bright - a);
+                bloom += s * w;
+                weight += w;
+            }
+        }
+        if (weight > 0.0) bloom /= weight;
+        return clamp(base + bloom * 0.6, 0.0, 1.0);
+    }
+
+    // 18 — Film Grain  (a = strength)
+    if (mode == 18) {
+        vec3 c = texture(u_overlay_tex, uv).rgb;
+        float g = _grain(uv, u_time) * 2.0 - 1.0;
+        return clamp(c + g * a * 0.15, 0.0, 1.0);
+    }
+
+    return texture(u_overlay_tex, uv).rgb;
+}
+
+// ── 42 layer blend modes ──────────────────────────────────────────────────────
+// a = base (fractal+primary),  b = overlay,  t = opacity (u_overlay_blend)
+// Modes 0-12:  GIMP standard set
+// Modes 13-28: Extended math / glitch modes
+// Modes 29-37: Inverse / negative variants
+// Modes 38-41: HSL component swaps
+vec3 blend_streams(vec3 a, vec3 b, float t, int mode) {
+    vec3 r = a;
+
+    // ── Standard GIMP (0–12) ──────────────────────────────────────────────────
+    if (mode == 0)  r = b;                                              // Normal
+    if (mode == 1)  r = a * b;                                          // Multiply
+    if (mode == 2)  r = 1.0-(1.0-a)*(1.0-b);                          // Screen
+    if (mode == 3)  r = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),        // Overlay
+                            step(0.5, a));
+    if (mode == 4) {                                                    // Soft Light
+        vec3 d = mix(sqrt(max(a,0.0)), 2.0*a-1.0, step(0.5, b));
+        r = a + (2.0*b-1.0)*d;
+    }
+    if (mode == 5)  r = mix(2.0*a*b, 1.0-2.0*(1.0-a)*(1.0-b),        // Hard Light
+                            step(0.5, b));
+    if (mode == 6)  r = abs(a - b);                                    // Difference
+    if (mode == 7)  r = a + b - 2.0*a*b;                              // Exclusion
+    if (mode == 8)  r = clamp(a/max(1.0-b,0.001),0.0,1.0);           // Color Dodge
+    if (mode == 9)  r = 1.0-clamp((1.0-a)/max(b,0.001),0.0,1.0);    // Color Burn
+    if (mode == 10) r = min(a, b);                                     // Darken
+    if (mode == 11) r = max(a, b);                                     // Lighten
+    if (mode == 12) r = clamp(a + b, 0.0, 1.0);                       // Addition
+
+    // ── Extended math / glitch (13–28) ───────────────────────────────────────
+    if (mode == 13) r = clamp(a - b, 0.0, 1.0);                       // Subtract
+    if (mode == 14) r = clamp(b - a, 0.0, 1.0);                       // Inverse Subtract
+    if (mode == 15) r = clamp(a / max(b, 0.001), 0.0, 1.0);          // Divide
+    if (mode == 16) r = clamp(floor(a + b), 0.0, 1.0);               // Hard Mix
+    if (mode == 17) r = mix(                                           // Vivid Light
+                        1.0-clamp((1.0-a)/max(2.0*b,0.001),0.0,1.0),
+                        clamp(a/max(1.0-2.0*(b-0.5),0.001),0.0,1.0),
+                        step(0.5, b));
+    if (mode == 18) r = clamp(a + 2.0*b - 1.0, 0.0, 1.0);           // Linear Light
+    if (mode == 19) r = mix(min(a,2.0*b), max(a,2.0*b-1.0),          // Pin Light
+                            step(0.5, b));
+    if (mode == 20) r = 1.0 - abs(1.0 - a - b);                      // Negation
+    if (mode == 21) r = clamp(a*a/max(1.0-b,0.001),0.0,1.0);        // Reflect
+    if (mode == 22) r = clamp(b*b/max(1.0-a,0.001),0.0,1.0);        // Glow
+    if (mode == 23) r = min(a,b) - max(a,b) + 1.0;                   // Phoenix
+    if (mode == 24) r = (a + b) * 0.5;                               // Average
+    if (mode == 25) r = sqrt(max(a * b, 0.0));                       // Geometric Mean
+    if (mode == 26) r = clamp(a + b - 0.5, 0.0, 1.0);               // Grain Merge
+    if (mode == 27) r = clamp(a - b + 0.5, 0.0, 1.0);               // Grain Extract
+    if (mode == 28) r = clamp(2.0*a + b - 1.0, 0.0, 1.0);           // Stamp
+    if (mode == 29) r = clamp(1.0-(1.0-b)*(1.0-b)/max(a,0.001),     // Freeze
+                               0.0, 1.0);
+    if (mode == 30) r = clamp(1.0-(1.0-a)*(1.0-a)/max(b,0.001),     // Heat
+                               0.0, 1.0);
+    if (mode == 31) r = clamp(pow(a, 1.0/max(b,0.001)), 0.0, 1.0);  // Gamma
+
+    // ── Inverse / negative variants (32–37) ───────────────────────────────────
+    if (mode == 32) r = 1.0 - a * b;                                  // Invert Multiply
+    if (mode == 33) r = (1.0-a) * (1.0-b);                           // Invert Screen
+    if (mode == 34) r = 1.0 - abs(a - b);                            // Invert Difference
+    if (mode == 35) r = clamp((1.0-a) + (1.0-b), 0.0, 1.0);         // Invert Addition
+    if (mode == 36) {                                                  // Chromatic Split
+        // Each channel gets a different blend mode: R=Multiply G=Screen B=Difference
+        r = vec3(a.r*b.r, 1.0-(1.0-a.g)*(1.0-b.g), abs(a.b-b.b));
+    }
+    if (mode == 37) r = abs(a + b - a*b - 0.5) * 2.0;               // XOR-like
+
+    // ── HSL component swaps (38–41) ───────────────────────────────────────────
+    if (mode == 38) {                                                  // Hue
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(hb.x, ha.y, ha.z));
+    }
+    if (mode == 39) {                                                  // Saturation
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(ha.x, hb.y, ha.z));
+    }
+    if (mode == 40) {                                                  // Color (Hue+Sat)
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(hb.x, hb.y, ha.z));
+    }
+    if (mode == 41) {                                                  // Luminosity
+        vec3 ha = rgb2hsl(a), hb = rgb2hsl(b);
+        r = hsl2rgb(vec3(ha.x, ha.y, hb.z));
+    }
+
+    return mix(a, clamp(r, 0.0, 1.0), t);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -524,7 +956,8 @@ void main() {
     escape = clamp(escape, 0.0, 1.0);
 
     vec2 vidUV = vec2(fract(escape*3.7+u_time*0.05), fract(escape*5.3+0.5));
-    vec3 video  = texture(u_video_tex, vidUV).rgb;
+    vec3 video  = apply_color_filter(texture(u_video_tex, vidUV).rgb,
+                                     u_vid_filter, u_vid_fa, u_vid_fb);
 
     // ── Base palette ──────────────────────────────────────────────────────────
     vec3 baseColor = palette(escape + u_time*0.08);
@@ -536,20 +969,22 @@ void main() {
         vec3 col2 = synthPalette(escape, u_cs_hsl_alt);
         vec3 synthCol = mix(col1, col2, u_cs_alt_blend);
 
-        if (u_cs_mode == 0) {
-            // Replace: synth drives all colour; palette provides detail variation
-            baseColor = synthCol;
-        } else if (u_cs_mode == 1) {
-            // Multiply: tints the palette with the synth colour
-            baseColor = baseColor * synthCol * 2.0;
-        } else {
-            // Screen: lightens — good for dark fractals
-            baseColor = 1.0 - (1.0-baseColor)*(1.0-synthCol);
-        }
+        // Use the same 42-mode GIMP blend library as the stream blend
+        baseColor = blend_streams(baseColor, synthCol, u_cs_opacity, u_cs_mode);
     }
 
     vec3 color  = mix(baseColor, video, 0.65+0.35*escape);
     color *= step(0.001, escape)*0.95 + 0.05;
+
+    // ── Overlay video layer — filter + GIMP blend mode ───────────────────────
+    if (u_overlay_blend > 0.0) {
+        vec2 texelSz = (u_overlay_size.x > 1.0) ? 1.0 / u_overlay_size : vec2(0.001);
+        vec3 ovr = sample_overlay_filtered(v_uv, u_ovr_filter, u_ovr_fa, u_ovr_fb, texelSz);
+        // Apply color-only overlay filter on top of spatial result (mode < 12)
+        if (u_ovr_filter < 12)
+            ovr = apply_color_filter(ovr, u_ovr_filter, u_ovr_fa, u_ovr_fb);
+        color = blend_streams(color, ovr, u_overlay_blend, u_stream_blend_mode);
+    }
 
     fragColor = vec4(color, 1.0);
 }

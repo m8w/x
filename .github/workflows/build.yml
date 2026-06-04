@@ -1,0 +1,153 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ── Linux ────────────────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libglfw3-dev libglew-dev \
+            libavcodec-dev libavformat-dev libavutil-dev \
+            libswscale-dev libswresample-dev libavdevice-dev \
+            librtmidi-dev \
+            libgl1-mesa-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package
+        run: |
+          mkdir -p dist/fractal_stream
+          cp build/fractal_stream dist/fractal_stream/
+          cp -r shaders dist/fractal_stream/
+          cp README.md LICENSE dist/fractal_stream/
+          tar -czf fractal_stream-linux-x86_64.tar.gz -C dist fractal_stream
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fractal_stream-linux-x86_64
+          path: fractal_stream-linux-x86_64.tar.gz
+
+  # ── macOS ────────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja pkg-config \
+            ffmpeg glfw glew rtmidi
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package
+        run: |
+          mkdir -p dist/fractal_stream
+          cp build/fractal_stream dist/fractal_stream/
+          cp -r shaders dist/fractal_stream/
+          cp README.md LICENSE dist/fractal_stream/
+          tar -czf fractal_stream-macos-arm64.tar.gz -C dist fractal_stream
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fractal_stream-macos-arm64
+          path: fractal_stream-macos-arm64.tar.gz
+
+  # ── Windows (MSYS2 / MinGW64) ─────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-rtmidi
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Collect DLLs
+        run: |
+          mkdir -p dist/fractal_stream
+          cp build/fractal_stream.exe dist/fractal_stream/
+          cp -r shaders dist/fractal_stream/
+          cp README.md LICENSE dist/fractal_stream/
+          # Copy runtime DLLs from MSYS2 so the exe runs without installation
+          ldd build/fractal_stream.exe \
+            | grep '/mingw64/' \
+            | awk '{print $3}' \
+            | xargs -I{} cp {} dist/fractal_stream/
+
+      - name: Zip
+        run: |
+          cd dist
+          7z a ../fractal_stream-windows-x86_64.zip fractal_stream/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fractal_stream-windows-x86_64
+          path: fractal_stream-windows-x86_64.zip
+
+  # ── GitHub Release (tags only) ───────────────────────────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/fractal_stream-linux-x86_64/fractal_stream-linux-x86_64.tar.gz
+            artifacts/fractal_stream-macos-arm64/fractal_stream-macos-arm64.tar.gz
+            artifacts/fractal_stream-windows-x86_64/fractal_stream-windows-x86_64.zip
+          generate_release_notes: true

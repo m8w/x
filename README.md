@@ -112,19 +112,43 @@ Everything runs on a single thread with the OpenGL context. Audio capture runs o
 
 ## Build
 
+### Dependencies
+
+| Library | Purpose | Install (Ubuntu/Debian) |
+|---------|---------|------------------------|
+| GLFW 3 | Window + OpenGL context | `apt install libglfw3-dev` |
+| GLEW | OpenGL extension loader | `apt install libglew-dev` |
+| GLM | Math (header-only) | git submodule |
+| FFmpeg (libav*) | Video decode + RTMP encode | `apt install libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libavdevice-dev` |
+| Dear ImGui | UI panels | git submodule |
+| RtMidi | MIDI I/O | `apt install librtmidi-dev` or git submodule |
+
+macOS: install FFmpeg, GLFW, and RtMidi via Homebrew. OpenGL, VideoToolbox, CoreGraphics, CoreMIDI, and CoreAudio come with Xcode.
+
+### Build steps
+
 ```bash
-# clone with submodules
-git clone --recurse-submodules <repo>
+# Clone with submodules
+git clone --recurse-submodules https://github.com/m8w/x.git
+cd x
 
-# install system deps (macOS)
-brew install cmake glfw ffmpeg
+# Ubuntu/Debian deps
+sudo apt install cmake libglfw3-dev libglew-dev \
+     libavcodec-dev libavformat-dev libavutil-dev \
+     libswscale-dev libswresample-dev libavdevice-dev \
+     librtmidi-dev
 
-# build
+# Configure and build
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
-# run
-./build/fractal_stream /path/to/video.mp4
+# Run
+./build/fractal_stream
+```
+
+Optional — for screen capture on Linux:
+```bash
+sudo apt install wmctrl xvfb   # window list + virtual display
 ```
 
 ---

@@ -19,6 +19,39 @@ static const int kScalePC[][12] = {
     {0,3,5,6,7,10,-1},             // Blues        6
 };
 
+// 5-limit just intonation offsets from 12-TET per pitch class (cents)
+static const float kJIOffsets[12] = {
+     0.00f,   // 0 unison
+    11.73f,   // 1 m2  (16/15)
+     3.91f,   // 2 M2  (9/8)
+   -15.64f,   // 3 m3  (6/5)
+   -13.69f,   // 4 M3  (5/4)
+    -1.96f,   // 5 P4  (4/3)
+     9.78f,   // 6 A4  (45/32)
+     1.96f,   // 7 P5  (3/2)
+    13.69f,   // 8 m6  (8/5)
+    15.64f,   // 9 M6  (5/3)
+    -3.91f,   // 10 m7 (9/5)
+   -11.73f,   // 11 M7 (15/8)
+};
+
+// Harmonic series pull offsets per pitch class (cents)
+// Emphasises H7 (−31c blue seventh) and H11 (−49c tritone)
+static const float kHarmonicOffsets[12] = {
+     0.00f,   // 0  root — on series
+     0.00f,   // 1  no close partial
+     3.91f,   // 2  H9  (major 2nd, sharp by ~4c)
+   -15.64f,   // 3  H19 ~ minor 3rd (5-limit)
+   -13.69f,   // 4  H5  (major 3rd, flat by ~14c)
+     1.96f,   // 5  H3  (perfect 4th vicinity, +2c)
+   -49.36f,   // 6  H11 (sharp 11th — alien tritone, half a semitone flat)
+     1.96f,   // 7  H3  (perfect 5th, sharp by 2c)
+    13.69f,   // 8  H5/H10 territory
+   -31.17f,   // 9  H7  (the "blue" seventh displaced to M6 — very exotic)
+    -3.91f,   // 10 H7/H14 neighbourhood
+   -11.73f,   // 11 H15 (major 7th, slightly flat)
+};
+
 const char* genScaleName(GenScale s) {
     switch(s) {
         case GenScale::Chromatic:   return "Chromatic";
@@ -44,6 +77,17 @@ const char* genRootName(int r) {
     return names[r & 0x0F];
 }
 
+const char* microtonalModeName(MicrotonalMode m) {
+    switch (m) {
+        case MicrotonalMode::Off:         return "Off (12-TET)";
+        case MicrotonalMode::RandomDrift: return "Random Drift";
+        case MicrotonalMode::QuarterTone: return "Quarter-Tone (24-EDO)";
+        case MicrotonalMode::JustInton:   return "Just Intonation (5-limit)";
+        case MicrotonalMode::Harmonic:    return "Harmonic Series";
+        default:                          return "?";
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 std::vector<int> MidiGenerator::buildNoteList() const {
     const int* row = kScalePC[(int)scale];
@@ -51,24 +95,34 @@ std::vector<int> MidiGenerator::buildNoteList() const {
     notes.reserve(64);
     for (int n = noteMin; n <= noteMax; n++) {
         int pc = ((n - rootKey) % 12 + 12) % 12;
+        if ((int)scale == 0) {
+            notes.push_back(n);  // chromatic: all notes
+            continue;
+        }
         for (int i = 0; i < 12 && row[i] >= 0; i++) {
             if (pc == row[i]) { notes.push_back(n); break; }
         }
-        if ((int)scale == 0) notes.push_back(n); // chromatic: add all
-    }
-    if (scale == GenScale::Chromatic) {
-        // remove duplicates from the double-add above
-        std::sort(notes.begin(), notes.end());
-        notes.erase(std::unique(notes.begin(), notes.end()), notes.end());
     }
     if (notes.empty()) notes.push_back(60);
     return notes;
 }
 
-float MidiGenerator::stepSec() const {
+float MidiGenerator::stepSec() {
+    // Chaos timing: when timingChaos > 0, interval is randomly drawn from a
+    // wide range so there is no discernible rhythmic pattern at all.
+    if (timingChaos > 0.001f) {
+        float minT = 0.02f;                           // 20 ms floor
+        float maxT = 0.02f + 4.0f * timingChaos;     // up to 4 s at full chaos
+        // Use exponential-style distribution: bias toward shorter intervals
+        // but with a long tail — similar to a Poisson process.
+        float u = std::uniform_real_distribution<float>(0.0f, 1.0f)(m_rng);
+        float mean = minT + (maxT - minT) * 0.25f;   // mean ≈ 1/4 of range
+        float t = -mean * std::log(std::max(1e-6f, u));
+        return std::clamp(t, minT, maxT);
+    }
+    // Normal mode: fixed beat grid with humanize scatter
     float beats = (stepRateIdx < 6) ? kGenBeats[stepRateIdx]
-                : kGenBeats[std::uniform_int_distribution<int>(0,5)(
-                      const_cast<std::mt19937&>(m_rng))];
+                : kGenBeats[std::uniform_int_distribution<int>(0,5)(m_rng)];
     return beats * 60.0f / bpm;
 }
 
@@ -97,26 +151,83 @@ int MidiGenerator::pickVel() {
 }
 
 void MidiGenerator::scheduleNextStep(double now) {
-    m_nextStep = now + jitteredSec(stepSec());
+    float s = stepSec();
+    m_nextStep = now + (timingChaos > 0.001f ? s : jitteredSec(s));
+}
+
+// ── Microtonal pitch computation ──────────────────────────────────────────────
+float MidiGenerator::microtonalCents(int note) {
+    if (microtonalMode == MicrotonalMode::Off) return 0.0f;
+
+    int pc = ((note - rootKey) % 12 + 12) % 12;
+    float scale_f = microtonalAmt / 50.0f;  // 50c → 1.0 normalised
+    float cents = 0.0f;
+
+    switch (microtonalMode) {
+    case MicrotonalMode::RandomDrift:
+        cents = std::uniform_real_distribution<float>(-microtonalAmt, microtonalAmt)(m_rng);
+        break;
+
+    case MicrotonalMode::QuarterTone: {
+        // 24-EDO: randomly choose 0, +50, or −50 cent offset.
+        // When amt < 50 the deviation is scaled down proportionally.
+        static const int steps[3] = {0, 1, -1};
+        int idx = std::uniform_int_distribution<int>(0, 2)(m_rng);
+        cents = steps[idx] * 50.0f * (microtonalAmt / 50.0f);
+        break;
+    }
+
+    case MicrotonalMode::JustInton:
+        cents = kJIOffsets[pc] * scale_f;
+        break;
+
+    case MicrotonalMode::Harmonic:
+        cents = kHarmonicOffsets[pc] * scale_f;
+        break;
+
+    default: break;
+    }
+
+    return std::clamp(cents, -200.0f, 200.0f);
+}
+
+// ── Pitch bend emission ───────────────────────────────────────────────────────
+// Pitch bend range is set to ±2 semitones (200 cents) by the RPN init.
+// 14-bit value: center=8192, 1 cent = 8192/200 = 40.96 units.
+void MidiGenerator::emitPitchBend(float cents, uint8_t ch0,
+                                   std::vector<MidiInput::Message>& out) {
+    int bend = 8192 + (int)std::round(cents * (8192.0f / 200.0f));
+    bend = std::clamp(bend, 0, 16383);
+    uint8_t lsb = (uint8_t)(bend & 0x7F);
+    uint8_t msb = (uint8_t)((bend >> 7) & 0x7F);
+    out.push_back({(uint8_t)(0xE0 | ch0), lsb, msb});
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
 void MidiGenerator::start(double time) {
     if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
     m_pending.clear();
+    m_initQueue.clear();
     m_stepsSincePg = 0;
     liveStep       = 0;
+    liveBendCents  = 0.0f;
+    liveInRest     = false;
+    m_restUntil    = 0.0;
     m_nextStep     = time + 0.05;
     playing        = true;
 }
 
 void MidiGenerator::stop(std::vector<MidiInput::Message>& out) {
-    playing = false;
+    playing    = false;
+    liveInRest = false;
+    m_restUntil = 0.0;
     uint8_t ch0 = (uint8_t)(channel - 1);
-    for (auto& p : m_pending) {
+    for (auto& p : m_pending)
         out.push_back({(uint8_t)(0x80 | ch0), p.note, 0});
-    }
     m_pending.clear();
+    m_initQueue.clear();
+    // Reset pitch bend to center so the synth doesn't stay bent after stop
+    out.push_back({(uint8_t)(0xE0 | ch0), 0x00, 0x40});
 }
 
 std::vector<MidiInput::Message> MidiGenerator::fireOneNote() {
@@ -124,8 +235,12 @@ std::vector<MidiInput::Message> MidiGenerator::fireOneNote() {
     std::vector<MidiInput::Message> out;
     uint8_t ch0 = (uint8_t)(channel - 1);
     int n = pickNote(), v = pickVel();
+    if (microtonalMode != MicrotonalMode::Off) {
+        float c = microtonalCents(n);
+        emitPitchBend(c, ch0, out);
+        liveBendCents = c;
+    }
     out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)n, (uint8_t)v});
-    // NoteOff after 250 ms (no wall-clock available here; caller handles)
     liveNote = n; liveVel = v;
     return out;
 }
@@ -153,20 +268,68 @@ std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
     liveStep++;
     m_stepsSincePg++;
 
-    // Rest?
-    std::uniform_real_distribution<float> restRoll(0.0f, 1.0f);
-    bool isRest = noteEnabled && (restRoll(m_rng) < restProb);
+    // ── Rest system ─────────────────────────────────────────────────────────
+    // Rests have their own wall-clock duration independent of step timing so
+    // they are always audible regardless of chaos timing or step rate.
+    std::uniform_real_distribution<float> roll01(0.0f, 1.0f);
 
-    if (noteEnabled && !isRest) {
+    if (liveInRest) {
+        if (time < m_restUntil) return out;          // still in silence window
+        // Rest window ended — optionally chain another (burst)
+        liveInRest = false;
+        if (restBurst > 0.001f && roll01(m_rng) < restBurst) {
+            float dur = std::uniform_real_distribution<float>(
+                            restDurMin, std::max(restDurMin, restDurMax))(m_rng);
+            m_restUntil = time + dur;
+            liveInRest  = true;
+            return out;
+        }
+    }
+
+    // Decide whether this step triggers a new rest
+    bool isRest = noteEnabled && (roll01(m_rng) < restProb);
+    if (isRest) {
+        float dur = std::uniform_real_distribution<float>(
+                        restDurMin, std::max(restDurMin, restDurMax))(m_rng);
+        m_restUntil = time + dur;
+        liveInRest  = true;
+        return out;
+    }
+
+    if (noteEnabled) {
         int count = std::max(1, chordSize);
         int v     = pickVel();
-        float dur = noteSec();
+        // For chaos timing, note length is also random
+        float dur = (timingChaos > 0.001f)
+                  ? std::uniform_real_distribution<float>(0.02f, 0.5f + timingChaos)(m_rng)
+                  : noteSec();
 
-        for (int k = 0; k < count; k++) {
-            int n = pickNote();
-            out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)n, (uint8_t)v});
-            m_pending.push_back({time + dur, ch0, (uint8_t)n});
-            if (k == 0) { liveNote = n; liveVel = v; }
+        // One pitch bend per step (affects all notes in the chord equally)
+        if (microtonalMode != MicrotonalMode::Off) {
+            // Use first note's pitch class for the bend calculation
+            int firstNote = pickNote();
+            float c = microtonalCents(firstNote);
+            emitPitchBend(c, ch0, out);
+            liveBendCents = c;
+
+            // First note already picked above
+            out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)firstNote, (uint8_t)v});
+            m_pending.push_back({time + dur, ch0, (uint8_t)firstNote});
+            liveNote = firstNote; liveVel = v;
+
+            for (int k = 1; k < count; k++) {
+                int n = pickNote();
+                out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)n, (uint8_t)v});
+                m_pending.push_back({time + dur, ch0, (uint8_t)n});
+            }
+        } else {
+            liveBendCents = 0.0f;
+            for (int k = 0; k < count; k++) {
+                int n = pickNote();
+                out.push_back({(uint8_t)(0x90 | ch0), (uint8_t)n, (uint8_t)v});
+                m_pending.push_back({time + dur, ch0, (uint8_t)n});
+                if (k == 0) { liveNote = n; liveVel = v; }
+            }
         }
     }
 
@@ -176,12 +339,11 @@ std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
         int pg = pgRoll(m_rng);
 
         if (pg >= 128) {
-            // Extended range: emit Bank Select MSB (CC0) then PC
-            // Surge XT / most GM synths: bank = pg/128, patch = pg%128
             int bank  = pg / 128;
             int patch = pg % 128;
-            out.push_back({(uint8_t)(0xB0 | ch0), 0, (uint8_t)bank});   // CC0
-            out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)patch, 0}); // PC
+            out.push_back({(uint8_t)(0xB0 | ch0), 0,  (uint8_t)bank});
+            out.push_back({(uint8_t)(0xB0 | ch0), 32, 0});
+            out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)patch, 0});
         } else {
             out.push_back({(uint8_t)(0xC0 | ch0), (uint8_t)pg, 0});
         }

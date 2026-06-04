@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include "fractal/FractalEngine.h"
 #include "fractal/BlendController.h"
 #include "fractal/GlitchEngine.h"
@@ -9,6 +10,8 @@
 #include "midi/MidiOutput.h"
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
+#include "fx/FftChain.h"
+#include "stream/RecordOutput.h"
 #include "milkdrop/PresetManager.h"
 #include "milkdrop/MilkDropGLRenderer.h"
 #include "audio/IAudioCapture.h"
@@ -20,9 +23,12 @@ class EquationEditor {
 public:
     EquationEditor(FractalEngine& engine, BlendController& blend,
                    GlitchEngine& glitch, ColorSynth& colorSynth,
-                   VideoInput& videoIn, StreamOutput& streamOut,
+                   VideoInput& videoIn, VideoInput& overlayIn,
+                   StreamOutput& streamOut,
                    MidiInput& midiIn, MidiOutput& midiOut,
-                   MidiMapper& midiMapper, MidiGenerator& midiGen);
+                   MidiMapper& midiMapper, MidiGenerator& midiGen,
+                   FftChain& fftChain,
+                   RecordOutput& recOut);
     void draw();   // Call once per frame after ImGui::NewFrame()
 
     // Accessors queried by main.cpp each frame
@@ -44,19 +50,49 @@ private:
     GlitchEngine&    m_glitch;
     ColorSynth&      m_colorSynth;
     VideoInput&      m_videoIn;
+    VideoInput&      m_overlayIn;
     StreamOutput&    m_streamOut;
     MidiInput&       m_midiIn;
     MidiOutput&      m_midiOut;
     MidiMapper&      m_midiMapper;
     MidiGenerator&   m_midiGen;
+    FftChain&        m_fftChain;
+    RecordOutput&    m_recOut;
 
     // Stream panel state
     int  m_bitrateKbps = 2500;
     int  m_resIndex    = 1;
-    char m_videoPath[512] = "";
+    char m_videoPath[512]   = "";
+    char m_overlayPath[512] = "";
 
     char m_newName[64]  = "";
     char m_newUrl[512]  = "";
+
+    // Camera picker state
+    std::vector<VideoInput::CameraInfo> m_cameraInfoList;
+    int                                 m_cameraIdx       = 0;
+    bool                                m_cameraListDirty = true;
+
+    // Screen / window capture state
+    std::vector<VideoInput::ScreenInfo> m_screenInfoList;
+    int                                 m_screenIdx       = 0;
+    bool                                m_screenListDirty = true;
+    std::vector<VideoInput::WindowInfo> m_windowInfoList;
+    int                                 m_windowIdx       = 0;
+    bool                                m_windowListDirty = true;
+
+    // Stream timer
+    std::chrono::steady_clock::time_point m_streamStartTime;
+    bool m_wasStreaming = false;
+
+    // Record panel state
+    char  m_recPath[512]       = {};
+    int   m_recResIdx          = 0;       // 0=4K, 1=8K
+    int   m_recBitrateKbps     = 35000;
+    int   m_recFpsIdx          = 0;       // 0=30, 1=60
+    float m_recTargetHours     = 11.916f; // 11h 55m
+    std::chrono::steady_clock::time_point m_recStartTime;
+    bool  m_wasRecording       = false;
 
     // Preset panel state
     char                     m_presetName[64] = "";
@@ -107,6 +143,8 @@ private:
     void drawColorSynthPanel();
     void drawDistortionPanel();
     void drawChaosPanel();
+    void drawFftPanel();
+    void drawRecordPanel();
     void drawPresetsPanel();
     void drawSurgeXTSection();
 };

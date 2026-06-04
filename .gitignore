@@ -1,4 +1,39 @@
+# Build output
 build/
 *.o
 *.a
 *.so
+fractal_stream
+
+# macOS
+.DS_Store
+.AppleDouble
+*.dSYM/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.clangd/
+compile_commands.json
+
+# User settings (contain stream keys / local paths — keep out of git)
+settings.ini
+settings.local.ini
+last.ini
+presets/
+
+# Large media files
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.flv
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile

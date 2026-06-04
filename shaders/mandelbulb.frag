@@ -18,6 +18,8 @@ uniform int   u_fractal_3d;     // 0=Mandelbulb 1=Mandelbox 2=QuatJulia
 uniform float u_mb_scale;       // Mandelbox scale  (default 2.0)
 uniform float u_mb_fold;        // Mandelbox fold   (default 1.0)
 uniform sampler2D u_video_tex;
+uniform sampler2D u_overlay_tex;
+uniform float     u_overlay_blend;
 
 // ════════════════════════════════════════════════════════════════════════════════
 // DISTANCE ESTIMATORS
@@ -183,6 +185,12 @@ void main() {
         // Background: subtle depth fog using step count
         float fog = float(steps) / 256.0;
         color = vec3(0.01, 0.02, 0.04) + fog * vec3(0.02, 0.04, 0.08);
+    }
+
+    // ── Overlay video layer ───────────────────────────────────────────────────
+    if (u_overlay_blend > 0.0) {
+        vec3 overlay = texture(u_overlay_tex, v_uv).rgb;
+        color = mix(color, overlay, u_overlay_blend);
     }
 
     fragColor = vec4(color, 1.0);

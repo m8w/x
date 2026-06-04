@@ -36,6 +36,18 @@ const char* midiParamName(MidiParam p) {
         case MidiParam::ColorHueOscRate: return "Color: Hue Osc Rate";
         case MidiParam::ColorHueOscAmp:  return "Color: Hue Osc Amp";
         case MidiParam::ColorLumOscAmp:  return "Color: Lum Osc Amp";
+        case MidiParam::OverlayBlend:    return "Overlay blend";
+        case MidiParam::StreamBlendMode: return "Stream blend mode (0-41)";
+        case MidiParam::VidFilter:       return "Vid filter ID (0-11)";
+        case MidiParam::VidFilterA:      return "Vid filter param A";
+        case MidiParam::VidFilterB:      return "Vid filter param B";
+        case MidiParam::OvrFilter:       return "Ovr filter ID (0-18)";
+        case MidiParam::OvrFilterA:      return "Ovr filter param A";
+        case MidiParam::OvrFilterB:      return "Ovr filter param B";
+        case MidiParam::ChaosMode:       return "Chaos mode (0-7)";
+        case MidiParam::ChaosStrength:   return "Chaos strength";
+        case MidiParam::ChaosScale:      return "Chaos scale";
+        case MidiParam::ChaosSpeed:      return "Chaos speed";
         default:                         return "Unknown";
     }
 }
@@ -78,6 +90,18 @@ void MidiMapper::applyToParam(MidiParam p, float val,
         case MidiParam::ColorHueOscRate: colorSynth.hueOscRate     = val; break;
         case MidiParam::ColorHueOscAmp:  colorSynth.hueOscAmp      = val; break;
         case MidiParam::ColorLumOscAmp:  colorSynth.lumOscAmp      = val; break;
+        case MidiParam::OverlayBlend:    eng.overlayBlend    = std::clamp(val, 0.0f, 1.0f); break;
+        case MidiParam::StreamBlendMode: eng.streamBlendMode = (int)std::clamp(val, 0.0f, 41.0f); break;
+        case MidiParam::VidFilter:       eng.vidFilter       = (int)std::clamp(val, 0.0f, 11.0f); break;
+        case MidiParam::VidFilterA:      eng.vidFilterA      = val; break;
+        case MidiParam::VidFilterB:      eng.vidFilterB      = val; break;
+        case MidiParam::OvrFilter:       eng.ovrFilter       = (int)std::clamp(val, 0.0f, 18.0f); break;
+        case MidiParam::OvrFilterA:      eng.ovrFilterA      = val; break;
+        case MidiParam::OvrFilterB:      eng.ovrFilterB      = val; break;
+        case MidiParam::ChaosMode:       eng.chaosMode       = (int)std::clamp(val, 0.0f, 7.0f); break;
+        case MidiParam::ChaosStrength:   eng.chaosStrength   = std::clamp(val, 0.0f, 1.0f); break;
+        case MidiParam::ChaosScale:      eng.chaosScale      = std::clamp(val, 0.5f, 8.0f); break;
+        case MidiParam::ChaosSpeed:      eng.chaosSpeed      = std::clamp(val, 0.0f, 3.0f); break;
         default: break;
     }
 }

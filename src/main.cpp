@@ -19,6 +19,8 @@
 #include "midi/MidiMapper.h"
 #include "midi/MidiGenerator.h"
 #include "midi/MidiOutput.h"
+#include "fx/FftChain.h"
+#include "stream/RecordOutput.h"
 #include "audio/IAudioCapture.h"
 #include "audio/BeatDetector.h"
 #include "milkdrop/PresetManager.h"
@@ -26,8 +28,10 @@
 
 #include <cstdio>
 #include <string>
-#include <ifaddrs.h>
-#include <arpa/inet.h>
+#ifndef _WIN32
+#  include <ifaddrs.h>
+#  include <arpa/inet.h>
+#endif
 extern "C" {
 #include <libavutil/log.h>
 }
@@ -73,8 +77,10 @@ int main(int argc, char** argv) {
     FractalEngine  engine;
     BlendController blend;
     VideoTexture   videoTex;
+    VideoTexture   overlayTex;
     Renderer       renderer;
     VideoInput     videoIn;
+    VideoInput     overlayIn;
     StreamOutput   streamOut;
     MidiInput      midiIn;
     MidiOutput     midiOut;
@@ -82,8 +88,13 @@ int main(int argc, char** argv) {
     MidiGenerator  midiGen;
     GlitchEngine   glitchEng;
     ColorSynth     colorSynth;
+    FftChain       fftChain;
+    RecordOutput   recOut;
     EquationEditor ui(engine, blend, glitchEng, colorSynth,
-                      videoIn, streamOut, midiIn, midiOut, midiMapper, midiGen);
+                      videoIn, overlayIn, streamOut, midiIn, midiOut, midiMapper, midiGen,
+                      fftChain, recOut);
+    streamOut.fftChain = &fftChain;
+    streamOut.recOut   = &recOut;
 
     // MilkDrop subsystems
     auto           audioCapture = createAudioCapture();
@@ -96,6 +107,7 @@ int main(int argc, char** argv) {
     if (remote.start(7777)) {
         // Print all non-loopback IPv4 addresses so user knows what to type
         fprintf(stderr, "\n=== Phone remote ===\n");
+#ifndef _WIN32
         struct ifaddrs* ifap = nullptr;
         if (getifaddrs(&ifap) == 0) {
             for (auto* ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -107,6 +119,9 @@ int main(int argc, char** argv) {
             }
             freeifaddrs(ifap);
         }
+#else
+        fprintf(stderr, "  http://localhost:7777\n");
+#endif
         fprintf(stderr, "====================\n\n");
     }
 
@@ -175,9 +190,21 @@ int main(int argc, char** argv) {
                 midiOut.send(gMsg);                                  // real MIDI to DAW/VST
                 synthMsgs.push_back({gMsg.status, gMsg.data1, gMsg.data2});
             }
+
+            // Glitch→sound: fire a note from the MIDI generator on each new glitch
+            if (glitchEng.wantsMidiTrigger && midiGen.enabled && midiGen.playing) {
+                auto burstMsgs = midiGen.fireOneNote();
+                for (auto& msg : burstMsgs) {
+                    auto gMsg = glitchEng.applyMidiGlitch(msg);
+                    midiMapper.apply(gMsg, engine, blend, colorSynth);
+                    midiOut.send(gMsg);
+                    synthMsgs.push_back({gMsg.status, gMsg.data1, gMsg.data2});
+                }
+            }
         }
 
-        // Tick color synthesizer — update oscillators + react to MIDI
+        // Tick color synthesizer — update oscillators + react to MIDI + glitch
+        colorSynth.inGlitch = glitchEng.inGlitch;
         colorSynth.tick(t, dt, synthMsgs);
 
         // Decode next video frame if ready
@@ -189,6 +216,19 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Decode next overlay frame if ready
+        if (overlayIn.isOpen()) {
+            AVFrame* frame = overlayIn.nextFrame();
+            if (frame) {
+                overlayTex.upload(frame);
+                overlayIn.releaseFrame(frame);
+            }
+        }
+
+        // Upload FFT spectral params to renderer (band energy from audio thread)
+        renderer.setSpectralParams(fftChain.enabled, fftChain.onStream,
+                                   fftChain.bandEnergy, fftChain.visualGain);
+
         // Poll audio + detect beats
         AudioData audio = audioCapture->poll();
         beatDet.process(audio);
@@ -197,7 +237,10 @@ int main(int argc, char** argv) {
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
 
-        renderer.render(fw, fh, t, engine, blend, videoTex, colorSynth);
+        // Camera: upscale to FBO resolution so the texture is always full-screen crisp
+        if (videoIn.isCamera()) videoIn.setOutputSize(fw, fh);
+
+        renderer.render(fw, fh, t, engine, blend, videoTex, overlayTex, colorSynth);
 
         // Render MilkDrop frame (if ready) then blit to window
         if (mdRenderer.isReady()) {
@@ -227,6 +270,11 @@ int main(int argc, char** argv) {
             streamOut.pushFrame(windowBuf.data(), fw, fh);
         }
 
+        // Encode frame to local file if recording
+        if (recOut.isRecording()) {
+            recOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
+        }
+
         // ImGui overlay
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -238,6 +286,7 @@ int main(int argc, char** argv) {
         glfwSwapBuffers(window);
     }
 
+    recOut.stop();
     streamOut.stop();
 
     // Auto-save session so next launch resumes where we left off

@@ -10,11 +10,23 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ── Apple Silicon / Homebrew paths ────────────────────────────────────────────
+# ── macOS: Homebrew paths + silence OpenGL deprecation warnings ───────────────
 if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
-    set(CMAKE_OSX_ARCHITECTURES arm64)
+    # Homebrew on Apple Silicon installs to /opt/homebrew; Intel Macs use /usr/local
+    list(APPEND CMAKE_PREFIX_PATH /opt/homebrew /usr/local)
+    # Let CMake target the native CPU arch (arm64 on M-series, x86_64 on Intel)
+    # Do NOT hard-code arm64 here — that breaks Intel MacBook builds.
     add_compile_definitions(GL_SILENCE_DEPRECATION)
+endif()
+
+# ── Windows / MSYS2: prefer static linking for portability ───────────────────
+if(WIN32)
+    # MSYS2 sets CMAKE_PREFIX_PATH via toolchain; pkg-config finds mingw packages
+    add_compile_definitions(
+        UNICODE _UNICODE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
 endif()
 
 # ── Third-party (submodules + bundled) ───────────────────────────────────────
@@ -37,6 +49,9 @@ find_package(glfw3  REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale libswresample libavdevice)
+if(NOT APPLE)
+    find_package(GLEW REQUIRED)
+endif()
 
 # ── RtMidi: prefer system package, fall back to bundled third_party/rtmidi ───
 pkg_check_modules(RTMIDI QUIET rtmidi)
@@ -59,21 +74,22 @@ else()
     set(RTMIDI_EXTRA_INCLUDES ${RTMIDI_DIR})
     if(APPLE)
         set(RTMIDI_LINK_LIBS "")   # CoreMIDI added below in framework block
+    elseif(WIN32)
+        set(RTMIDI_LINK_LIBS winmm)
     else()
         set(RTMIDI_LINK_LIBS asound)   # ALSA on Linux
     endif()
     # Tell RtMidi which backend to compile
     if(APPLE)
         add_compile_definitions(__MACOSX_CORE__)
+    elseif(WIN32)
+        add_compile_definitions(__WINDOWS_MM__)
     else()
         add_compile_definitions(__LINUX_ALSA__)
     endif()
 endif()
 
-# ── GLEW (Linux only) ─────────────────────────────────────────────────────────
-if(NOT APPLE)
-    find_package(GLEW REQUIRED)
-endif()
+# ── GLEW (Linux + Windows, not macOS) ────────────────────────────────────────
 
 # ── ImGui sources ─────────────────────────────────────────────────────────────
 set(IMGUI_SOURCES
@@ -96,10 +112,11 @@ set(SOURCES
     src/fractal/BlendController.cpp
     src/fractal/GlitchEngine.cpp
     src/fractal/ColorSynth.cpp
+    src/fx/FftChain.cpp
     src/stream/VideoInput.cpp
     src/stream/StreamOutput.cpp
+    src/stream/RecordOutput.cpp
     src/ui/EquationEditor.cpp
-    src/ui/FilePicker_linux.cpp
     src/remote/RemoteControl.cpp
     src/midi/MidiInput.cpp
     src/midi/MidiMapper.cpp
@@ -110,7 +127,11 @@ set(SOURCES
 if(APPLE)
     list(APPEND SOURCES src/ui/FilePicker.mm)
     list(APPEND SOURCES src/audio/AudioCapture_mac.mm)
+elseif(WIN32)
+    list(APPEND SOURCES src/ui/FilePicker_windows.cpp)
+    list(APPEND SOURCES src/audio/AudioCapture_portaudio.cpp)
 else()
+    list(APPEND SOURCES src/ui/FilePicker_linux.cpp)
     list(APPEND SOURCES src/audio/AudioCapture_portaudio.cpp)
 endif()
 
@@ -148,6 +169,14 @@ else()
     )
 endif()
 
+# On Windows, embed the shaders directory path as a resource-relative path so
+# the installed binary can find shaders next to the exe.
+if(WIN32)
+    target_compile_definitions(fractal_stream PRIVATE
+        SHADERS_DIR_RELATIVE="shaders"
+    )
+endif()
+
 # ── Link ──────────────────────────────────────────────────────────────────────
 if(APPLE)
     target_link_libraries(fractal_stream PRIVATE
@@ -160,6 +189,7 @@ if(APPLE)
         "-framework CoreMIDI"
         "-framework CoreAudio"
         "-framework CoreFoundation"
+        "-framework CoreGraphics"
         "-framework UniformTypeIdentifiers"
         "-framework AVFoundation"
         "-framework Accelerate"
@@ -167,6 +197,20 @@ if(APPLE)
         ${FFMPEG_LIBRARIES}
         ${RTMIDI_LINK_LIBS}
         projectM_eval
+    )
+elseif(WIN32)
+    target_link_libraries(fractal_stream PRIVATE
+        OpenGL::GL
+        GLEW::GLEW
+        glfw
+        ${FFMPEG_LIBRARIES}
+        ${RTMIDI_LINK_LIBS}
+        ws2_32
+        ole32
+        oleaut32
+        uuid
+        strmiids
+        winmm
     )
 else()
     target_link_libraries(fractal_stream PRIVATE

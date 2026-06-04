@@ -687,10 +687,6 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
             win.title.c_str(), w, h, x, y);
     return initCodec();
 
-#else
-    fprintf(stderr, "VideoInput: window capture not supported on this platform\n");
-    m_isCamera = m_isScreen = false;
-    return false;
 #elif defined(_WIN32)
     avdevice_register_all();
     const AVInputFormat* fmt = av_find_input_format("gdigrab");
@@ -742,12 +738,34 @@ AVFrame* VideoInput::nextFrameCGImage() {
 #ifdef __APPLE__
     if (m_cgWindowID == kCGNullWindowID) return nullptr;
 
-    // kCGRectNull → use the window's own bounds
-    CGImageRef img = CGWindowListCreateImage(
-        kCGRectNull,
-        kCGWindowListOptionIncludingWindow,
-        m_cgWindowID,
-        kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque);
+    // CGWindowListCreateImage was removed in macOS 15.  Use CGDisplayCreateImage
+    // (captures the full display) then crop to the window's current on-screen bounds.
+    CGRect winBounds = CGRectZero;
+    CFArrayRef winList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionIncludingWindow, m_cgWindowID);
+    if (winList) {
+        if (CFArrayGetCount(winList) > 0) {
+            auto* d = (CFDictionaryRef)CFArrayGetValueAtIndex(winList, 0);
+            if (auto* bd = (CFDictionaryRef)CFDictionaryGetValue(d, kCGWindowBounds))
+                CGRectMakeWithDictionaryRepresentation(bd, &winBounds);
+        }
+        CFRelease(winList);
+    }
+
+    CGDirectDisplayID display = CGMainDisplayID();
+    CGImageRef fullImg = CGDisplayCreateImage(display);
+    if (!fullImg) return nullptr;
+
+    // Flip Y: CoreGraphics origin is top-left for window coords but
+    // CGDisplayCreateImage uses bottom-left; compensate.
+    size_t dispH = CGImageGetHeight(fullImg);
+    CGRect cropRect = CGRectMake(winBounds.origin.x,
+                                 (CGFloat)dispH - winBounds.origin.y - winBounds.size.height,
+                                 winBounds.size.width, winBounds.size.height);
+    CGImageRef img = (winBounds.size.width > 0 && winBounds.size.height > 0)
+        ? CGImageCreateWithImageInRect(fullImg, cropRect)
+        : fullImg;
+    CGImageRelease(fullImg);
     if (!img) return nullptr;
 
     size_t imgW     = CGImageGetWidth(img);

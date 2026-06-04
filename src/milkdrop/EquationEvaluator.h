@@ -143,6 +143,15 @@ private:
     // Per-vertex equations
     struct projectm_eval_code* m_perVertex = nullptr;
 
+    // Per-preset default values — reset context vars at start of each evaluate()
+    float m_def_zoom   = 1.f,  m_def_rot   = 0.f, m_def_warp  = 1.f;
+    float m_def_cx     = 0.5f, m_def_cy    = 0.5f;
+    float m_def_dx     = 0.f,  m_def_dy    = 0.f;
+    float m_def_sx     = 1.f,  m_def_sy    = 1.f;
+    float m_def_decay  = 0.98f, m_def_gamma = 1.f;
+    float m_def_wave_r = 1.f,  m_def_wave_g = 1.f;
+    float m_def_wave_b = 1.f,  m_def_wave_a = 1.f;
+
     bool m_ready = false;
     bool m_initRan = false;   // per_frame_init runs exactly once per loadPreset()
 };

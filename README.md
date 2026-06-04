@@ -51,8 +51,8 @@ macOS: install FFmpeg, GLFW, and RtMidi via Homebrew. OpenGL, VideoToolbox, Core
 
 ```bash
 # Clone with submodules
-git clone --recurse-submodules https://github.com/YOUR_USERNAME/fractal-stream.git
-cd fractal-stream
+git clone --recurse-submodules https://github.com/m8w/x.git
+cd x
 
 # Ubuntu/Debian deps
 sudo apt install cmake libglfw3-dev libglew-dev \

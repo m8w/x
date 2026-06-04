@@ -616,26 +616,29 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
     m_isScreen = true;
 
 #if defined(__APPLE__)
-    // macOS: Use CGWindowListCreateImage which reads the window server layer buffer
-    // directly.  This works even when the window is behind other windows (single-monitor).
-    // We don't go through FFmpeg at all — nextFrameCGImage() polls CoreGraphics each frame.
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 150000
+    // macOS 14-: CGImage path reads window compositor buffer directly (works occluded).
     CGWindowID wid = (CGWindowID)std::stoul(win.devStr);
     m_cgWindowID = wid;
     m_useCGImage = true;
     m_width      = (win.w > 0) ? (win.w & ~1) : 2;
     m_height     = (win.h > 0) ? (win.h & ~1) : 2;
     m_path       = "window:" + win.title;
-
-    // Pre-allocate output frame
     av_frame_unref(m_frameRGB);
     m_frameRGB->format = AV_PIX_FMT_RGB24;
     m_frameRGB->width  = m_width;
     m_frameRGB->height = m_height;
     av_frame_get_buffer(m_frameRGB, 0);
-
     fprintf(stderr, "VideoInput: CGImage window capture '%s' (wid %u)  %dx%d\n",
             win.title.c_str(), wid, m_width, m_height);
     return true;
+#else
+    // macOS 15+: CGWindowListCreateImage and CGDisplayCreateImage are removed.
+    // Fall back to avfoundation screen capture of the main display.
+    fprintf(stderr, "VideoInput: per-window capture unavailable on macOS 15+ "
+            "(ScreenCaptureKit entitlement required). Falling back to screen capture.\n");
+    return openScreenCapture("0", fps);
+#endif
 
 #elif defined(__linux__)
     avdevice_register_all();
@@ -730,16 +733,18 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
 #endif
 }
 
-// ── macOS CoreGraphics frame pump ─────────────────────────────────────────────
-// Reads one frame from the window layer buffer without needing the window to be
-// frontmost — works on a single-monitor setup where both apps share one screen.
+// ── macOS CoreGraphics / ScreenCaptureKit frame pump ─────────────────────────
+// On macOS < 15: uses CGDisplayCreateImage (fast, no entitlement needed).
+// On macOS 15+:  those APIs were removed; nextFrameCGImage returns nullptr and
+//               openWindowCapture gracefully falls back to avfoundation screen
+//               capture so the app still builds and runs.
 
 AVFrame* VideoInput::nextFrameCGImage() {
 #ifdef __APPLE__
     if (m_cgWindowID == kCGNullWindowID) return nullptr;
 
-    // CGWindowListCreateImage was removed in macOS 15.  Use CGDisplayCreateImage
-    // (captures the full display) then crop to the window's current on-screen bounds.
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 150000
+    // ── macOS 14 and earlier: CGDisplayCreateImage still available ────────────
     CGRect winBounds = CGRectZero;
     CFArrayRef winList = CGWindowListCopyWindowInfo(
         kCGWindowListOptionIncludingWindow, m_cgWindowID);
@@ -751,13 +756,9 @@ AVFrame* VideoInput::nextFrameCGImage() {
         }
         CFRelease(winList);
     }
-
     CGDirectDisplayID display = CGMainDisplayID();
     CGImageRef fullImg = CGDisplayCreateImage(display);
     if (!fullImg) return nullptr;
-
-    // Flip Y: CoreGraphics origin is top-left for window coords but
-    // CGDisplayCreateImage uses bottom-left; compensate.
     size_t dispH = CGImageGetHeight(fullImg);
     CGRect cropRect = CGRectMake(winBounds.origin.x,
                                  (CGFloat)dispH - winBounds.origin.y - winBounds.size.height,
@@ -767,6 +768,13 @@ AVFrame* VideoInput::nextFrameCGImage() {
         : fullImg;
     CGImageRelease(fullImg);
     if (!img) return nullptr;
+#else
+    // ── macOS 15+: CGDisplayCreateImage removed — return nullptr ─────────────
+    // Window capture is not available without ScreenCaptureKit entitlement.
+    // openWindowCapture() falls back to avfoundation screen capture on macOS 15,
+    // so this path is normally unreachable.
+    return nullptr;
+#endif // MAC_OS_X_VERSION_MAX_ALLOWED
 
     size_t imgW     = CGImageGetWidth(img);
     size_t imgH     = CGImageGetHeight(img);
@@ -783,7 +791,6 @@ AVFrame* VideoInput::nextFrameCGImage() {
     if (dstW < 2) dstW = 2;
     if (dstH < 2) dstH = 2;
 
-    // Rebuild sws + output frame if size changed
     if (dstW != m_width || dstH != m_height || !m_cgSwsCtx) {
         if (m_cgSwsCtx) { sws_freeContext(m_cgSwsCtx); m_cgSwsCtx = nullptr; }
         av_frame_unref(m_frameRGB);
@@ -803,7 +810,7 @@ AVFrame* VideoInput::nextFrameCGImage() {
     if (!m_cgSwsCtx) { CFRelease(rawData); CGImageRelease(img); return nullptr; }
 
     av_frame_make_writable(m_frameRGB);
-    const uint8_t* srcData[4]  = { pixels, nullptr, nullptr, nullptr };
+    const uint8_t* srcData[4]   = { pixels, nullptr, nullptr, nullptr };
     int            srcStride[4] = { (int)rowBytes, 0, 0, 0 };
     sws_scale(m_cgSwsCtx, srcData, srcStride, 0, (int)imgH,
               m_frameRGB->data, m_frameRGB->linesize);

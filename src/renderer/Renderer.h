@@ -31,6 +31,9 @@ public:
     void setSpectralParams(bool enabled, bool onStream,
                            const float band[4], const float visGain[4]);
 
+    // Expose the fractal FBO texture for MilkDropGLRenderer composite pass.
+    GLuint fboTexture() const { return m_fboTex; }
+
 private:
     ShaderProgram m_shaderBlend;      // fractal.vert + fractal.frag
     ShaderProgram m_shaderBulb;       // fractal.vert + mandelbulb.frag

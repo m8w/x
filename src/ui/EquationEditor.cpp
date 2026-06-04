@@ -31,9 +31,32 @@ EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
       m_midiMapper(midiMapper), m_midiGen(midiGen), m_fftChain(fftChain),
       m_recOut(recOut) {}
 
+void EquationEditor::setMilkDrop(PresetManager* pm, MilkDropGLRenderer* md,
+                                  IAudioCapture* audio, BeatDetector* beat) {
+    m_presetMgr  = pm;
+    m_mdRenderer = md;
+    m_audio      = audio;
+    m_beatDet    = beat;
+}
+
 void EquationEditor::draw() {
+    // ── Window 1: MilkDrop & Broadcast ───────────────────────────────────────
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
-    ImGui::SetNextWindowSize({360, 980}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({360, 620}, ImGuiCond_Once);
+    ImGui::Begin("MilkDrop & Broadcast");
+
+    if (m_mdRenderer && ImGui::CollapsingHeader("MilkDrop", ImGuiTreeNodeFlags_DefaultOpen))
+        drawMilkDropPanel();
+    if (m_audio && ImGui::CollapsingHeader("Audio"))
+        drawAudioPanel();
+    if (ImGui::CollapsingHeader("Stream Output", ImGuiTreeNodeFlags_DefaultOpen))
+        drawStreamPanel();
+
+    ImGui::End();
+
+    // ── Window 2: Fractal Controls ────────────────────────────────────────────
+    ImGui::SetNextWindowPos({10, 640}, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({360, 700}, ImGuiCond_Once);
     ImGui::Begin("Fractal Stream Controls");
 
     if (ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen))
@@ -63,7 +86,7 @@ void EquationEditor::draw() {
 
     ImGui::End();
 
-    // UI2  -  MIDI Mapper (separate window)
+    // ── MIDI Mapper + Glitch (separate windows) ───────────────────────────────
     drawMidiWindow();
     drawGlitchPanel();
 }
@@ -1270,7 +1293,9 @@ void EquationEditor::drawStreamPanel() {
                 ImGui::SetTooltip("Full RTMP URL (masked)");
         }
         ImGui::SameLine();
-        if (ImGui::SmallButton("X")) removeIdx = i;
+        char xLabel[16];
+        snprintf(xLabel, sizeof(xLabel), "X##del%d", i);
+        if (ImGui::SmallButton(xLabel)) removeIdx = i;
 
         ImGui::PopID();
     }
@@ -3170,6 +3195,36 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 i, mm.minVal, i, mm.maxVal, i, mm.label);
     }
 
+    // [milkdrop]
+    fprintf(f, "\n[milkdrop]\n");
+    fprintf(f, "stream_milkdrop=%d\n", (int)m_streamMilkDrop);
+    fprintf(f, "fractal_overlay=%d\nfractal_blend=%f\n",
+            (int)m_mdFractalOverlay, m_mdFractalBlend);
+    fprintf(f, "blend_type=%d\n", m_mdBlendType);
+    fprintf(f, "auto_advance=%d\npreset_duration=%f\n",
+            (int)m_mdAutoAdvance, m_mdPresetDuration);
+    // Persist the current preset path so we can restore it on next launch
+    if (m_presetMgr) {
+        const auto* cur = m_presetMgr->current();
+        fprintf(f, "last_preset=%s\n", cur ? cur->path.c_str() : "");
+    }
+
+    // [beatdetector]
+    fprintf(f, "\n[beatdetector]\n");
+    if (m_beatDet) {
+        fprintf(f, "mode=%d\n", (int)m_beatDet->hardcutMode);
+        fprintf(f, "low_thresh=%f\nhigh_thresh=%f\nmin_delay=%f\n",
+                m_beatDet->hardcutLowThreshold,
+                m_beatDet->hardcutHighThreshold,
+                (float)m_beatDet->hardcutMinDelay);
+    }
+
+    // [audio]
+    fprintf(f, "\n[audio]\n");
+    if (m_audio) {
+        fprintf(f, "device=%s\n", m_audio->currentDevice().c_str());
+    }
+
     // [stream]
     fprintf(f, "\n[stream]\n");
     fprintf(f, "bitrate_kbps=%d\nres_index=%d\naudio_device=%s\nvideo_path=%s\n",
@@ -3403,6 +3458,44 @@ void EquationEditor::loadSettings(const std::string& path) {
             std::string lbl = ini_s(m, pfx + "_label", "");
             strncpy(mm.label, lbl.c_str(), sizeof(mm.label) - 1);
             m_midiMapper.add(mm);
+        }
+    }
+
+    // [milkdrop]
+    m_streamMilkDrop   = ini_b(m, "milkdrop.stream_milkdrop",  m_streamMilkDrop);
+    m_mdFractalOverlay = ini_b(m, "milkdrop.fractal_overlay",  m_mdFractalOverlay);
+    m_mdFractalBlend   = ini_f(m, "milkdrop.fractal_blend",    m_mdFractalBlend);
+    m_mdBlendType      = ini_i(m, "milkdrop.blend_type",       m_mdBlendType);
+    m_mdAutoAdvance    = ini_b(m, "milkdrop.auto_advance",     m_mdAutoAdvance);
+    m_mdPresetDuration = ini_f(m, "milkdrop.preset_duration",  m_mdPresetDuration);
+    if (m_mdRenderer)
+        m_mdRenderer->fractalEnabled = m_mdFractalOverlay;
+    {
+        std::string lp = ini_s(m, "milkdrop.last_preset", "");
+        if (!lp.empty() && m_presetMgr)
+            m_presetMgr->selectByPath(lp, TransitionType::Instant);
+    }
+
+    // [beatdetector]
+    if (m_beatDet) {
+        m_beatDet->hardcutMode           = (BeatDetector::HardcutMode)
+                                           ini_i(m, "beatdetector.mode",
+                                                 (int)m_beatDet->hardcutMode);
+        m_beatDet->hardcutLowThreshold   = ini_f(m, "beatdetector.low_thresh",
+                                                 m_beatDet->hardcutLowThreshold);
+        m_beatDet->hardcutHighThreshold  = ini_f(m, "beatdetector.high_thresh",
+                                                 m_beatDet->hardcutHighThreshold);
+        m_beatDet->hardcutMinDelay       = (double)ini_f(m, "beatdetector.min_delay",
+                                                 (float)m_beatDet->hardcutMinDelay);
+    }
+
+    // [audio]
+    if (m_audio) {
+        std::string dev = ini_s(m, "audio.device", "");
+        if (!dev.empty()) {
+            m_audio->stop();
+            m_audio->setDevice(dev);
+            m_audio->start();
         }
     }
 
@@ -3765,4 +3858,205 @@ void EquationEditor::drawSurgeXTSection() {
 
     ImGui::Spacing();
     ImGui::TextDisabled("In Surge XT: right-click a Macro knob -> Assign MIDI CC -> move the knob");
+}
+
+// ---------------------------------------------------------------------------
+// MilkDrop panel
+// ---------------------------------------------------------------------------
+void EquationEditor::drawMilkDropPanel() {
+    if (!m_presetMgr) return;
+
+    // ── Stream source selector ──────────────────────────────────────────────
+    ImGui::TextDisabled("Stream source");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Fractal##src", !m_streamMilkDrop))
+        m_streamMilkDrop = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("MilkDrop##src", m_streamMilkDrop))
+        m_streamMilkDrop = true;
+
+    ImGui::Separator();
+
+    // ── Fractal overlay ─────────────────────────────────────────────────────
+    if (ImGui::Checkbox("Fractal overlay", &m_mdFractalOverlay)) {
+        if (m_mdRenderer) m_mdRenderer->fractalEnabled = m_mdFractalOverlay;
+    }
+    if (m_mdFractalOverlay) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(140);
+        ImGui::SliderFloat("##fblend", &m_mdFractalBlend, 0.0f, 1.0f, "blend %.2f");
+    }
+
+    // ── Transition type ─────────────────────────────────────────────────────
+    ImGui::Separator();
+    static const char* kBlendTypes[] = {
+        "Hard cut", "Crossfade", "Zoom in", "Zoom out",
+        "Wipe left", "Wipe right", "Spin CW", "Spin CCW",
+        "Pixelate", "Dissolve",
+    };
+    ImGui::SetNextItemWidth(160);
+    ImGui::Combo("Transition##mdbl", &m_mdBlendType, kBlendTypes, 10);
+
+    // ── Auto-advance ────────────────────────────────────────────────────────
+    ImGui::Checkbox("Auto-advance", &m_mdAutoAdvance);
+    if (m_mdAutoAdvance) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120);
+        ImGui::SliderFloat("##mddur", &m_mdPresetDuration, 2.0f, 120.0f, "%.0f s");
+    }
+
+    // ── Navigation ─────────────────────────────────────────────────────────
+    ImGui::Separator();
+    if (ImGui::Button("Refresh##mdreload")) {
+        m_presetMgr->loadAll();
+        m_mdSelectedIdx = m_presetMgr->currentIndex();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rescan ~/.fractal_stream/milkdrop/ for new .milk files");
+    ImGui::SameLine();
+    // m_mdBlendType 0 = Hard cut → Hardcut, else Smooth
+    TransitionType navT = (m_mdBlendType == 0) ? TransitionType::Hardcut : TransitionType::Smooth;
+    if (ImGui::Button("< Prev"))  m_presetMgr->prevPreset(navT);
+    ImGui::SameLine();
+    if (ImGui::Button("Random"))  m_presetMgr->randomPreset(navT);
+    ImGui::SameLine();
+    if (ImGui::Button("Next >"))  m_presetMgr->nextPreset(navT);
+
+    // Current preset name
+    {
+        auto* cur = m_presetMgr->current();
+        ImGui::TextDisabled("%d / %d  %s",
+            m_presetMgr->currentIndex() + 1,
+            m_presetMgr->totalCount(),
+            cur ? cur->name.c_str() : "(none)");
+    }
+
+    // ── Preset browser ──────────────────────────────────────────────────────
+    ImGui::Separator();
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputText("##mdsearch", m_mdSearch, sizeof(m_mdSearch)))
+        m_presetMgr->searchText = m_mdSearch;
+
+    ImGui::Checkbox("Favorites only", &m_presetMgr->filterFavorites);
+
+    // Filtered list
+    auto indices = m_presetMgr->filteredIndices();
+    ImGui::SetNextWindowSizeConstraints({0, 0}, {FLT_MAX, 220});
+    if (ImGui::BeginChild("##mdlist", {0, 220}, true)) {
+        const auto& presets = m_presetMgr->presets();
+        for (int fi = 0; fi < (int)indices.size(); ++fi) {
+            int idx = indices[fi];
+            const auto& p = presets[idx];
+            bool selected = (idx == m_mdSelectedIdx);
+            // Mark favorites with a star prefix
+            char label[256];
+            snprintf(label, sizeof(label), "%s%s##md%d",
+                     m_presetMgr->isFavorite(idx) ? "\xe2\x98\x85 " : "",
+                     p.name.c_str(), idx);
+            if (ImGui::Selectable(label, selected)) {
+                m_mdSelectedIdx = idx;
+                m_presetMgr->selectByIndex(idx, navT);
+            }
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                m_presetMgr->toggleFavorite(idx);
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::TextDisabled("Double-click to toggle favorite");
+
+    // ── Auto-advance tick ───────────────────────────────────────────────────
+    if (m_mdAutoAdvance) {
+        float now = (float)ImGui::GetTime();
+        if (now - m_mdAutoTimer >= m_mdPresetDuration) {
+            m_mdAutoTimer = now;
+            m_presetMgr->randomPreset(navT);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Audio panel
+// ---------------------------------------------------------------------------
+void EquationEditor::drawAudioPanel() {
+    if (!m_audio) return;
+
+    // ── Device selector ─────────────────────────────────────────────────────
+    // Cache device list — listDevices() calls AVCaptureDeviceDiscoverySession
+    // which is expensive; only refresh when the combo opens.
+    static std::vector<std::string> s_devices;
+    static bool s_devDirty = true;
+    std::string curDev = m_audio->currentDevice();
+    ImGui::TextDisabled("Input device");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##audiodev", curDev.empty() ? "System default" : curDev.c_str())) {
+        if (s_devDirty) { s_devices = m_audio->listDevices(); s_devDirty = false; }
+        if (ImGui::Selectable("System default", curDev.empty())) {
+            if (m_audio->isRunning()) m_audio->stop();
+            m_audio->setDevice("");
+            m_audio->start();
+            s_devDirty = true;
+        }
+        for (auto& dev : s_devices) {
+            bool sel = (dev == curDev);
+            if (ImGui::Selectable(dev.c_str(), sel)) {
+                if (m_audio->isRunning()) m_audio->stop();
+                m_audio->setDevice(dev);
+                m_audio->start();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    // ── Start / stop ────────────────────────────────────────────────────────
+    ImGui::SameLine();
+    if (m_audio->isRunning()) {
+        if (ImGui::Button("Stop##aud"))  m_audio->stop();
+    } else {
+        if (ImGui::Button("Start##aud")) m_audio->start();
+    }
+
+    // ── Live FFT bars ────────────────────────────────────────────────────────
+    ImGui::Separator();
+    if (m_audio->isRunning()) {
+        // We cache the last polled frame in the beat detector's last result
+        // (we don't poll here — that would consume the frame). Instead we
+        // just display a placeholder bar graph derived from beat bands.
+        if (m_beatDet) {
+            float vals[4] = {
+                m_beatDet->beatStrength,
+                0.f, 0.f, 0.f,
+            };
+            // Draw bass/mid/treble/rms as a small bar chart
+            // We need a stored AudioData snapshot — store it via m_lastAudio
+            // For now display beat info
+            float bstr = m_beatDet->beatStrength;
+            ImGui::ProgressBar(bstr, {-1, 10}, "");
+        }
+        ImGui::TextDisabled("Running  BPM: %.1f", m_beatDet ? m_beatDet->bpm : 0.0);
+        if (m_beatDet && m_beatDet->hardcutFired)
+            ImGui::TextColored({1.f, 0.3f, 0.3f, 1.f}, "HARDCUT");
+    } else {
+        ImGui::TextDisabled("(stopped)");
+    }
+
+    // ── Beat detector config ─────────────────────────────────────────────────
+    ImGui::Separator();
+    if (!m_beatDet) return;
+    ImGui::TextDisabled("Beat / Hardcut detection");
+
+    static const char* kModes[] = {"Bass", "Treble", "Bass AND Treble", "Bass OR Treble"};
+    int modeIdx = (int)m_beatDet->hardcutMode;
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::Combo("Mode##hcm", &modeIdx, kModes, 4))
+        m_beatDet->hardcutMode = (BeatDetector::HardcutMode)modeIdx;
+
+    ImGui::SliderFloat("Low thresh##hcl",  &m_beatDet->hardcutLowThreshold,  0.1f, 2.0f);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bass attenuation threshold (0.8 default)");
+    ImGui::SliderFloat("High thresh##hch", &m_beatDet->hardcutHighThreshold, 0.1f, 2.0f);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Treble threshold (0.5 default)");
+
+    float minDelay = (float)m_beatDet->hardcutMinDelay;
+    if (ImGui::SliderFloat("Min delay##hcd", &minDelay, 0.5f, 30.0f, "%.1f s"))
+        m_beatDet->hardcutMinDelay = (double)minDelay;
 }

@@ -1,34 +1,112 @@
-# Fractal Stream Renderer
+# Fractal Stream 
 
-A real-time fractal renderer and live-streaming tool built with OpenGL, FFmpeg, and Dear ImGui.
-
-Stream generative fractal visuals — MIDI-reactive, color-animated, formula-morphing — to YouTube, Twitch, Restream, and anywhere else simultaneously, while recording locally at 4K or 8K.
-
-**Free and open-source under the GPL v3.**
+A real-time generative video synthesis engine and live streaming tool for macOS (Linux/Windows in progress). It merges a GPU-accelerated fractal renderer and a MilkDrop audio-reactive visualizer into a single unified pipeline that encodes and pushes the result to any number of RTMP destinations simultaneously.
 
 ---
 
 ## What it does
 
-- **22 iteration formulas** — Mandelbrot, Julia, Burning Ship, Newton, Phoenix, Tricorn, sin/cos/tan/exp/sinh/cosh, Celtic, Magnet I, Manowar, Time-spiral, Polar warp, and more — crossfadeable in real time between a Formula A and Formula B slot
-- **MIDI-reactive color synthesis** — hue, saturation, and luminance flash on note-on velocity; RGB mode with independent per-channel oscillators; glitch-coupled color flash
-- **Euclidean geometry coupling** — SDF orbit-trap coloring and domain warp fold circle/polygon/star/grid geometry into the fractal structure
-- **3-D fractals** — Mandelbulb, Mandelbox, and Quaternion Julia rendered via ray-marching
-- **Live video texture** — plays any file FFmpeg can decode as the fractal's color source, mapped via escape-time UV
-- **Live camera input** — webcam, iPhone Continuity Camera, and screen/window capture (including capturing a Milkdrop / Butterchurn visualizer running on the same monitor)
-- **Multi-destination RTMP streaming** — push to YouTube + Twitch + Restream simultaneously via a single interface
-- **4K / 8K local recording** — timestamped `.mp4` files, hardware-accelerated encoding (NVENC, VideoToolbox, or libx264/libx265 fallback), YouTube-safe bitrate calculator
-- **MIDI I/O** — map any CC or note to any parameter; built-in generative MIDI sequencer; Surge XT integration
-- **Glitch engine** — randomised Julia jumps, formula flashes, zoom punches, blend scatter, MIDI output on glitch
-- **FFT spectral chain** — gate, frequency shift, smear, phase scramble, harmonic boost, applied to stream and/or recording audio
-- **Presets** — save and load any combination of settings; presets apply instantly during live streaming without interrupting the stream
-- **Formula auto-cycle** — randomly step Formula A and/or Formula B on a configurable timer for unattended evolving streams
+The app renders a fullscreen fractal on the GPU every frame, blends it with a decoded local video file mapped onto the fractal surface using escape-time UV coordinates, layers on MilkDrop-style audio-reactive visuals, and streams the composited output to Restream (or any RTMP endpoint) in real time — all while exposing every parameter through a live Dear ImGui control panel.
 
 ---
 
-## Screenshots / Demo
+## Fractal engine
 
-_Drop a GIF or screenshot here after your first stream._
+Five fractal types blend simultaneously with independent weight sliders:
+
+- **Mandelbrot / Julia** — classic escape-time with configurable Julia C constant
+- **Mandelbulb** — 3D ray-marched using the Inigo Quilez distance estimator
+- **Mandelbox** — IFS fold-and-scale variant with configurable scale and box fold limit
+- **Quaternion Julia** — 4D Julia set projected to 3D via ray marching
+- **Euclidean geometry** — signed-distance fields (circle, polygon, star, grid) coupled into the fractal orbit as orbit-trap coloring and domain warp
+
+Blend weights are normalised in-shader so they always sum to 1, allowing smooth morphs between any combination.
+
+**22 iteration formulas** are available and any two can be cross-faded with a blend slider:
+
+| # | Formula |
+|---|---------|
+| 0 | z² + c (classic Mandelbrot/Julia) |
+| 1–5 | sin, exp, cos, sinh, cosh |
+| 6 | Burning Ship (absolute-value fold) |
+| 7 | Tricorn / Mandelbar (conjugate) |
+| 8 | Newton z³−1 (convergence coloring) |
+| 9 | Phoenix (two-step memory recurrence) |
+| 10 | zⁿ + c (arbitrary real power) |
+| 11–21 | tan, z·exp(z), Celtic, Magnet I, zᶻ, Manowar, Perp Burning Ship, Time-spiral, z³+z+c, cosh(conj(z)), Polar→Cart warp |
+
+The GLSL complex math library covers arithmetic, exp/log, arbitrary real and complex power via polar form, full trig and hyperbolic families — matching the UltraFractal / Fractal Explorer function set.
+
+---
+
+## Video input
+
+FFmpeg decodes any local video file (MP4, MKV, MOV, etc.) frame-by-frame. Each decoded frame is converted from YUV to RGB via libswscale and uploaded to a GL texture. The shader samples this texture using fractal-derived UV coordinates computed from the escape-time value — the video image is literally painted onto the fractal surface, with different parts of the video appearing at different iteration depths.
+
+---
+
+## MilkDrop visualizer(Was discontinued and removed from fractal stream into separate project)
+
+A complete C++/OpenGL port of the classic Winamp visualizer engine. Runs as a 5-pass GPU pipeline every frame:
+
+1. **Warp pass** — samples the previous frame through a zoom/rotation/translation/warp distortion computed by the preset's per-frame equations, with decay and gamma correction. This feedback loop gives MilkDrop its flowing, morphing motion.
+2. **Wave pass** — renders the live audio waveform as a VBO line strip or point cloud, with per-vertex color derived from the spectrum and beat strength.
+3. **Shape pass** — renders up to 4 preset-defined shapes as CPU-generated triangle fans with radial gradients, supporting additive and alpha blending.
+4. **Composite pass** — merges warp texture + wave + shapes + optional fractal overlay, applies gamma and vignette.
+5. **Blend pass** — when transitioning between presets, crossfades using one of 10 transition modes: hard cut, crossfade, zoom in/out, wipe left/right, spin CW/CCW, pixelate, dissolve.
+
+**Preset expressions** are evaluated using the `projectm-eval` library (float precision), implementing the full MilkDrop expression language — the per-frame equations that drive zoom, rotation, warp, decay, gamma, and 32 q-variables across thousands of community `.milk` files.
+
+**Audio analysis** runs on a dedicated AVAudioEngine tap (macOS). A 1024-sample Hann-windowed vDSP FFT produces 256 log-reduced spectrum bins. Bass (20–200 Hz), mid (200–2000 Hz), and treble (2–20 kHz) RMS bands are smoothed per-frame and fed into both the MilkDrop evaluator and the beat detector.
+
+**Beat detection** uses an adaptive threshold from a 60-frame rolling bass history. Four hardcut modes (Bass, Treble, Bass AND Treble, Bass OR Treble) trigger instant preset switches. BPM is estimated from the inter-beat interval of the last 8 onsets.
+
+---
+
+## RTMP streaming
+
+Multiple destinations can be added simultaneously — each with its own URL and stream key — enabling fan-out to Restream, Twitch, YouTube, and any RTMP endpoint in a single pass. Per-destination enable/disable lets you mute individual targets without stopping the encode.
+
+The stream source is selectable live: either the fractal FBO or the MilkDrop composite output, switchable without restarting the stream.
+
+Pixel readback uses double-buffered PBOs for async GPU→CPU transfer, avoiding pipeline stalls. Resolution: 720p / 1080p / 1440p / 4K. Bitrate: 1–40 Mbps.
+
+---
+
+## MIDI
+
+- **MIDI input** — CC/note messages map to any fractal parameter via a learn-mode mapper. All mappings persist across sessions.
+- **MIDI generator** — produces notes, chords, and program changes on a configurable BPM grid with scale quantisation, velocity humanisation, rest probability, and chord size. Output goes to any connected MIDI port.
+- **MIDI thru** — optionally forwards incoming MIDI to the output port.
+- **Glitch engine** — stochastically fires MIDI events (velocity spikes, pitch scrambles, ghost notes) and fractal parameter jumps (Julia jump, formula flash, zoom punch, blend scatter) at configurable rate and duration.
+
+---
+
+## HTTP remote
+
+A built-in HTTP server on port 7777 exposes fractal parameters as a JSON REST API, letting you control the engine from any browser or phone on the local network.
+
+---
+
+## Session persistence
+
+All state — fractal parameters, blend weights, stream destinations, MIDI mappings, MilkDrop preset selection, beat detector thresholds, audio device, auto-advance settings, and fractal overlay blend — is saved to an INI file on quit and restored on next launch.
+
+---
+
+## Architecture
+
+```
+AVAudioEngine tap → FFT → AudioData → BeatDetector
+                                    ↓
+FFmpeg decode → GL texture          MilkDropGLRenderer (5-pass FBO pipeline)
+                    ↓                        ↓
+              Renderer (fractal GLSL) → composite → RTMP encode (libx264)
+                    ↓
+              ImGui panels (EquationEditor) ← MIDI input / HTTP remote
+```
+
+Everything runs on a single thread with the OpenGL context. Audio capture runs on AVAudioEngine's internal thread and deposits frames into a ring buffer that the render loop polls non-blocking each frame.
 
 ---
 
@@ -75,92 +153,14 @@ sudo apt install wmctrl xvfb   # window list + virtual display
 
 ---
 
-## Quick start
+## Dependencies
 
-1. **Run** `./build/fractal_stream`
-2. **Fractal panel** — pick Formula A and B, drag the A↔B blend slider to crossfade
-3. **Video panel** — Browse for a video file (MP4, MKV, etc.) or open a camera/screen
-4. **Stream panel** — paste your RTMP URL + stream key, click **Start**
-5. **Color Synth panel** — enable it and plug in a MIDI controller for reactive color
-6. **Presets panel** — save your setup; load any preset live without dropping the stream
-
----
-
-## Screen / window capture (single monitor)
-
-**macOS:** Video panel → App Windows → Refresh → select your app → **Capture Window**.  
-Uses `CGWindowListCreateImage` — reads the window's layer buffer directly, so it works even when the fractal renderer is in front.  
-*(Requires System Settings → Privacy → Screen Recording → allow your terminal.)*
-
-**Linux:** Video panel → Launch Virtual Display :99 → open a terminal → `DISPLAY=:99 ./butterchurn` → Refresh Monitors → select `:99` → **Capture Screen**.
-
----
-
-## Formula reference
-
-| ID | Name | Recurrence |
-|----|------|-----------|
-| 0 | Mandelbrot / Julia | z² + c |
-| 1 | Sinus | sin(z) + c |
-| 2 | Exponential | exp(z) + c |
-| 3 | Cosine | cos(z) + c |
-| 4 | Sinh | sinh(z) + c |
-| 5 | Cosh | cosh(z) + c |
-| 6 | Burning Ship | (\|Re z\| + i\|Im z\|)² + c |
-| 7 | Tricorn | conj(z)² + c |
-| 8 | Newton z³−1 | z − (z³−1)/(3z²) |
-| 9 | Phoenix | z² + Re(c) + Im(c)·z_{n-1} |
-| 10 | Power | z^n + c |
-| 11 | Tangent | tan(z) + c |
-| 12 | z·exp(z) | z·e^z + c |
-| 13 | Celtic | (\|Re(z²)\|, Im(z²)) + c |
-| 14 | Magnet I | ((z²+c−1)/(2z+c−2))² |
-| 15 | z^z | z^z + c |
-| 16 | Manowar | z² + z_{n-1} + c |
-| 17 | Perpendicular Burning Ship | (Re z, \|Im z\|)² + c |
-| 18 | Time-spiral | z²·e^(i·param·t) + c |
-| 19 | Cubic+linear | z³ + z + c |
-| 20 | Cosh-conjugate | cosh(conj(z)) + c |
-| 21 | Polar→Cartesian warp | polar coord remap before squaring |
-
-Formula A and B are selected independently and crossfaded with the **A↔B blend** slider. Enable **Random cycle A/B** to auto-rotate formulas on a timer.
-
----
-
-## MIDI mapping
-
-Any slider, checkbox, or combo in the UI can be bound to a MIDI CC or note:
-
-1. MIDI panel → **Learn** → move the target slider → wiggle your controller knob
-2. The mapping appears in the table; drag Min/Max to set the range
-3. Save a preset to persist your mappings
-
----
-
-## Streaming to Restream / YouTube / Twitch
-
-Stream panel → add a destination row → paste RTMP URL + key → **Start Stream**.
-
-Common ingest URLs:
-- YouTube: `rtmp://a.rtmp.youtube.com/live2/<key>`
-- Twitch: `rtmp://live.twitch.tv/app/<key>`
-- Restream: `rtmp://live.restream.io/live/<key>`
-
-Restream lets you forward one stream to 30+ platforms simultaneously.
-
----
-
-## Recording locally (4K / 8K)
-
-Recording panel → set output path (Browse opens a save dialog) → choose 4K or 8K, bitrate, and fps → **Start Recording**.
-
-The YouTube safe-bitrate calculator shows the maximum bitrate that keeps a target-length recording under YouTube's 256 GB file limit.
-
-Default: `~/fractal_YYYYMMDD_HHMMSS.mp4`
-
----
-
-## License
-
-GPL v3 — see [LICENSE](LICENSE).  
-Free to use, share, and modify. Derivative works must also be GPL v3.
+| Library | Purpose |
+|---------|---------|
+| GLFW 3 | Window + OpenGL context |
+| GLM | Vector/matrix math (header-only) |
+| FFmpeg (libav*) | Video decode + RTMP encode |
+| Dear ImGui | Live parameter editor UI |
+| RtMidi | MIDI input/output |
+| projectm-eval | MilkDrop expression language evaluator |
+| OpenGL 4.1 | GPU shader execution |

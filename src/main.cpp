@@ -21,6 +21,10 @@
 #include "midi/MidiOutput.h"
 #include "fx/FftChain.h"
 #include "stream/RecordOutput.h"
+#include "audio/IAudioCapture.h"
+#include "audio/BeatDetector.h"
+#include "milkdrop/PresetManager.h"
+#include "milkdrop/MilkDropGLRenderer.h"
 
 #include <cstdio>
 #include <string>
@@ -92,6 +96,12 @@ int main(int argc, char** argv) {
     streamOut.fftChain = &fftChain;
     streamOut.recOut   = &recOut;
 
+    // MilkDrop subsystems
+    auto           audioCapture = createAudioCapture();
+    BeatDetector   beatDet;
+    PresetManager  presetMgr;
+    MilkDropGLRenderer mdRenderer;
+
     // Phone remote control — open http://<your-ip>:7777 in a browser
     RemoteControl remote(engine, blend);
     if (remote.start(7777)) {
@@ -116,6 +126,18 @@ int main(int argc, char** argv) {
     }
 
     renderer.init();
+
+    // MilkDrop init (must happen after GL context is current)
+    mdRenderer.init(std::string(SHADERS_DIR));
+    presetMgr.loadAll();
+    presetMgr.onPresetChanged = [&](MilkDropPreset& p, TransitionType t) {
+        if (!mdRenderer.hasPreset() || t == TransitionType::Instant)
+            mdRenderer.loadPreset(p);
+        else
+            mdRenderer.beginTransition(p, (int)t, 2.5f);
+    };
+    audioCapture->start();
+    ui.setMilkDrop(&presetMgr, &mdRenderer, audioCapture.get(), &beatDet);
 
     // Restore last session (before argv override so explicit path wins)
     ui.loadSettings(AppSettings::lastPath());
@@ -207,6 +229,10 @@ int main(int argc, char** argv) {
         renderer.setSpectralParams(fftChain.enabled, fftChain.onStream,
                                    fftChain.bandEnergy, fftChain.visualGain);
 
+        // Poll audio + detect beats
+        AudioData audio = audioCapture->poll();
+        beatDet.process(audio);
+
         // Render fractal + video blend
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
@@ -216,9 +242,32 @@ int main(int argc, char** argv) {
 
         renderer.render(fw, fh, t, engine, blend, videoTex, overlayTex, colorSynth);
 
-        // Encode frame for RTMP if streaming
+        // Render MilkDrop frame (if ready) then blit to window
+        if (mdRenderer.isReady()) {
+            mdRenderer.resize(fw, fh);
+            // Only composite the fractal into MilkDrop when the overlay is explicitly on
+            GLuint fracTex = ui.mdFractalOverlay() ? renderer.fboTexture() : 0;
+            mdRenderer.render(t, dt, audio, fracTex, ui.mdFractalBlend());
+
+            // Blit MilkDrop output over the fractal (full window)
+            if (mdRenderer.hasPreset())
+                mdRenderer.blitToScreen(fw, fh);
+
+            // Hardcut-triggered preset advance
+            if (beatDet.hardcutFired && presetMgr.totalCount() > 0)
+                presetMgr.randomPreset(TransitionType::Hardcut);
+        }
+
+        // Encode frame for RTMP: capture the window exactly as it appears
+        // (fractal rendered first, MilkDrop blitted on top) — before ImGui is drawn.
+        // Reading individual FBOs would miss the composited result the user sees.
         if (streamOut.isStreaming()) {
-            streamOut.pushFrame(renderer.fboPixels(fw, fh), fw, fh);
+            static std::vector<uint8_t> windowBuf;
+            windowBuf.resize((size_t)fw * fh * 3);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            glReadPixels(0, 0, fw, fh, GL_RGB, GL_UNSIGNED_BYTE, windowBuf.data());
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            streamOut.pushFrame(windowBuf.data(), fw, fh);
         }
 
         // Encode frame to local file if recording

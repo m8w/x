@@ -733,18 +733,16 @@ bool VideoInput::openWindowCapture(const WindowInfo& win, int fps) {
 #endif
 }
 
-// ── macOS CoreGraphics / ScreenCaptureKit frame pump ─────────────────────────
-// On macOS < 15: uses CGDisplayCreateImage (fast, no entitlement needed).
-// On macOS 15+:  those APIs were removed; nextFrameCGImage returns nullptr and
-//               openWindowCapture gracefully falls back to avfoundation screen
-//               capture so the app still builds and runs.
-
 AVFrame* VideoInput::nextFrameCGImage() {
 #ifdef __APPLE__
     if (m_cgWindowID == kCGNullWindowID) return nullptr;
 
-#if MAC_OS_X_VERSION_MAX_ALLOWED < 150000
-    // ── macOS 14 and earlier: CGDisplayCreateImage still available ────────────
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+    // macOS 15+: CGDisplayCreateImage removed. Window capture falls back to
+    // avfoundation in openWindowCapture(), so this path is unreachable.
+    return nullptr;
+#else
+    // macOS 14 and earlier ────────────────────────────────────────────────────
     CGRect winBounds = CGRectZero;
     CFArrayRef winList = CGWindowListCopyWindowInfo(
         kCGWindowListOptionIncludingWindow, m_cgWindowID);
@@ -768,13 +766,6 @@ AVFrame* VideoInput::nextFrameCGImage() {
         : fullImg;
     CGImageRelease(fullImg);
     if (!img) return nullptr;
-#else
-    // ── macOS 15+: CGDisplayCreateImage removed — return nullptr ─────────────
-    // Window capture is not available without ScreenCaptureKit entitlement.
-    // openWindowCapture() falls back to avfoundation screen capture on macOS 15,
-    // so this path is normally unreachable.
-    return nullptr;
-#endif // MAC_OS_X_VERSION_MAX_ALLOWED
 
     size_t imgW     = CGImageGetWidth(img);
     size_t imgH     = CGImageGetHeight(img);
@@ -818,9 +809,10 @@ AVFrame* VideoInput::nextFrameCGImage() {
     CFRelease(rawData);
     CGImageRelease(img);
     return m_frameRGB;
+#endif // MAC_OS_X_VERSION_MAX_ALLOWED
 #else
     return nullptr;
-#endif
+#endif // __APPLE__
 }
 
 // ── Virtual display (Linux Xvfb) ─────────────────────────────────────────────

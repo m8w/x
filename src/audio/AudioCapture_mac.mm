@@ -140,10 +140,38 @@ bool AudioCapture_mac::setDevice(const std::string& name) {
 bool AudioCapture_mac::start() {
     if (m_running.load()) return true;
 
+    // Check / request microphone permission synchronously.
+    // Without it, installTapOnBus: throws an NSException and crashes.
+    AVAuthorizationStatus micStatus =
+        [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+
+    if (micStatus == AVAuthorizationStatusNotDetermined) {
+        // Block until the user responds to the system dialog.
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio
+                               completionHandler:^(BOOL) {
+            dispatch_semaphore_signal(sem);
+        }];
+        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+        micStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    }
+
+    if (micStatus != AVAuthorizationStatusAuthorized) {
+        NSLog(@"[AudioCapture_mac] Microphone access denied — running without audio");
+        return false;
+    }
+
     AVAudioInputNode* inputNode = m_engine.inputNode;
     [inputNode removeTapOnBus:0];
 
     AVAudioFormat* inputFormat = [inputNode inputFormatForBus:0];
+
+    // Guard against a null or zero-channel format (no physical input device).
+    if (!inputFormat || inputFormat.channelCount == 0) {
+        NSLog(@"[AudioCapture_mac] No audio input device available — running without audio");
+        return false;
+    }
+
     AVAudioFormat* targetFormat = [[AVAudioFormat alloc]
         initWithCommonFormat:AVAudioPCMFormatFloat32
                   sampleRate:44100
@@ -155,37 +183,43 @@ bool AudioCapture_mac::start() {
     // Use a raw pointer guarded by the m_running atomic — the tap is removed in stop()
     // before this object can be destroyed, so the pointer is always valid while the tap fires.
     AudioCapture_mac* rawSelf = this;
-    [inputNode installTapOnBus:0
-                    bufferSize:512
-                        format:inputFormat
-                         block:^(AVAudioPCMBuffer* buffer, AVAudioTime*) {
-        AudioCapture_mac* self = rawSelf;
-        if (!self->m_running.load()) return;
 
-        AVAudioFrameCount frameCount = buffer.frameLength;
-        AVAudioPCMBuffer* converted = [[AVAudioPCMBuffer alloc]
-            initWithPCMFormat:targetFormat
-                frameCapacity:frameCount];
+    @try {
+        [inputNode installTapOnBus:0
+                        bufferSize:512
+                            format:inputFormat
+                             block:^(AVAudioPCMBuffer* buffer, AVAudioTime*) {
+            AudioCapture_mac* self = rawSelf;
+            if (!self->m_running.load()) return;
 
-        NSError* err = nil;
-        [self->m_converter convertToBuffer:converted
-                                     error:&err
-                        withInputFromBlock:^AVAudioBuffer*(AVAudioPacketCount, AVAudioConverterInputStatus* status) {
-            *status = AVAudioConverterInputStatus_HaveData;
-            return buffer;
+            AVAudioFrameCount frameCount = buffer.frameLength;
+            AVAudioPCMBuffer* converted = [[AVAudioPCMBuffer alloc]
+                initWithPCMFormat:targetFormat
+                    frameCapacity:frameCount];
+
+            NSError* err = nil;
+            [self->m_converter convertToBuffer:converted
+                                         error:&err
+                            withInputFromBlock:^AVAudioBuffer*(AVAudioPacketCount, AVAudioConverterInputStatus* status) {
+                *status = AVAudioConverterInputStatus_HaveData;
+                return buffer;
+            }];
+
+            if (err || !converted.floatChannelData) return;
+            converted.frameLength = frameCount;
+
+            const float* data = converted.floatChannelData[0];
+            self->processSamples(data, (int)frameCount);
         }];
-
-        if (err || !converted.floatChannelData) return;
-        converted.frameLength = frameCount;
-
-        const float* data = converted.floatChannelData[0];
-        self->processSamples(data, (int)frameCount);
-    }];
+    } @catch (NSException* ex) {
+        NSLog(@"[AudioCapture_mac] installTapOnBus failed: %@ — running without audio", ex.reason);
+        return false;
+    }
 
     [m_engine prepare];
     NSError* startErr = nil;
     if (![m_engine startAndReturnError:&startErr]) {
-        NSLog(@"[AudioCapture_mac] Failed to start: %@", startErr.localizedDescription);
+        NSLog(@"[AudioCapture_mac] Failed to start engine: %@", startErr.localizedDescription);
         return false;
     }
 

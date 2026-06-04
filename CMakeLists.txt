@@ -156,7 +156,19 @@ target_include_directories(fractal_stream PRIVATE
     ${PROJECTM_EVAL_DIR}
 )
 
-target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
+if(APPLE)
+    # Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel.
+    # pkg-config finds the metadata but CMake doesn't always forward the -L path
+    # to the linker, so we add both locations explicitly.
+    target_link_directories(fractal_stream PRIVATE
+        /opt/homebrew/lib
+        /usr/local/lib
+        ${FFMPEG_LIBRARY_DIRS}
+        ${RTMIDI_LIBRARY_DIRS}
+    )
+else()
+    target_link_directories(fractal_stream PRIVATE ${FFMPEG_LIBRARY_DIRS})
+endif()
 
 if(APPLE)
     target_compile_definitions(fractal_stream PRIVATE

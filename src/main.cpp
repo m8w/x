@@ -137,7 +137,6 @@ int main(int argc, char** argv) {
             mdRenderer.beginTransition(p, (int)t, 2.5f);
     };
     audioCapture->start();
-    ui.setMilkDrop(&presetMgr, &mdRenderer, audioCapture.get(), &beatDet);
 
     // Restore last session (before argv override so explicit path wins)
     ui.loadSettings(AppSettings::lastPath());
@@ -246,8 +245,7 @@ int main(int argc, char** argv) {
         if (mdRenderer.isReady()) {
             mdRenderer.resize(fw, fh);
             // Only composite the fractal into MilkDrop when the overlay is explicitly on
-            GLuint fracTex = ui.mdFractalOverlay() ? renderer.fboTexture() : 0;
-            mdRenderer.render(t, dt, audio, fracTex, ui.mdFractalBlend());
+            mdRenderer.render(t, dt, audio, 0, 0.0f);
 
             // Blit MilkDrop output over the fractal (full window)
             if (mdRenderer.hasPreset())

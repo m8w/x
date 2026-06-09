@@ -27,8 +27,9 @@ struct ColorSynth {
     bool  enabled       = false;
 
     // ── Mode ─────────────────────────────────────────────────────────────────
-    // 0 = HSL  — hue/saturation/luminance (current behaviour)
-    // 1 = RGB  — direct red/green/blue per-channel oscillators
+    // 0 = HSL      — hue/saturation/luminance oscillators
+    // 1 = RGB      — direct red/green/blue per-channel oscillators
+    // 2 = Spectrum — escape-value drives a continuous hue sweep (no oscillators)
     int   synthMode     = 0;
 
     // ── Primary HSL ──────────────────────────────────────────────────────────
@@ -70,6 +71,15 @@ struct ColorSynth {
     // ── Escape-value spread (how far hue/lum vary across the fractal detail) ──
     float hueSpread     = 0.35f;  // fraction of hue wheel per escape-value range
     float lumSpread     = 0.4f;   // lum variation across escape range
+
+    // ── Spectrum mode (synthMode == 2) ────────────────────────────────────────
+    // Maps the fractal escape value directly to a continuous hue sweep.
+    // Produces vivid rainbow gradients that precisely follow the fractal edges.
+    float specOffset    = 0.0f;   // starting hue position (0–1 = full wheel)
+    float specRange     = 1.0f;   // fraction of hue wheel used (0.1=narrow band)
+    float specDensity   = 1.0f;   // cycle count per escape range (>1 = tighter banding)
+    float specSat       = 0.9f;   // saturation of spectrum colours
+    float specLum       = 0.5f;   // luminance of spectrum colours
 
     // ── MIDI note-on reaction ─────────────────────────────────────────────────
     float midiHueSens   = 0.25f;  // hue impulse per unit velocity (0–1)

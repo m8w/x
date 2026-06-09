@@ -12,10 +12,6 @@
 #include "midi/MidiGenerator.h"
 #include "fx/FftChain.h"
 #include "stream/RecordOutput.h"
-#include "milkdrop/PresetManager.h"
-#include "milkdrop/MilkDropGLRenderer.h"
-#include "audio/IAudioCapture.h"
-#include "audio/BeatDetector.h"
 #include <string>
 #include <vector>
 
@@ -30,15 +26,6 @@ public:
                    FftChain& fftChain,
                    RecordOutput& recOut);
     void draw();   // Call once per frame after ImGui::NewFrame()
-
-    // Accessors queried by main.cpp each frame
-    bool  streamMilkDrop()   const { return m_streamMilkDrop; }
-    float mdFractalBlend()   const { return m_mdFractalBlend; }
-    bool  mdFractalOverlay() const { return m_mdFractalOverlay; }
-
-    // Wire in MilkDrop subsystems (call after construction, before first draw()).
-    void setMilkDrop(PresetManager* pm, MilkDropGLRenderer* md,
-                     IAudioCapture* audio, BeatDetector* beat);
 
     // Persist all panel state to / from an INI file.
     void saveSettings(const std::string& path) const;
@@ -87,10 +74,10 @@ private:
 
     // Record panel state
     char  m_recPath[512]       = {};
-    int   m_recResIdx          = 0;       // 0=4K, 1=8K
+    int   m_recResIdx          = 0;
     int   m_recBitrateKbps     = 35000;
-    int   m_recFpsIdx          = 0;       // 0=30, 1=60
-    float m_recTargetHours     = 11.916f; // 11h 55m
+    int   m_recFpsIdx          = 0;
+    float m_recTargetHours     = 11.916f;
     std::chrono::steady_clock::time_point m_recStartTime;
     bool  m_wasRecording       = false;
 
@@ -99,37 +86,12 @@ private:
     std::vector<std::string> m_presetList;
     bool                     m_presetListDirty = true;
 
-    // MilkDrop subsystems (optional — null until setMilkDrop() called)
-    PresetManager*      m_presetMgr  = nullptr;
-    MilkDropGLRenderer* m_mdRenderer = nullptr;
-    IAudioCapture*      m_audio      = nullptr;
-    BeatDetector*       m_beatDet    = nullptr;
-
-    // MilkDrop panel state
-    char  m_mdSearch[256]       = "";
-    int   m_mdSelectedIdx       = -1;
-    float m_mdFractalBlend      = 0.4f;
-    float m_mdPresetDuration    = 12.0f;
-    bool  m_mdAutoAdvance       = false;
-    bool  m_mdFractalOverlay    = false;
-    bool  m_streamMilkDrop      = true;   // stream MD output when active (default on)
-    int   m_mdBlendType         = 0;      // transition type
-    float m_mdAutoTimer         = 0.f;
-    // Hardcut config exposed in UI
-    float m_hardcutLowThreshold  = 0.8f;
-    float m_hardcutHighThreshold = 0.5f;
-    float m_hardcutMinDelay      = 3.0f;
-    int   m_hardcutMode          = 2;     // BassAndTreble
-
-    void drawMilkDropPanel();
-    void drawAudioPanel();
-
     // Surge XT browser state
     int   m_surgeBank        = 0;
     int   m_surgePatch       = 0;
     bool  m_surgeAutoAdvance = false;
     float m_surgeAdvanceSecs = 4.0f;
-    float m_surgeLastAdvance = 0.0f;  // ImGui time of last auto-step
+    float m_surgeLastAdvance = 0.0f;
 
     void applyDefaultSurgeMappings();
     void drawBlendPanel();

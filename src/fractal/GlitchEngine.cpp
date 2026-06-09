@@ -111,15 +111,21 @@ void GlitchEngine::fireGlitch(double time, FractalEngine& eng, BlendController& 
         break;
     }
 
-    case GlitchType::BlendScatter:
+    case GlitchType::BlendScatter: {
         lastGlitchName = "Blend Scatter";
-        blend.mandelbrot      = randF(0.0f, s);
-        blend.julia           = randF(0.0f, s);
-        blend.mandelbulb      = randF(0.0f, s * 0.5f);
-        blend.euclidean       = randF(0.0f, s * 0.7f);
-        blend.diff            = randF(0.0f, s * 0.3f);
-        m_post.mandelbrot     = blend.mandelbrot;
+        blend.mandelbrot = randF(0.05f, std::max(0.1f, s));
+        blend.julia      = randF(0.0f,  s);
+        blend.mandelbulb = randF(0.0f,  s * 0.5f);
+        blend.euclidean  = randF(0.0f,  s * 0.7f);
+        blend.diff       = randF(0.0f,  s * 0.3f);
+        // Guarantee the combined weight never goes near zero (which yields a
+        // white/blank frame because the shader divides by near-zero total).
+        float total = blend.mandelbrot + blend.julia + blend.mandelbulb
+                    + blend.euclidean  + blend.diff;
+        if (total < 0.15f) blend.mandelbrot = 0.15f;
+        m_post.mandelbrot = blend.mandelbrot;
         break;
+    }
 
     case GlitchType::PowerSpike:
         lastGlitchName = "Power Spike";

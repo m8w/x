@@ -105,6 +105,16 @@ struct FractalEngine {
     // 6=Difference  7=Exclusion  8=ColorDodge  9=ColorBurn  10=Darken  11=Lighten  12=Addition
     int   streamBlendMode = 0;
 
+    // ── Per-fractal layer compositing ─────────────────────────────────────────
+    // When perFractalBlend is true, each fractal type is colored independently
+    // and composited in fractalLayerOrder using fractalBlendMode at
+    // fractalOpacity, replacing the legacy weighted-average escape path.
+    // Indices: 0=Mandelbrot  1=Julia  2=Mandelbulb  3=Euclidean/SDF  4=Diff
+    bool  perFractalBlend      = false;
+    float fractalOpacity[5]    = {1.f, 0.5f, 0.5f, 0.3f, 0.3f};
+    int   fractalBlendMode[5]  = {0,   0,    0,    0,    0   };  // 0=Normal
+    int   fractalLayerOrder[5] = {0,   1,    2,    3,    4   };
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.

@@ -66,9 +66,26 @@ uniform vec3  u_cs_hsl;         // primary HSL (hue 0-1 wrapping, sat 0-1, lum 0
 uniform vec3  u_cs_hsl_alt;     // alternate HSL
 uniform float u_cs_alt_blend;   // 0=primary  1=alt  (oscillates)
 uniform int   u_cs_mode;        // 0–41 GIMP blend mode (same set as stream blend)
-uniform float u_cs_opacity;    // 0=no synth  1=full synth blend
+uniform float u_cs_opacity;     // 0=no synth  1=full synth blend
 uniform float u_cs_hue_spread;  // hue range spread across escape value
 uniform float u_cs_lum_spread;  // lum range spread across escape value
+// Spectrum mode (synthMode == 2) — escape-driven continuous hue sweep
+uniform bool  u_cs_spectrum;    // true when synthMode == 2
+uniform float u_cs_spec_offset; // starting hue (0–1)
+uniform float u_cs_spec_range;  // fraction of hue wheel to sweep (0–1)
+uniform float u_cs_spec_density;// cycle count per escape range
+uniform float u_cs_spec_sat;    // spectrum saturation
+uniform float u_cs_spec_lum;    // spectrum luminance
+
+// ── Per-fractal layer compositing ─────────────────────────────────────────────
+// When u_per_fractal_blend is true the five fractal escape values are each
+// coloured independently and composited in u_fl_order[] using u_fl_blend[]
+// at u_fl_opacity[], replacing the legacy single-palette path.
+// Index mapping: 0=Mandelbrot  1=Julia  2=Mandelbulb  3=Euclidean  4=Diff
+uniform bool  u_per_fractal_blend;
+uniform float u_fl_opacity[5];  // per-fractal opacity (0–1)
+uniform int   u_fl_blend[5];    // per-fractal blend mode (0–41)
+uniform int   u_fl_order[5];    // compositing order (0=bottom … 4=top)
 
 // ════════════════════════════════════════════════════════════════════════════════
 // COMPLEX NUMBER LIBRARY
@@ -499,6 +516,14 @@ vec3 synthPalette(float t, vec3 hsl) {
     float h = fract(hsl.x + t * u_cs_hue_spread);
     float l = clamp(hsl.z + (t - 0.5) * u_cs_lum_spread, 0.0, 1.0);
     return hsl2rgb(vec3(h, hsl.y, l));
+}
+
+// ── Spectrum palette: escape-value → continuous hue sweep ─────────────────────
+// Maps t directly to a hue offset within [specOffset, specOffset+specRange],
+// cycling specDensity times across the full escape range.
+vec3 spectrumPalette(float t) {
+    float h = fract(u_cs_spec_offset + t * u_cs_spec_density * u_cs_spec_range);
+    return hsl2rgb(vec3(h, u_cs_spec_sat, u_cs_spec_lum));
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -959,17 +984,51 @@ void main() {
     vec3 video  = apply_color_filter(texture(u_video_tex, vidUV).rgb,
                                      u_vid_filter, u_vid_fa, u_vid_fb);
 
-    // ── Base palette ──────────────────────────────────────────────────────────
-    vec3 baseColor = palette(escape + u_time*0.08);
+    // ── Base palette — legacy or per-fractal layer compositing ───────────────
+    vec3 baseColor;
+    if (!u_per_fractal_blend) {
+        // Legacy path: single palette call on the combined weighted escape
+        baseColor = palette(escape + u_time*0.08);
+    } else {
+        // Per-fractal path: color each fractal independently, composite in order
+        float fe[5];
+        fe[0] = clamp(em,   0.0, 1.0);
+        fe[1] = clamp(ej,   0.0, 1.0);
+        fe[2] = clamp(emb,  0.0, 1.0);
+        fe[3] = clamp(eSDF, 0.0, 1.0);
+        fe[4] = clamp(ed,   0.0, 1.0);
+
+        // Composite from bottom layer (order=0) to top layer (order=4)
+        bool hasBase = false;
+        baseColor = vec3(0.0);
+        for (int o = 0; o < 5; o++) {
+            for (int f = 0; f < 5; f++) {
+                if (u_fl_order[f] == o && u_fl_opacity[f] > 0.001) {
+                    vec3 layerCol = palette(fe[f] + u_time*0.08);
+                    if (!hasBase) {
+                        baseColor = mix(vec3(0.0), layerCol, u_fl_opacity[f]);
+                        hasBase = true;
+                    } else {
+                        baseColor = blend_streams(baseColor, layerCol, u_fl_opacity[f], u_fl_blend[f]);
+                    }
+                }
+            }
+        }
+        if (!hasBase) baseColor = palette(escape + u_time*0.08);
+    }
 
     // ── Color Synthesizer ─────────────────────────────────────────────────────
     if (u_cs_enabled) {
-        // Build primary and alternate colours for this escape value
-        vec3 col1 = synthPalette(escape, u_cs_hsl);
-        vec3 col2 = synthPalette(escape, u_cs_hsl_alt);
-        vec3 synthCol = mix(col1, col2, u_cs_alt_blend);
-
-        // Use the same 42-mode GIMP blend library as the stream blend
+        vec3 synthCol;
+        if (u_cs_spectrum) {
+            // Spectrum mode: escape maps directly to a hue sweep
+            synthCol = spectrumPalette(escape);
+        } else {
+            // HSL / RGB mode: oscillating primary/alternate
+            vec3 col1 = synthPalette(escape, u_cs_hsl);
+            vec3 col2 = synthPalette(escape, u_cs_hsl_alt);
+            synthCol = mix(col1, col2, u_cs_alt_blend);
+        }
         baseColor = blend_streams(baseColor, synthCol, u_cs_opacity, u_cs_mode);
     }
 

@@ -31,24 +31,12 @@ EquationEditor::EquationEditor(FractalEngine& engine, BlendController& blend,
       m_midiMapper(midiMapper), m_midiGen(midiGen), m_fftChain(fftChain),
       m_recOut(recOut) {}
 
-void EquationEditor::setMilkDrop(PresetManager* pm, MilkDropGLRenderer* md,
-                                  IAudioCapture* audio, BeatDetector* beat) {
-    m_presetMgr  = pm;
-    m_mdRenderer = md;
-    m_audio      = audio;
-    m_beatDet    = beat;
-}
-
 void EquationEditor::draw() {
-    // ── Window 1: MilkDrop & Broadcast ───────────────────────────────────────
+    // ── Window 1: Broadcast ───────────────────────────────────────────────────
     ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
-    ImGui::SetNextWindowSize({360, 620}, ImGuiCond_Once);
-    ImGui::Begin("MilkDrop & Broadcast");
+    ImGui::SetNextWindowSize({360, 300}, ImGuiCond_Once);
+    ImGui::Begin("Broadcast");
 
-    if (m_mdRenderer && ImGui::CollapsingHeader("MilkDrop", ImGuiTreeNodeFlags_DefaultOpen))
-        drawMilkDropPanel();
-    if (m_audio && ImGui::CollapsingHeader("Audio"))
-        drawAudioPanel();
     if (ImGui::CollapsingHeader("Stream Output", ImGuiTreeNodeFlags_DefaultOpen))
         drawStreamPanel();
 
@@ -91,26 +79,104 @@ void EquationEditor::draw() {
     drawGlitchPanel();
 }
 
+static const char* kBlendModes42[] = {
+    "Normal","Multiply","Screen","Overlay","Soft Light","Hard Light",
+    "Difference","Exclusion","Color Dodge","Color Burn","Darken","Lighten","Addition",
+    "Subtract","Inv Subtract","Divide","Hard Mix","Vivid Light","Linear Light","Pin Light",
+    "Negation","Reflect","Glow","Phoenix","Average","Geometric Mean","Grain Merge",
+    "Grain Extract","Stamp","Freeze","Heat","Gamma","Inv Multiply","Inv Screen",
+    "Inv Difference","Inv Addition","Chromatic Split","XOR",
+    "Hue","Saturation","Color (H+S)","Luminosity"
+};
+static const char* kFractalNames[] = {
+    "Mandelbrot", "Julia", "Mandelbulb", "Euclidean", "Differential"
+};
+
 void EquationEditor::drawBlendPanel() {
+    // ── Escape-value weights (control fractal shape) ──────────────────────────
+    ImGui::TextDisabled("Fractal shape weights");
     ImGui::SliderFloat("Mandelbrot",   &m_blend.mandelbrot, 0.0f, 1.0f);
     ImGui::SliderFloat("Julia",        &m_blend.julia,      0.0f, 1.0f);
     ImGui::SliderFloat("Mandelbulb",   &m_blend.mandelbulb, 0.0f, 1.0f);
     ImGui::SliderFloat("Euclidean",    &m_blend.euclidean,  0.0f, 1.0f);
     ImGui::SliderFloat("Differential", &m_blend.diff,       0.0f, 1.0f);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("de Jong attractor ODE field  -  parameters driven by Julia C and Power");
+        ImGui::SetTooltip("de Jong attractor ODE field");
 
     float total = m_blend.mandelbrot + m_blend.julia +
                   m_blend.mandelbulb + m_blend.euclidean + m_blend.diff;
+    ImGui::Text("Total: %.2f", total);
+    ImGui::SameLine();
+    if (ImGui::Button("Normalize") && total > 0.001f) {
+        m_blend.mandelbrot /= total;
+        m_blend.julia      /= total;
+        m_blend.mandelbulb /= total;
+        m_blend.euclidean  /= total;
+        m_blend.diff       /= total;
+    }
+
+    // ── Per-fractal layer compositing ─────────────────────────────────────────
     ImGui::Separator();
-    ImGui::Text("Total blend: %.2f", total);
-    if (ImGui::Button("Normalize")) {
-        if (total > 0.001f) {
-            m_blend.mandelbrot /= total;
-            m_blend.julia      /= total;
-            m_blend.mandelbulb /= total;
-            m_blend.euclidean  /= total;
-            m_blend.diff       /= total;
+    ImGui::Checkbox("Per-fractal layer blend", &m_engine.perFractalBlend);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("When on, each fractal is coloured independently and\n"
+                          "composited in the order and blend mode specified below.\n"
+                          "When off (default), all fractals share one palette colour.");
+
+    if (m_engine.perFractalBlend) {
+        ImGui::TextDisabled("Drag order | opacity | blend mode  per fractal");
+
+        // Show a re-orderable list.  Simple up/down buttons for each row.
+        static const char* orderLabels[] = {"1st","2nd","3rd","4th","5th"};
+        for (int i = 0; i < 5; i++) {
+            ImGui::PushID(i);
+            // Find which fractal has this layer order
+            int fracIdx = i;  // default
+            for (int f = 0; f < 5; f++)
+                if (m_engine.fractalLayerOrder[f] == i) { fracIdx = f; break; }
+
+            char rowLabel[32];
+            snprintf(rowLabel, sizeof(rowLabel), "%s  %-12s",
+                     orderLabels[i], kFractalNames[fracIdx]);
+            ImGui::Text("%s", rowLabel);
+            ImGui::SameLine(170);
+            ImGui::SetNextItemWidth(70);
+            ImGui::SliderFloat("##op", &m_engine.fractalOpacity[fracIdx], 0.0f, 1.0f, "%.2f");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120);
+            ImGui::Combo("##bm", &m_engine.fractalBlendMode[fracIdx], kBlendModes42, 42);
+
+            // Up / Down reorder buttons
+            ImGui::SameLine();
+            if (ImGui::SmallButton("^") && i > 0) {
+                // Swap fracIdx's order with whoever has order i-1
+                for (int f = 0; f < 5; f++) {
+                    if (m_engine.fractalLayerOrder[f] == i - 1) {
+                        m_engine.fractalLayerOrder[f]       = i;
+                        m_engine.fractalLayerOrder[fracIdx] = i - 1;
+                        break;
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("v") && i < 4) {
+                for (int f = 0; f < 5; f++) {
+                    if (m_engine.fractalLayerOrder[f] == i + 1) {
+                        m_engine.fractalLayerOrder[f]       = i;
+                        m_engine.fractalLayerOrder[fracIdx] = i + 1;
+                        break;
+                    }
+                }
+            }
+            ImGui::PopID();
+        }
+
+        if (ImGui::Button("Reset layer order")) {
+            for (int i = 0; i < 5; i++) {
+                m_engine.fractalLayerOrder[i] = i;
+                m_engine.fractalOpacity[i]    = (i == 0) ? 1.0f : 0.5f;
+                m_engine.fractalBlendMode[i]  = 0;
+            }
         }
     }
 }
@@ -2434,10 +2500,13 @@ void EquationEditor::drawColorSynthPanel() {
 
     // -- Mode switch -----------------------------------------------------------
     ImGui::Separator();
-    static const char* kSynthModes[] = { "HSL  (hue / saturation / lightness)",
-                                          "RGB  (red / green / blue channels)" };
+    static const char* kSynthModes[] = {
+        "HSL  (hue / saturation / lightness)",
+        "RGB  (red / green / blue channels)",
+        "Spectrum  (escape-driven rainbow sweep)"
+    };
     ImGui::SetNextItemWidth(-1);
-    ImGui::Combo("Color mode##cs", &C.synthMode, kSynthModes, 2);
+    ImGui::Combo("Color mode##cs", &C.synthMode, kSynthModes, 3);
 
     ImGui::Separator();
 
@@ -2735,6 +2804,48 @@ void EquationEditor::drawColorSynthPanel() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Off##rgb")) C.enabled = false;
     } // end synthMode == 1 (RGB)
+
+    if (C.synthMode == 2) {
+    // ── Spectrum mode ─────────────────────────────────────────────────────────
+    // The fractal escape value is mapped directly to a hue position, producing
+    // vivid rainbows that follow the fractal geometry precisely.
+    ImGui::TextDisabled("-- Spectrum sweep ----------------------");
+    ImGui::SliderFloat("Hue offset",  &C.specOffset,  0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Starting position in the hue wheel (0=red, 0.33=green, 0.67=blue)");
+    ImGui::SliderFloat("Hue range",   &C.specRange,   0.0f, 1.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Fraction of the hue wheel used (1.0=full rainbow, 0.1=narrow band)");
+    ImGui::SliderFloat("Density",     &C.specDensity, 0.1f, 8.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Number of rainbow cycles per escape range — higher = tighter colour bands");
+    ImGui::SliderFloat("Saturation##sp", &C.specSat, 0.0f, 1.0f);
+    ImGui::SliderFloat("Luminance##sp",  &C.specLum, 0.0f, 1.0f);
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Quick starts:");
+    if (ImGui::SmallButton("Rainbow")) {
+        C.specOffset=0.0f; C.specRange=1.0f; C.specDensity=1.0f;
+        C.specSat=1.0f; C.specLum=0.5f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Tight bands")) {
+        C.specOffset=0.0f; C.specRange=1.0f; C.specDensity=4.0f;
+        C.specSat=1.0f; C.specLum=0.5f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Cool tones")) {
+        C.specOffset=0.5f; C.specRange=0.4f; C.specDensity=2.0f;
+        C.specSat=0.9f; C.specLum=0.45f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Fire##sp")) {
+        C.specOffset=0.95f; C.specRange=0.2f; C.specDensity=3.0f;
+        C.specSat=1.0f; C.specLum=0.5f;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Off##sp")) C.enabled = false;
+    } // end synthMode == 2 (Spectrum)
 
     // -- Glitch color coupling -------------------------------------------------
     ImGui::Separator();
@@ -3195,35 +3306,19 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 i, mm.minVal, i, mm.maxVal, i, mm.label);
     }
 
-    // [milkdrop]
-    fprintf(f, "\n[milkdrop]\n");
-    fprintf(f, "stream_milkdrop=%d\n", (int)m_streamMilkDrop);
-    fprintf(f, "fractal_overlay=%d\nfractal_blend=%f\n",
-            (int)m_mdFractalOverlay, m_mdFractalBlend);
-    fprintf(f, "blend_type=%d\n", m_mdBlendType);
-    fprintf(f, "auto_advance=%d\npreset_duration=%f\n",
-            (int)m_mdAutoAdvance, m_mdPresetDuration);
-    // Persist the current preset path so we can restore it on next launch
-    if (m_presetMgr) {
-        const auto* cur = m_presetMgr->current();
-        fprintf(f, "last_preset=%s\n", cur ? cur->path.c_str() : "");
-    }
+    // [per_fractal_blend]
+    fprintf(f, "\n[per_fractal_blend]\n");
+    fprintf(f, "enabled=%d\n", (int)E.perFractalBlend);
+    for (int i = 0; i < 5; i++)
+        fprintf(f, "opacity_%d=%f\nblend_%d=%d\norder_%d=%d\n",
+                i, E.fractalOpacity[i], i, E.fractalBlendMode[i], i, E.fractalLayerOrder[i]);
 
-    // [beatdetector]
-    fprintf(f, "\n[beatdetector]\n");
-    if (m_beatDet) {
-        fprintf(f, "mode=%d\n", (int)m_beatDet->hardcutMode);
-        fprintf(f, "low_thresh=%f\nhigh_thresh=%f\nmin_delay=%f\n",
-                m_beatDet->hardcutLowThreshold,
-                m_beatDet->hardcutHighThreshold,
-                (float)m_beatDet->hardcutMinDelay);
-    }
+    // [spectrum]
+    fprintf(f, "\n[spectrum]\n");
+    fprintf(f, "offset=%f\nrange=%f\ndensity=%f\nsat=%f\nlum=%f\n",
+            C.specOffset, C.specRange, C.specDensity, C.specSat, C.specLum);
 
-    // [audio]
-    fprintf(f, "\n[audio]\n");
-    if (m_audio) {
-        fprintf(f, "device=%s\n", m_audio->currentDevice().c_str());
-    }
+    // [audio] — device selection removed from this branch
 
     // [stream]
     fprintf(f, "\n[stream]\n");
@@ -3461,43 +3556,24 @@ void EquationEditor::loadSettings(const std::string& path) {
         }
     }
 
-    // [milkdrop]
-    m_streamMilkDrop   = ini_b(m, "milkdrop.stream_milkdrop",  m_streamMilkDrop);
-    m_mdFractalOverlay = ini_b(m, "milkdrop.fractal_overlay",  m_mdFractalOverlay);
-    m_mdFractalBlend   = ini_f(m, "milkdrop.fractal_blend",    m_mdFractalBlend);
-    m_mdBlendType      = ini_i(m, "milkdrop.blend_type",       m_mdBlendType);
-    m_mdAutoAdvance    = ini_b(m, "milkdrop.auto_advance",     m_mdAutoAdvance);
-    m_mdPresetDuration = ini_f(m, "milkdrop.preset_duration",  m_mdPresetDuration);
-    if (m_mdRenderer)
-        m_mdRenderer->fractalEnabled = m_mdFractalOverlay;
-    {
-        std::string lp = ini_s(m, "milkdrop.last_preset", "");
-        if (!lp.empty() && m_presetMgr)
-            m_presetMgr->selectByPath(lp, TransitionType::Instant);
+    // [per_fractal_blend]
+    E.perFractalBlend = ini_b(m, "per_fractal_blend.enabled", (int)E.perFractalBlend);
+    for (int i = 0; i < 5; i++) {
+        char key[64];
+        snprintf(key, sizeof(key), "per_fractal_blend.opacity_%d", i);
+        E.fractalOpacity[i]   = ini_f(m, key, E.fractalOpacity[i]);
+        snprintf(key, sizeof(key), "per_fractal_blend.blend_%d", i);
+        E.fractalBlendMode[i] = ini_i(m, key, E.fractalBlendMode[i]);
+        snprintf(key, sizeof(key), "per_fractal_blend.order_%d", i);
+        E.fractalLayerOrder[i]= ini_i(m, key, E.fractalLayerOrder[i]);
     }
 
-    // [beatdetector]
-    if (m_beatDet) {
-        m_beatDet->hardcutMode           = (BeatDetector::HardcutMode)
-                                           ini_i(m, "beatdetector.mode",
-                                                 (int)m_beatDet->hardcutMode);
-        m_beatDet->hardcutLowThreshold   = ini_f(m, "beatdetector.low_thresh",
-                                                 m_beatDet->hardcutLowThreshold);
-        m_beatDet->hardcutHighThreshold  = ini_f(m, "beatdetector.high_thresh",
-                                                 m_beatDet->hardcutHighThreshold);
-        m_beatDet->hardcutMinDelay       = (double)ini_f(m, "beatdetector.min_delay",
-                                                 (float)m_beatDet->hardcutMinDelay);
-    }
-
-    // [audio]
-    if (m_audio) {
-        std::string dev = ini_s(m, "audio.device", "");
-        if (!dev.empty()) {
-            m_audio->stop();
-            m_audio->setDevice(dev);
-            m_audio->start();
-        }
-    }
+    // [spectrum]
+    C.specOffset  = ini_f(m, "spectrum.offset",  C.specOffset);
+    C.specRange   = ini_f(m, "spectrum.range",   C.specRange);
+    C.specDensity = ini_f(m, "spectrum.density", C.specDensity);
+    C.specSat     = ini_f(m, "spectrum.sat",     C.specSat);
+    C.specLum     = ini_f(m, "spectrum.lum",     C.specLum);
 
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);
@@ -3860,11 +3936,10 @@ void EquationEditor::drawSurgeXTSection() {
     ImGui::TextDisabled("In Surge XT: right-click a Macro knob -> Assign MIDI CC -> move the knob");
 }
 
-// ---------------------------------------------------------------------------
-// MilkDrop panel
-// ---------------------------------------------------------------------------
+// (MilkDrop panel removed in fractal-clean-v2 branch)
+#if 0
 void EquationEditor::drawMilkDropPanel() {
-    if (!m_presetMgr) return;
+    return;
 
     // ── Stream source selector ──────────────────────────────────────────────
     ImGui::TextDisabled("Stream source");
@@ -4056,7 +4131,7 @@ void EquationEditor::drawAudioPanel() {
     ImGui::SliderFloat("High thresh##hch", &m_beatDet->hardcutHighThreshold, 0.1f, 2.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Treble threshold (0.5 default)");
 
-    float minDelay = (float)m_beatDet->hardcutMinDelay;
-    if (ImGui::SliderFloat("Min delay##hcd", &minDelay, 0.5f, 30.0f, "%.1f s"))
-        m_beatDet->hardcutMinDelay = (double)minDelay;
+    float minDelay = 0.f;
+    ImGui::SliderFloat("Min delay##hcd", &minDelay, 0.5f, 30.0f, "%.1f s");
 }
+#endif  // 0  (MilkDrop panel removed)

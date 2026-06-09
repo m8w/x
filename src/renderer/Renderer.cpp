@@ -140,14 +140,34 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setInt   ("u_stream_blend_mode", eng.streamBlendMode);
 
     // ── Color Synthesizer ─────────────────────────────────────────────────────
-    prog.setBool  ("u_cs_enabled",    cs.enabled);
-    prog.setFloat3("u_cs_hsl",        cs.outHSL[0],    cs.outHSL[1],    cs.outHSL[2]);
-    prog.setFloat3("u_cs_hsl_alt",    cs.outHSLAlt[0], cs.outHSLAlt[1], cs.outHSLAlt[2]);
-    prog.setFloat ("u_cs_alt_blend",  cs.outAltBlend);
-    prog.setInt   ("u_cs_mode",       cs.blendMode);
-    prog.setFloat ("u_cs_opacity",    cs.opacity);
-    prog.setFloat ("u_cs_hue_spread", cs.hueSpread);
-    prog.setFloat ("u_cs_lum_spread", cs.lumSpread);
+    prog.setBool  ("u_cs_enabled",     cs.enabled);
+    prog.setFloat3("u_cs_hsl",         cs.outHSL[0],    cs.outHSL[1],    cs.outHSL[2]);
+    prog.setFloat3("u_cs_hsl_alt",     cs.outHSLAlt[0], cs.outHSLAlt[1], cs.outHSLAlt[2]);
+    prog.setFloat ("u_cs_alt_blend",   cs.outAltBlend);
+    prog.setInt   ("u_cs_mode",        cs.blendMode);
+    prog.setFloat ("u_cs_opacity",     cs.opacity);
+    prog.setFloat ("u_cs_hue_spread",  cs.hueSpread);
+    prog.setFloat ("u_cs_lum_spread",  cs.lumSpread);
+    // Spectrum mode uniforms
+    bool spectrum = cs.enabled && cs.synthMode == 2;
+    prog.setBool  ("u_cs_spectrum",    spectrum);
+    prog.setFloat ("u_cs_spec_offset", cs.specOffset);
+    prog.setFloat ("u_cs_spec_range",  cs.specRange);
+    prog.setFloat ("u_cs_spec_density",cs.specDensity);
+    prog.setFloat ("u_cs_spec_sat",    cs.specSat);
+    prog.setFloat ("u_cs_spec_lum",    cs.specLum);
+
+    // ── Per-fractal layer compositing ─────────────────────────────────────────
+    prog.setBool("u_per_fractal_blend", eng.perFractalBlend);
+    for (int i = 0; i < 5; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "u_fl_opacity[%d]", i);
+        prog.setFloat(name, eng.fractalOpacity[i]);
+        snprintf(name, sizeof(name), "u_fl_blend[%d]", i);
+        prog.setInt(name, eng.fractalBlendMode[i]);
+        snprintf(name, sizeof(name), "u_fl_order[%d]", i);
+        prog.setInt(name, eng.fractalLayerOrder[i]);
+    }
 }
 
 void Renderer::render(int width, int height, float time,

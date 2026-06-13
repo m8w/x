@@ -88,13 +88,15 @@ void main() {
     }
 
     // ── Band 2 (high-mid): brightness pulse ───────────────────────────────────
-    float mid = u_fft_band[2] * u_fft_vis_gain[2];
+    // Clamp so a maxed-out band/gain combo can brighten but never flatten
+    // the whole frame to solid white.
+    float mid = clamp(u_fft_band[2] * u_fft_vis_gain[2], 0.0, 1.5);
     if (mid > 0.001) {
         col *= 1.0 + mid * 0.5;
     }
 
     // ── Band 3 (high): edge emboss / shimmer ──────────────────────────────────
-    float high = u_fft_band[3] * u_fft_vis_gain[3];
+    float high = clamp(u_fft_band[3] * u_fft_vis_gain[3], 0.0, 1.5);
     if (high > 0.002) {
         vec2 px  = 1.0 / u_resolution;
         vec3 dx  = texture(u_fbo_tex, clamp(uv + vec2(px.x, 0.0), 0.0, 1.0)).rgb

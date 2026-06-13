@@ -61,7 +61,9 @@ void FftChain::process(float** planes, int nbSamples, int channels, int /*sample
             float sum = 0.0f;
             for (int i = kBandLim[b]; i < kBandLim[b + 1]; i++) sum += std::abs(buf[i]);
             int count = kBandLim[b + 1] - kBandLim[b];
-            rawEnergy[b] = (count > 0) ? sum / count : 0.0f;
+            // Raw FFT magnitudes scale with N (up to N/2 for a full-scale tone);
+            // normalise by N/2 so rawEnergy is roughly in input-amplitude units.
+            rawEnergy[b] = (count > 0) ? (sum / count) / (float)half : 0.0f;
         }
         const float kNorm = 20.0f, alpha = 0.25f;
         for (int b = 0; b < 4; b++) {
@@ -149,7 +151,8 @@ void FftChain::process(float** planes, int nbSamples, int channels, int /*sample
             for (int i = kBandLim[b]; i < kBandLim[b + 1]; i++)
                 sum += std::abs(buf[i]);
             int count = kBandLim[b + 1] - kBandLim[b];
-            rawEnergy[b] += (count > 0) ? sum / count : 0.0f;
+            // Normalise by N/2 — see comment in the bypass branch above.
+            rawEnergy[b] += (count > 0) ? (sum / count) / (float)half : 0.0f;
         }
 
         // ── AFT: scale bins per adaptive band gain ────────────────────────

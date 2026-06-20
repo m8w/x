@@ -3,7 +3,6 @@
 #include "BlendController.h"
 #include "midi/MidiInput.h"
 #include <vector>
-#include <random>
 #include <cstdint>
 
 // ── Glitch event types ────────────────────────────────────────────────────────
@@ -149,9 +148,6 @@ private:
     GlitchType  m_activeType  = GlitchType::COUNT;
     SavedState      m_saved;
     PostGlitchVals  m_post{};
-    bool        m_seeded      = false;
-    std::mt19937 m_rng;
-
     // Active MIDI glitch state
     bool   m_velSpike   = false;
     bool   m_pitchShift = false;

@@ -2,6 +2,7 @@
 #include "AppSettings.h"
 #include "midi/MidiOutput.h"
 #include "FilePicker.h"
+#include "entropy/Entropy.h"
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
@@ -260,7 +261,7 @@ void EquationEditor::drawFractalPanel() {
             ImGui::SetNextItemWidth(120);
             ImGui::SliderFloat("##cycAint", &cycleAInterval, 1.0f, 120.0f, "%.0f sec");
             if (now >= cycleANext) {
-                int pick = std::rand() % kNumFormulas;
+                int pick = globalEntropy().uniformI(0, kNumFormulas - 1);
                 if (pick == m_engine.formula) pick = (pick + 1) % kNumFormulas;
                 m_engine.formula = pick;
                 cycleANext = now + cycleAInterval;
@@ -278,7 +279,7 @@ void EquationEditor::drawFractalPanel() {
             ImGui::SetNextItemWidth(120);
             ImGui::SliderFloat("##cycBint", &cycleBInterval, 1.0f, 120.0f, "%.0f sec");
             if (now >= cycleBNext) {
-                int pick = std::rand() % kNumFormulas;
+                int pick = globalEntropy().uniformI(0, kNumFormulas - 1);
                 if (pick == m_engine.formulaB) pick = (pick + 1) % kNumFormulas;
                 m_engine.formulaB = pick;
                 cycleBNext = now + cycleBInterval;
@@ -2432,6 +2433,29 @@ void EquationEditor::drawGlitchPanel() {
     }
 
     if (!G.enabled) { ImGui::EndDisabled(); }
+
+    // ── Entropy source status ────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Entropy Sources --");
+    ImGui::Spacing();
+    {
+        auto st = globalEntropy().status();
+        // Hardware source — always live
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "HW");
+        ImGui::SameLine();
+        ImGui::TextDisabled("OS hardware entropy pool  reseeds: %d", st.hw_reseeds);
+        // Quantum source — live only when ANU QRNG responds
+        ImVec4 qCol = st.q_live ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)
+                                 : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+        ImGui::TextColored(qCol, " Q");
+        ImGui::SameLine();
+        if (st.q_live)
+            ImGui::TextDisabled("ANU quantum vacuum  reseeds: %d  bytes: %d",
+                                st.q_reseeds, st.q_bytes);
+        else
+            ImGui::TextDisabled("ANU quantum  (offline / fetching…)");
+    }
 
     ImGui::End();
 }

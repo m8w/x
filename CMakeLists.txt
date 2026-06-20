@@ -122,6 +122,7 @@ set(SOURCES
     src/midi/MidiMapper.cpp
     src/midi/MidiGenerator.cpp
     src/midi/MidiOutput.cpp
+    src/entropy/Entropy.cpp
 )
 
 if(APPLE)

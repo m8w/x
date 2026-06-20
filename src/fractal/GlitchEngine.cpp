@@ -1,23 +1,19 @@
 #include "GlitchEngine.h"
+#include "entropy/Entropy.h"
 #include <cmath>
 #include <algorithm>
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-void GlitchEngine::seed() {
-    if (!m_seeded) {
-        m_rng.seed(std::random_device{}());
-        m_seeded = true;
-    }
-}
+void GlitchEngine::seed() {}   // no-op: globalEntropy() self-starts
 
 float GlitchEngine::randF(float lo, float hi) {
-    return std::uniform_real_distribution<float>(lo, hi)(m_rng);
+    return globalEntropy().uniformF(lo, hi);
 }
 
 int GlitchEngine::randI(int lo, int hi) {
     if (lo >= hi) return lo;
-    return std::uniform_int_distribution<int>(lo, hi)(m_rng);
+    return globalEntropy().uniformI(lo, hi);
 }
 
 void GlitchEngine::scheduleNext(double now) {

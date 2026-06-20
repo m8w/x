@@ -3,6 +3,7 @@
 #include "PresetManager.h"
 #include "PresetParser.h"
 #include "../AppSettings.h"
+#include "../entropy/Entropy.h"
 
 #include <filesystem>
 #include <fstream>
@@ -68,7 +69,7 @@ void PresetManager::loadAll() {
 
     // Pick a random starting preset if any are available
     if (!m_presets.empty()) {
-        std::mt19937 rng(std::random_device{}());
+        std::mt19937 rng((uint32_t)globalEntropy().seed64());
         m_currentIdx = (int)(rng() % m_presets.size());
     }
 }
@@ -122,7 +123,7 @@ void PresetManager::sortPresets() {
                 [](const MilkDropPreset& a, const MilkDropPreset& b){ return a.rating > b.rating; });
             break;
         case SortOrder::Random: {
-            std::mt19937 rng(std::random_device{}());
+            std::mt19937 rng((uint32_t)globalEntropy().seed64());
             std::shuffle(m_presets.begin(), m_presets.end(), rng);
             break;
         }
@@ -193,7 +194,7 @@ void PresetManager::prevPreset(TransitionType t) {
 void PresetManager::randomPreset(TransitionType t) {
     auto filtered = filteredIndices();
     if (filtered.empty()) return;
-    std::mt19937 rng(std::random_device{}());
+    std::mt19937 rng((uint32_t)globalEntropy().seed64());
     int pos = (int)(rng() % filtered.size());
     setCurrentIndex(filtered[pos], t);
 }

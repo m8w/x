@@ -1,4 +1,5 @@
 #include "MidiGenerator.h"
+#include "entropy/Entropy.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -205,7 +206,7 @@ void MidiGenerator::emitPitchBend(float cents, uint8_t ch0,
 
 // ── Transport ─────────────────────────────────────────────────────────────────
 void MidiGenerator::start(double time) {
-    if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
+    if (!m_seeded) { m_rng.seed(globalEntropy().seed64()); m_seeded = true; }
     m_pending.clear();
     m_initQueue.clear();
     m_stepsSincePg = 0;
@@ -231,7 +232,7 @@ void MidiGenerator::stop(std::vector<MidiInput::Message>& out) {
 }
 
 std::vector<MidiInput::Message> MidiGenerator::fireOneNote() {
-    if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
+    if (!m_seeded) { m_rng.seed(globalEntropy().seed64()); m_seeded = true; }
     std::vector<MidiInput::Message> out;
     uint8_t ch0 = (uint8_t)(channel - 1);
     int n = pickNote(), v = pickVel();
@@ -247,7 +248,7 @@ std::vector<MidiInput::Message> MidiGenerator::fireOneNote() {
 
 // ── Tick ─────────────────────────────────────────────────────────────────────
 std::vector<MidiInput::Message> MidiGenerator::tick(double time) {
-    if (!m_seeded) { m_rng.seed(std::random_device{}()); m_seeded = true; }
+    if (!m_seeded) { m_rng.seed(globalEntropy().seed64()); m_seeded = true; }
     std::vector<MidiInput::Message> out;
     if (!enabled || !playing) return out;
 

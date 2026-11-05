@@ -1,9 +1,14 @@
 #version 410 core
 // 3-D fractal renderer — ray-marched via distance estimator.
-// Three modes selectable via u_fractal_3d:
+// Four modes selectable via u_fractal_3d:
 //   0  Mandelbulb   (spherical power-n, classic 3-D fractal)
 //   1  Mandelbox    (folding + scaling IFS — box-like structures)
 //   2  Quaternion Julia  (4-D Julia set, 3-D cross-section)
+//   3  3D Complex (Peng)  (commutative/associative 3-D complex algebra —
+//      see "Extending complex number to spaces with 3, 4 or any number of
+//      dimensions", Kuan Peng 2022. Distinct from the triplex power used by
+//      Mandelbulb: multiplication here chains Euler's formula across two
+//      orthogonal imaginary axes rather than a spherical-coordinate power.)
 
 in  vec2 v_uv;
 out vec4 fragColor;
@@ -14,7 +19,7 @@ uniform float u_power;          // Mandelbulb: 2=sphere 8=classic >8=spiky
 uniform int   u_max_iter;
 uniform float u_zoom;
 uniform vec2  u_julia_c;        // Quaternion Julia: c = (x, y, 0, 0)
-uniform int   u_fractal_3d;     // 0=Mandelbulb 1=Mandelbox 2=QuatJulia
+uniform int   u_fractal_3d;     // 0=Mandelbulb 1=Mandelbox 2=QuatJulia 3=3D Complex (Peng)
 uniform float u_mb_scale;       // Mandelbox scale  (default 2.0)
 uniform float u_mb_fold;        // Mandelbox fold   (default 1.0)
 uniform sampler2D u_video_tex;
@@ -94,10 +99,55 @@ float DE_quatjulia(vec3 pos) {
     return 0.25 * sqrt(mz2/md2) * log(mz2);
 }
 
+// ── 3D Complex (Peng) ────────────────────────────────────────────────────────
+// A 3-D complex number v = a + bi + cj, held as vec3(a,b,c). Unlike the
+// triplex power used by Mandelbulb, this algebra's multiplication is
+// commutative AND associative: it's built by converting to a trigonometric
+// form — modulus |v| plus two independent angles theta (rotation in the h,i
+// plane) and phi (elevation toward j) — then raising to a power multiplies
+// the modulus and scales both angles, exactly like ordinary complex power
+// but with one extra orthogonal imaginary axis.
+//
+//   |v|   = sqrt(a²+b²+c²)
+//   phi   = asin(c / |v|)              -- elevation toward j
+//   theta = atan2(b, a)                -- rotation in the h,i plane
+//           (valid because cos(phi) is always taken positive, so it cancels
+//           out of atan2(sin(theta)·cos(phi), cos(theta)·cos(phi)))
+//   v^m   = |v|^m · (cos(m·theta)cos(m·phi),  sin(m·theta)cos(m·phi),  sin(m·phi))
+vec3 complex3Pow(vec3 v, float m) {
+    float r = length(v);
+    if (r < 1e-6) return vec3(0.0);
+    float phi   = asin(clamp(v.z / r, -1.0, 1.0));
+    float theta = atan(v.y, v.x);
+    float rm    = pow(r, m);
+    float cmphi = cos(m * phi);
+    return rm * vec3(cos(m * theta) * cmphi,
+                      sin(m * theta) * cmphi,
+                      sin(m * phi));
+}
+
+// Mandelbrot-style evaluation (every space point is its own c, z0=c),
+// matching the convention DE_mandelbulb uses above. Reuses the same
+// running-derivative DE approximation: valid here because v^m still scales
+// the modulus by |v|^m each step, same as the triplex power does.
+float DE_complex3d(vec3 pos) {
+    vec3  z  = pos;
+    float dr = 1.0;
+    float r  = 0.0;
+    for (int i=0; i<64; i++) {
+        r = length(z);
+        if (r > 2.0) break;
+        dr = pow(r, u_power-1.0)*u_power*dr + 1.0;
+        z  = complex3Pow(z, u_power) + pos;
+    }
+    return 0.5*log(r)*r/dr;
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 float DE(vec3 p) {
     if (u_fractal_3d == 1) return DE_mandelbox(p);
     if (u_fractal_3d == 2) return DE_quatjulia(p);
+    if (u_fractal_3d == 3) return DE_complex3d(p);
     return DE_mandelbulb(p);
 }
 

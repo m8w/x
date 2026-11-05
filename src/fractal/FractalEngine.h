@@ -68,6 +68,7 @@ struct FractalEngine {
     int   geoKaleid       = 0;    // 0=off  N=segment count (2–16)
 
     // ── 3-D fractal type (mandelbulb.frag u_fractal_3d) ───────────────────────
+    // 0=Mandelbulb  1=Mandelbox  2=Quaternion Julia  3=3D Complex (Peng)
     int   fractal3D       = 0;
     float mbScale         = 2.0f;
     float mbFold          = 1.0f;

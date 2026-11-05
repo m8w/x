@@ -4,7 +4,7 @@
 
 Real-time fractal renderer that:
 - Decodes **local video files** as live input texture
-- Blends **Mandelbrot, Julia, Mandelbulb, Mandelbox, Quaternion Julia** with **Euclidean geometry** via a live equation editor
+- Blends **Mandelbrot, Julia, Mandelbulb, Mandelbox, Quaternion Julia, 3D Complex (Peng)** with **Euclidean geometry** via a live equation editor
 - Supports **11 iteration formulas** (classic z²+c, Burning Ship, Newton, Phoenix, trig/hyperbolic, arbitrary power) inspired by the Fractal Explorer / UltraFractal function set
 - Couples SDF geometry into the fractal orbit via **orbit-trap coloring** and **domain warp**
 - Maps the video stream onto the fractal surface using escape-time UV mapping
@@ -219,7 +219,7 @@ float DE_mandelbulb(vec3 pos) {
 ### Panel: 3-D Fractal
 | Control | Type | Effect |
 |---------|------|--------|
-| 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia |
+| 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia / 3D Complex (Peng) |
 | Mandelbox scale | drag float | IFS fold-and-scale factor (typ. 2.0) |
 | Mandelbox fold | drag float | box fold limit |
 
@@ -264,7 +264,7 @@ uniform bool  u_geo_tile;
 uniform float u_geo_warp;         // orbit-trap warp strength (0=coloring only)
 
 // ── 3-D fractal (mandelbulb.frag) ────────────────────────────────────────────
-uniform int   u_fractal_3d;       // 0=Mandelbulb 1=Mandelbox 2=Quaternion Julia
+uniform int   u_fractal_3d;       // 0=Mandelbulb 1=Mandelbox 2=Quaternion Julia 3=3D Complex (Peng)
 uniform float u_mb_scale;         // Mandelbox: IFS scale factor
 uniform float u_mb_fold;          // Mandelbox: box fold limit
 

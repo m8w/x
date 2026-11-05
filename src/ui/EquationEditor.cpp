@@ -162,6 +162,7 @@ static const char* k3DTypes[] = {
     "Mandelbulb",
     "Mandelbox",
     "Quaternion Julia",
+    "3D Complex (Peng)",
 };
 
 void EquationEditor::drawFractalPanel() {
@@ -368,7 +369,14 @@ void EquationEditor::drawFractalPanel() {
 
     // -- 3-D fractal (mandelbulb.frag) -----------------------------------------
     ImGui::TextDisabled("3-D fractal (when Mandelbulb blend > 0.5)");
-    ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 3);
+    ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 4);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "3D Complex (Peng): a commutative, associative 3-D complex\n"
+            "algebra distinct from the Mandelbulb's triplex power --\n"
+            "multiplication chains Euler's formula across two orthogonal\n"
+            "imaginary axes instead of a spherical-coordinate power.\n"
+            "Uses the Power slider above as its exponent.");
     if (m_engine.fractal3D == 1) {
         ImGui::DragFloat("MB scale", &m_engine.mbScale, 0.01f, 0.5f, 4.0f);
         ImGui::DragFloat("MB fold",  &m_engine.mbFold,  0.01f, 0.1f, 3.0f);

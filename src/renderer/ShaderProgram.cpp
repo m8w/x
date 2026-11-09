@@ -37,14 +37,25 @@ bool ShaderProgram::loadFromFiles(const std::string& vertPath,
     GLuint vs = compile(GL_VERTEX_SHADER,   readFile(vertPath));
     GLuint fs = compile(GL_FRAGMENT_SHADER, readFile(fragPath));
     if (!vs || !fs) return false;
+    return link({vs, fs});
+}
 
+bool ShaderProgram::loadFromFiles(const std::string& vertPath,
+                                   const std::string& geomPath,
+                                   const std::string& fragPath) {
+    GLuint vs = compile(GL_VERTEX_SHADER,   readFile(vertPath));
+    GLuint gs = compile(GL_GEOMETRY_SHADER, readFile(geomPath));
+    GLuint fs = compile(GL_FRAGMENT_SHADER, readFile(fragPath));
+    if (!vs || !gs || !fs) return false;
+    return link({vs, gs, fs});
+}
+
+bool ShaderProgram::link(std::initializer_list<GLuint> shaders) {
     if (m_id) glDeleteProgram(m_id);
     m_id = glCreateProgram();
-    glAttachShader(m_id, vs);
-    glAttachShader(m_id, fs);
+    for (GLuint s : shaders) glAttachShader(m_id, s);
     glLinkProgram(m_id);
-    glDeleteShader(vs);
-    glDeleteShader(fs);
+    for (GLuint s : shaders) glDeleteShader(s);
 
     GLint ok;
     glGetProgramiv(m_id, GL_LINK_STATUS, &ok);

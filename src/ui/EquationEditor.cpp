@@ -78,6 +78,8 @@ void EquationEditor::draw() {
         drawChaosPanel();
     if (ImGui::CollapsingHeader("Distortion / Metaballs"))
         drawDistortionPanel();
+    if (ImGui::CollapsingHeader("Buddhabrot / Nebulabrot"))
+        drawBuddhabrotPanel();
     if (ImGui::CollapsingHeader("FFT / AFT Spectral Chain"))
         drawFftPanel();
     if (ImGui::CollapsingHeader("Recording (4K / 8K)"))
@@ -2853,6 +2855,111 @@ void EquationEditor::drawDistortionPanel() {
     if (dis) ImGui::EndDisabled();
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// BUDDHABROT / NEBULABROT  -  GPU point-cloud orbit accumulation
+// ════════════════════════════════════════════════════════════════════════════════
+static const char* kBuddhaHybridFormulas[] = {
+    "Mandelbrot", "Burning Ship", "Tricorn", "Celtic"
+};
+
+void EquationEditor::drawBuddhabrotPanel() {
+    auto& E = m_engine;
+
+    bool wasOn = E.buddhabrotMode;
+    ImGui::Checkbox("Enable Buddhabrot Mode", &E.buddhabrotMode);
+    if (E.buddhabrotMode != wasOn) E.buddhaResetRequested = true;
+    if (E.buddhabrotMode) {
+        ImGui::Separator();
+        ImGui::TextDisabled("Fractal blend is paused while Buddhabrot Mode is on.\n"
+                            "The accumulation buffer builds up over several seconds —\n"
+                            "give it a moment after any change below.");
+        ImGui::Spacing();
+    }
+
+    bool dis = !E.buddhabrotMode;
+    if (dis) ImGui::BeginDisabled();
+
+    if (ImGui::Checkbox("Nebulabrot (RGB)", &E.nebulabrot))
+        E.buddhaResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Off: single-channel density recoloured through the shared palette.\n"
+                          "On: R/G/B each use their own iteration-cap threshold below —\n"
+                          "R=longest/rarest filigree  G=mid  B=shortest/broadest structure.");
+
+    int samples = E.buddhaSamples;
+    if (ImGui::SliderInt("Samples / frame", &samples, 1000, 60000))
+        E.buddhaSamples = samples;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Random orbits launched every frame — the main perf/quality dial.\n"
+                          "Each sample costs up to 2x its iteration cap in GPU work.\n"
+                          "Lower this first if frame rate drops.");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Iteration caps (hard-capped at 128 by the GPU) --");
+    if (ImGui::SliderInt("Iter R", &E.buddhaIterR, 1, 128)) E.buddhaResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Buddhabrot: the only cap used.\nNebulabrot: longest/rarest-detail threshold (red channel).");
+    if (E.nebulabrot) {
+        if (ImGui::SliderInt("Iter G", &E.buddhaIterG, 1, 128)) E.buddhaResetRequested = true;
+        if (ImGui::SliderInt("Iter B", &E.buddhaIterB, 1, 128)) E.buddhaResetRequested = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Keep R >= G >= B for the classic nebula look\n"
+                              "(broad structure in blue, fine filigree in red).");
+    }
+    if (ImGui::SliderInt("Min iter", &E.buddhaMinIter, 0, 20)) E.buddhaResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Skip orbits that escape before this many steps —\n"
+                          "cuts out the boring, over-plotted near-field points.");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Accumulation --");
+    ImGui::SliderFloat("Decay", &E.buddhaDecay, 0.90f, 1.0f, "%.3f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Buffer is multiplied by this every frame before new points land.\n"
+                          "1.0 = never fades (classic long-exposure Buddhabrot).\n"
+                          "Lower = keeps the image alive/breathing for a live stream.");
+    ImGui::SliderFloat("Brightness", &E.buddhaBrightness, 0.1f, 10.0f, "%.2f");
+    ImGui::SliderFloat("Gamma",      &E.buddhaGamma,      0.15f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Tone-map curve. Lower values compress the very sparse,\n"
+                          "high-dynamic-range density field — raise if it looks too flat/white.");
+
+    if (ImGui::Button("Reset accumulation"))
+        E.buddhaResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Clear the buffer and start a fresh long-exposure\n"
+                          "(zoom/pan/iteration changes already do this automatically).");
+
+    // ── Hybrid combination iteration ───────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Hybrid combination iteration --");
+    if (ImGui::Checkbox("Cycle formulas", &E.buddhaHybrid))
+        E.buddhaResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Instead of pure Mandelbrot z\xc2\xb2+c the whole way, the orbit\n"
+                          "switches between the formulas below every N iterations —\n"
+                          "produces point-cloud shapes a plain Buddhabrot can't.");
+    if (E.buddhaHybrid) {
+        if (ImGui::SliderInt("Switch every", &E.buddhaHybridCycle, 1, 30))
+            E.buddhaResetRequested = true;
+        if (ImGui::SliderInt("Formula count", &E.buddhaHybridCount, 1, 4))
+            E.buddhaResetRequested = true;
+        for (int i = 0; i < E.buddhaHybridCount; i++) {
+            ImGui::PushID(i);
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::Combo("##hybridFormula", &E.buddhaHybridList[i],
+                             kBuddhaHybridFormulas, 4))
+                E.buddhaResetRequested = true;
+            ImGui::SameLine();
+            ImGui::TextDisabled("slot %d", i + 1);
+            ImGui::PopID();
+        }
+    }
+
+    if (dis) ImGui::EndDisabled();
+}
+
 // -- Chaos Effects -------------------------------------------------------------
 //
 // Pre-iteration domain warps inspired by chaos theory.  Applied to the complex
@@ -3251,6 +3358,20 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 (float)m_beatDet->hardcutMinDelay);
     }
 
+    // [buddhabrot]
+    fprintf(f, "\n[buddhabrot]\n");
+    fprintf(f, "mode=%d\nnebulabrot=%d\nsamples=%d\n",
+            (int)E.buddhabrotMode, (int)E.nebulabrot, E.buddhaSamples);
+    fprintf(f, "iter_r=%d\niter_g=%d\niter_b=%d\nmin_iter=%d\n",
+            E.buddhaIterR, E.buddhaIterG, E.buddhaIterB, E.buddhaMinIter);
+    fprintf(f, "decay=%f\nbrightness=%f\ngamma=%f\n",
+            E.buddhaDecay, E.buddhaBrightness, E.buddhaGamma);
+    fprintf(f, "hybrid=%d\nhybrid_count=%d\nhybrid_cycle=%d\n",
+            (int)E.buddhaHybrid, E.buddhaHybridCount, E.buddhaHybridCycle);
+    fprintf(f, "hybrid_0=%d\nhybrid_1=%d\nhybrid_2=%d\nhybrid_3=%d\n",
+            E.buddhaHybridList[0], E.buddhaHybridList[1],
+            E.buddhaHybridList[2], E.buddhaHybridList[3]);
+
     // [audio]
     fprintf(f, "\n[audio]\n");
     if (m_audio) {
@@ -3530,6 +3651,26 @@ void EquationEditor::loadSettings(const std::string& path) {
             m_audio->start();
         }
     }
+
+    // [buddhabrot]
+    E.buddhabrotMode   = ini_b(m, "buddhabrot.mode",       E.buddhabrotMode);
+    E.nebulabrot        = ini_b(m, "buddhabrot.nebulabrot", E.nebulabrot);
+    E.buddhaSamples     = ini_i(m, "buddhabrot.samples",    E.buddhaSamples);
+    E.buddhaIterR       = ini_i(m, "buddhabrot.iter_r",     E.buddhaIterR);
+    E.buddhaIterG       = ini_i(m, "buddhabrot.iter_g",     E.buddhaIterG);
+    E.buddhaIterB       = ini_i(m, "buddhabrot.iter_b",     E.buddhaIterB);
+    E.buddhaMinIter     = ini_i(m, "buddhabrot.min_iter",   E.buddhaMinIter);
+    E.buddhaDecay       = ini_f(m, "buddhabrot.decay",      E.buddhaDecay);
+    E.buddhaBrightness  = ini_f(m, "buddhabrot.brightness", E.buddhaBrightness);
+    E.buddhaGamma       = ini_f(m, "buddhabrot.gamma",      E.buddhaGamma);
+    E.buddhaHybrid      = ini_b(m, "buddhabrot.hybrid",       E.buddhaHybrid);
+    E.buddhaHybridCount = ini_i(m, "buddhabrot.hybrid_count", E.buddhaHybridCount);
+    E.buddhaHybridCycle = ini_i(m, "buddhabrot.hybrid_cycle", E.buddhaHybridCycle);
+    E.buddhaHybridList[0] = ini_i(m, "buddhabrot.hybrid_0", E.buddhaHybridList[0]);
+    E.buddhaHybridList[1] = ini_i(m, "buddhabrot.hybrid_1", E.buddhaHybridList[1]);
+    E.buddhaHybridList[2] = ini_i(m, "buddhabrot.hybrid_2", E.buddhaHybridList[2]);
+    E.buddhaHybridList[3] = ini_i(m, "buddhabrot.hybrid_3", E.buddhaHybridList[3]);
+    E.buddhaResetRequested = true;   // always start with a clean accumulation buffer
 
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);

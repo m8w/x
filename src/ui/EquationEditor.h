@@ -143,6 +143,7 @@ private:
     void drawColorSynthPanel();
     void drawDistortionPanel();
     void drawChaosPanel();
+    void drawBuddhabrotPanel();
     void drawFftPanel();
     void drawRecordPanel();
     void drawPresetsPanel();

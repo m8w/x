@@ -1,7 +1,9 @@
 #include "Renderer.h"
+#include "entropy/Entropy.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <algorithm>
 
 // SHADERS_DIR is defined by CMake
 #ifndef SHADERS_DIR
@@ -15,6 +17,8 @@ Renderer::~Renderer() {
     if (m_fboTex)       glDeleteTextures(1, &m_fboTex);
     if (m_spectralFbo)  glDeleteFramebuffers(1, &m_spectralFbo);
     if (m_spectralTex)  glDeleteTextures(1, &m_spectralTex);
+    if (m_buddhaFbo)    glDeleteFramebuffers(1, &m_buddhaFbo);
+    if (m_buddhaTex[0]) glDeleteTextures(2, m_buddhaTex);
 }
 
 void Renderer::init() {
@@ -23,6 +27,11 @@ void Renderer::init() {
     m_shaderBulb.loadFromFiles    (sd + "/fractal.vert", sd + "/mandelbulb.frag");
     m_shaderDistort.loadFromFiles (sd + "/fractal.vert", sd + "/distortion.frag");
     m_shaderSpectral.loadFromFiles(sd + "/fractal.vert", sd + "/spectral.frag");
+    m_shaderBuddhaPoints.loadFromFiles(sd + "/buddhabrot_points.vert",
+                                       sd + "/buddhabrot_points.geom",
+                                       sd + "/buddhabrot_points.frag");
+    m_shaderBuddhaDecay.loadFromFiles  (sd + "/fractal.vert", sd + "/buddhabrot_decay.frag");
+    m_shaderBuddhaDisplay.loadFromFiles(sd + "/fractal.vert", sd + "/buddhabrot_display.frag");
 
     // Empty VAO — vertex positions are generated in the vertex shader
     glGenVertexArrays(1, &m_vao);
@@ -80,6 +89,107 @@ void Renderer::ensureSpectralFBO(int w, int h) {
 
     m_spectralW = w;
     m_spectralH = h;
+}
+
+bool Renderer::ensureBuddhaFBO(int w, int h) {
+    if (m_buddhaW == w && m_buddhaH == h) return false;
+    if (m_buddhaFbo)    glDeleteFramebuffers(1, &m_buddhaFbo);
+    if (m_buddhaTex[0]) glDeleteTextures(2, m_buddhaTex);
+
+    glGenTextures(2, m_buddhaTex);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, m_buddhaTex[i]);
+        // Float format: accumulated hit counts routinely exceed 1.0 before
+        // tone-mapping, and additive blending needs the precision.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, w, h, 0, GL_RGB, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glGenFramebuffers(1, &m_buddhaFbo);
+
+    m_buddhaW   = w;
+    m_buddhaH   = h;
+    m_buddhaIdx = 0;
+    return true;
+}
+
+void Renderer::renderBuddhabrot(int w, int h, const FractalEngine& eng) {
+    bool recreated = ensureBuddhaFBO(w, h);
+    // A freshly (re)allocated texture holds undefined data, so force a clear
+    // this frame regardless of whether the caller asked for one.
+    bool reset = eng.buddhaResetRequested || recreated;
+
+    int writeIdx = 1 - m_buddhaIdx;
+    int readIdx  = m_buddhaIdx;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_buddhaFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_buddhaTex[writeIdx], 0);
+    glViewport(0, 0, w, h);
+
+    // ── Decay pass: carry the previous frame forward, scaled down ───────────
+    if (reset) {
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    } else {
+        m_shaderBuddhaDecay.use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_buddhaTex[readIdx]);
+        m_shaderBuddhaDecay.setInt  ("u_prev_tex", 0);
+        m_shaderBuddhaDecay.setFloat("u_decay",    eng.buddhaDecay);
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    // ── Points pass: iterate orbits on the GPU, additively accumulate ───────
+    m_shaderBuddhaPoints.use();
+    m_shaderBuddhaPoints.setFloat2("u_resolution", (float)w, (float)h);
+    m_shaderBuddhaPoints.setFloat ("u_zoom",       eng.zoom);
+    m_shaderBuddhaPoints.setFloat2("u_offset",     eng.offset.x, eng.offset.y);
+    m_shaderBuddhaPoints.setFloat ("u_bailout",    eng.bailout);
+    // Entropy-seeded: a fresh random value each frame so the accumulated
+    // sample set keeps covering new points rather than repeating a fixed
+    // hash sequence (ties into the dual hardware/quantum RNG).
+    m_shaderBuddhaPoints.setFloat ("u_seed",       globalEntropy().randomF() * 97931.0f);
+    m_shaderBuddhaPoints.setBool  ("u_nebulabrot", eng.nebulabrot);
+    m_shaderBuddhaPoints.setInt   ("u_iter_r",     std::min(eng.buddhaIterR, 128));
+    m_shaderBuddhaPoints.setInt   ("u_iter_g",     std::min(eng.buddhaIterG, 128));
+    m_shaderBuddhaPoints.setInt   ("u_iter_b",     std::min(eng.buddhaIterB, 128));
+    m_shaderBuddhaPoints.setInt   ("u_min_iter",   eng.buddhaMinIter);
+    m_shaderBuddhaPoints.setBool  ("u_hybrid",       eng.buddhaHybrid);
+    m_shaderBuddhaPoints.setInt   ("u_hybrid_count", eng.buddhaHybridCount);
+    m_shaderBuddhaPoints.setInt   ("u_hybrid_cycle", eng.buddhaHybridCycle);
+    for (int i = 0; i < 4; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "u_hybrid_list[%d]", i);
+        m_shaderBuddhaPoints.setInt(name, eng.buddhaHybridList[i]);
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_POINTS, 0, std::max(0, eng.buddhaSamples));
+    glDisable(GL_BLEND);
+
+    // ── Display pass: tone-map into the main FBO so the rest of the pipeline
+    //    (spectral post-process, stream/record readback) sees it like any
+    //    other fractal mode ──────────────────────────────────────────────────
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    glViewport(0, 0, w, h);
+    m_shaderBuddhaDisplay.use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_buddhaTex[writeIdx]);
+    m_shaderBuddhaDisplay.setInt  ("u_accum_tex",  0);
+    m_shaderBuddhaDisplay.setBool ("u_nebulabrot", eng.nebulabrot);
+    m_shaderBuddhaDisplay.setFloat("u_brightness", eng.buddhaBrightness);
+    m_shaderBuddhaDisplay.setFloat("u_gamma",      eng.buddhaGamma);
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    m_buddhaIdx = writeIdx;
+    eng.buddhaResetRequested = false;   // mutable field — fine on a const&
 }
 
 void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
@@ -158,41 +268,48 @@ void Renderer::render(int width, int height, float time,
                        const ColorSynth& colorSynth) {
     ensureFBO(width, height);
 
-    // Choose shader
-    float bw[5]; blend.weights(bw);
-    ShaderProgram* prog;
-    if (engine.distortionMode) {
-        prog = &m_shaderDistort;
+    if (engine.buddhabrotMode) {
+        // Exclusive mode switch, same pattern as distortionMode below —
+        // writes its tone-mapped output straight into m_fbo/m_fboTex so the
+        // spectral pass and stream/record readback need no changes at all.
+        renderBuddhabrot(width, height, engine);
     } else {
-        prog = (bw[2] > 0.5f) ? &m_shaderBulb : &m_shaderBlend;
+        // Choose shader
+        float bw[5]; blend.weights(bw);
+        ShaderProgram* prog;
+        if (engine.distortionMode) {
+            prog = &m_shaderDistort;
+        } else {
+            prog = (bw[2] > 0.5f) ? &m_shaderBulb : &m_shaderBlend;
+        }
+
+        // Render into FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        glViewport(0, 0, width, height);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        prog->use();
+        if (engine.distortionMode) {
+            prog->setFloat2("u_resolution",   (float)width, (float)height);
+            prog->setFloat ("u_time",         time);
+            prog->setFloat ("u_dist_speed",   engine.distortSpeed);
+            prog->setInt   ("u_dist_blobs",   engine.distortBlobs);
+            prog->setFloat ("u_dist_glow",    engine.distortGlow);
+            prog->setFloat ("u_dist_irid",    engine.distortIrid);
+            prog->setFloat ("u_dist_outline", engine.distortOutline);
+        } else {
+            uploadUniforms(*prog, width, height, time, engine, blend, colorSynth);
+            videoTex.bind(0);
+            overlayTex.bind(1);
+            prog->setFloat2("u_overlay_size", (float)overlayTex.width(), (float)overlayTex.height());
+            // Suppress overlay blend when no real overlay is loaded (1×1 white fallback)
+            if (overlayTex.width() <= 1 && overlayTex.height() <= 1)
+                prog->setFloat("u_overlay_blend", 0.0f);
+        }
+
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
-
-    // Render into FBO
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    glViewport(0, 0, width, height);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    prog->use();
-    if (engine.distortionMode) {
-        prog->setFloat2("u_resolution",   (float)width, (float)height);
-        prog->setFloat ("u_time",         time);
-        prog->setFloat ("u_dist_speed",   engine.distortSpeed);
-        prog->setInt   ("u_dist_blobs",   engine.distortBlobs);
-        prog->setFloat ("u_dist_glow",    engine.distortGlow);
-        prog->setFloat ("u_dist_irid",    engine.distortIrid);
-        prog->setFloat ("u_dist_outline", engine.distortOutline);
-    } else {
-        uploadUniforms(*prog, width, height, time, engine, blend, colorSynth);
-        videoTex.bind(0);
-        overlayTex.bind(1);
-        prog->setFloat2("u_overlay_size", (float)overlayTex.width(), (float)overlayTex.height());
-        // Suppress overlay blend when no real overlay is loaded (1×1 white fallback)
-        if (overlayTex.width() <= 1 && overlayTex.height() <= 1)
-            prog->setFloat("u_overlay_blend", 0.0f);
-    }
-
-    glBindVertexArray(m_vao);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     // ── Spectral post-process pass ───────────────────────────────────────────
     GLuint outputFbo = m_fbo;

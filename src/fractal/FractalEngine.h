@@ -106,6 +106,51 @@ struct FractalEngine {
     // 6=Difference  7=Exclusion  8=ColorDodge  9=ColorBurn  10=Darken  11=Lighten  12=Addition
     int   streamBlendMode = 0;
 
+    // ── Buddhabrot / Nebulabrot (buddhabrot_*.frag/.geom) ───────────────────────
+    // When true, Renderer switches entirely to the GPU point-cloud orbit-
+    // accumulation pipeline, bypassing the 2-D blend / 3-D raymarch / distortion
+    // paths — the same kind of exclusive mode switch as distortionMode above.
+    bool  buddhabrotMode = false;
+    bool  nebulabrot      = false;  // false=single-channel density  true=RGB 3-threshold composite
+
+    // Samples (random c values) launched per frame. Each sample costs up to
+    // 2x its iteration cap in complex iterations on the GPU (one pass to find
+    // the escape step, one to emit points up to it) — the main perf/quality dial.
+    int   buddhaSamples  = 20000;
+
+    // Iteration caps, hard-capped at 128 by the geometry shader's
+    // max_vertices x per-vertex-output-component budget (1024 components is
+    // the GL-guaranteed minimum across drivers; 128 verts x ~7 components
+    // stays safely under it). Nebulabrot treats all three as independent
+    // escape thresholds — R=longest/rarest filigree, G=mid, B=shortest/
+    // broadest structure. Buddhabrot uses R alone.
+    int   buddhaIterR   = 120;
+    int   buddhaIterG   = 50;
+    int   buddhaIterB   = 15;
+    int   buddhaMinIter = 2;      // skip orbits that escape before this step (cuts boring near-field points)
+
+    // Accumulation decay: the buffer is multiplied by this every frame before
+    // new points are added, so density fades instead of freezing into a
+    // static long-exposure photo — keeps the image alive on a live stream
+    // instead of converging to a fixed picture. 1.0 = never decays.
+    float buddhaDecay      = 0.985f;
+    float buddhaBrightness = 1.0f;   // tone-map gain before display
+    float buddhaGamma      = 0.45f;  // tone-map curve exponent (log-ish compression)
+
+    // ── Hybrid combination iteration ─────────────────────────────────────────
+    // Cycles the orbit through up to 4 formulas every buddhaHybridCycle
+    // iterations instead of iterating pure Mandelbrot z²+c the whole way.
+    // Formula IDs: 0=Mandelbrot  1=Burning Ship  2=Tricorn  3=Celtic
+    bool  buddhaHybrid        = false;
+    int   buddhaHybridList[4] = {0, 1, 2, 3};
+    int   buddhaHybridCount   = 2;   // how many of buddhaHybridList[] cycle through
+    int   buddhaHybridCycle   = 5;   // switch formula every N iterations
+
+    // Set true to clear the accumulation buffer on the next render. Mutable
+    // so it can be consumed (and cleared) by Renderer::render() even though
+    // that method takes FractalEngine by const reference.
+    mutable bool buddhaResetRequested = true;
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.

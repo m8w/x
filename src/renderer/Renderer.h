@@ -44,6 +44,16 @@ private:
     GLuint        m_fboTex    = 0;
     int           m_fboW      = 0;
     int           m_fboH      = 0;
+
+    // Buddhabrot / Nebulabrot point-cloud accumulation pipeline
+    ShaderProgram m_shaderBuddhaPoints;   // buddhabrot_points.vert/.geom/.frag
+    ShaderProgram m_shaderBuddhaDecay;    // fractal.vert + buddhabrot_decay.frag
+    ShaderProgram m_shaderBuddhaDisplay;  // fractal.vert + buddhabrot_display.frag
+    GLuint        m_buddhaFbo    = 0;
+    GLuint        m_buddhaTex[2] = {0, 0};  // ping-pong accumulation targets
+    int           m_buddhaIdx    = 0;
+    int           m_buddhaW      = 0;
+    int           m_buddhaH      = 0;
     // Spectral post-process FBO (ping-pong target)
     GLuint        m_spectralFbo = 0;
     GLuint        m_spectralTex = 0;
@@ -64,6 +74,8 @@ private:
 
     void ensureFBO(int w, int h);
     void ensureSpectralFBO(int w, int h);
+    bool ensureBuddhaFBO(int w, int h);   // returns true if (re)allocated
+    void renderBuddhabrot(int w, int h, const FractalEngine& engine);
     void uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                         const FractalEngine& engine,
                         const BlendController& blend,

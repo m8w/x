@@ -8,6 +8,7 @@ Real-time fractal renderer that:
 - Supports **11 iteration formulas** (classic z²+c, Burning Ship, Newton, Phoenix, trig/hyperbolic, arbitrary power) inspired by the Fractal Explorer / UltraFractal function set
 - Couples SDF geometry into the fractal orbit via **orbit-trap coloring** and **domain warp**
 - Maps the video stream onto the fractal surface using escape-time UV mapping
+- Renders **Buddhabrot / Nebulabrot** as a GPU point-cloud orbit-accumulation mode, with optional **hybrid combination iteration** (cycling formulas mid-orbit)
 - Encodes and pushes the rendered output to **Restream** (and multiple simultaneous destinations) via RTMP/RTMPS
 
 ---
@@ -172,6 +173,58 @@ float DE_mandelbulb(vec3 pos) {
 }
 ```
 
+### Buddhabrot / Nebulabrot Pipeline (`buddhabrot_*.vert/.geom/.frag`)
+
+Structurally different from every other fractal mode: instead of one escape
+value per screen pixel, it samples many random `c` values per frame, iterates
+each orbit, and plots **every point the orbit visits** (not just the final
+escape value) into a persistent accumulation texture. Density there — not a
+per-pixel formula — is what gets displayed. macOS caps OpenGL at 4.1 core, so
+there's no compute-shader stage available; the whole thing runs as three
+fullscreen/point passes through `Renderer::renderBuddhabrot()`:
+
+1. **Decay pass** (`buddhabrot_decay.frag`) — multiplies the previous
+   accumulation frame by `buddhaDecay` so the image fades instead of
+   freezing into a static long-exposure photo (skipped in favor of a hard
+   `glClear` when `buddhaResetRequested` is set, e.g. after a zoom/iteration
+   change).
+2. **Points pass** (`buddhabrot_points.vert/.geom/.frag`) — one GPU thread
+   per sample. A geometry shader is the only way to emit a *variable* number
+   of points per invocation without a compute stage, so each invocation:
+   - hashes its `gl_VertexID` + a per-frame entropy seed into a random `c`
+     in the current zoom/offset view window,
+   - **pass 1** iterates the orbit (optionally cycling through up to 4
+     "hybrid" formulas — Mandelbrot/Burning Ship/Tricorn/Celtic — every N
+     steps) purely to find whether/when it escapes, emitting nothing,
+   - **pass 2**, only if it escaped, re-walks the same deterministic orbit
+     from scratch and calls `EmitVertex()` for every visited point.
+   Two passes per sample (not one) is what makes the classic Buddhabrot rule
+   correct — an orbit that never escapes must contribute *nothing*, and you
+   can't un-emit a point once pass 1 tells you escape never happens.
+   Points are additively blended (`GL_ONE, GL_ONE`) into an `RGB32F` texture.
+   `max_vertices = 128` in the geometry shader is a hard GPU limit: GL only
+   guarantees 1024 output components per invocation, and each emitted point
+   costs ~7 (`gl_Position` + the RGB channel-mask), so iteration caps are
+   clamped to 128 everywhere (`buddhaIterR/G/B`).
+3. **Display pass** (`buddhabrot_display.frag`) — tone-maps the raw hit-count
+   texture (`pow(density * brightness, gamma)`, gamma ~0.45) and writes it
+   into the normal `m_fbo`/`m_fboTex`, so Buddhabrot output flows through the
+   existing spectral post-process and stream/record readback unchanged.
+
+**Nebulabrot** reuses this exact pipeline with `nebulabrot=true`: the R/G/B
+channels are independent iteration-cap thresholds applied to the *same*
+sample set in one pass (no 3x cost) — R the most permissive (rare, deep
+filigree), B the tightest (common, broad structure) — composited straight
+into the RGB accumulation texture instead of being recolored through the
+palette.
+
+Perf/quality is dominated by `buddhaSamples` (samples launched per frame);
+drop that first if frame rate suffers. The sampling box always matches the
+current `zoom`/`offset`, same convention `fractal.frag`'s `main()` uses, so
+"zoom into the fractal" and "zoom into the Buddhabrot" behave the same way —
+and any such change auto-resets the accumulation buffer, since the sampling
+domain just moved.
+
 ### RTMP Output to Restream
 1. `StreamOutput` opens an `AVFormatContext` with `rtmp://live.restream.io/live/<key>`
 2. Uses `libx264` encoder (via `avcodec`) at configurable bitrate
@@ -222,6 +275,20 @@ float DE_mandelbulb(vec3 pos) {
 | 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia / 3D Complex (Peng) |
 | Mandelbox scale | drag float | IFS fold-and-scale factor (typ. 2.0) |
 | Mandelbox fold | drag float | box fold limit |
+
+### Panel: Buddhabrot / Nebulabrot
+| Control | Type | Effect |
+|---------|------|--------|
+| Enable Buddhabrot Mode | checkbox | exclusive mode switch — bypasses the 2-D blend / 3-D raymarch / distortion paths entirely |
+| Nebulabrot (RGB) | checkbox | off = single-channel density through the shared palette; on = R/G/B use independent iteration-cap thresholds |
+| Samples / frame | slider 1000–60000 | random orbits launched per frame — primary perf/quality dial |
+| Iter R / G / B | slider 1–128 | iteration caps, hard-limited by the GPU geometry-shader `max_vertices` budget |
+| Min iter | slider 0–20 | skip orbits escaping before this step (cuts boring near-field points) |
+| Decay | slider 0.90–1.0 | per-frame buffer fade; 1.0 = classic long-exposure, lower keeps it alive on a live stream |
+| Brightness / Gamma | sliders | tone-map gain / curve for the sparse, high-dynamic-range density field |
+| Reset accumulation | button | force-clears the buffer (zoom/iteration/hybrid changes already auto-reset it) |
+| Cycle formulas | checkbox | hybrid combination iteration — switches the orbit formula every N steps |
+| Switch every / Formula count / per-slot formula | slider / slider / combo | hybrid cycle configuration (Mandelbrot / Burning Ship / Tricorn / Celtic) |
 
 ### Panel: Stream Output
 | Control | Type |

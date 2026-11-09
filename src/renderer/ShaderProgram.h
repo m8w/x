@@ -1,6 +1,7 @@
 #pragma once
 #include "gl_includes.h"
 #include <string>
+#include <initializer_list>
 
 class ShaderProgram {
 public:
@@ -8,6 +9,9 @@ public:
     ~ShaderProgram();
 
     bool loadFromFiles(const std::string& vertPath, const std::string& fragPath);
+    // 3-stage overload with a geometry shader (e.g. buddhabrot_points.*)
+    bool loadFromFiles(const std::string& vertPath, const std::string& geomPath,
+                        const std::string& fragPath);
     // Alias used by MilkDropGLRenderer
     bool load(const std::string& vertPath, const std::string& fragPath) {
         return loadFromFiles(vertPath, fragPath);
@@ -33,4 +37,5 @@ private:
     GLuint m_id = 0;
     static GLuint compile(GLenum type, const std::string& src);
     static std::string readFile(const std::string& path);
+    bool link(std::initializer_list<GLuint> shaders);
 };

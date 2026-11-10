@@ -4,11 +4,12 @@
 
 Real-time fractal renderer that:
 - Decodes **local video files** as live input texture
-- Blends **Mandelbrot, Julia, Mandelbulb, Mandelbox, Quaternion Julia, 3D Complex (Peng)** with **Euclidean geometry** via a live equation editor
+- Blends **Mandelbrot, Julia, Mandelbulb, Mandelbox, Quaternion Julia, 3D Complex (Peng), Kleinian Limit Set** with **Euclidean geometry** via a live equation editor
 - Supports **11 iteration formulas** (classic z²+c, Burning Ship, Newton, Phoenix, trig/hyperbolic, arbitrary power) inspired by the Fractal Explorer / UltraFractal function set
 - Couples SDF geometry into the fractal orbit via **orbit-trap coloring** and **domain warp**
 - Maps the video stream onto the fractal surface using escape-time UV mapping
 - Renders **Buddhabrot / Nebulabrot** as a GPU point-cloud orbit-accumulation mode, with optional **hybrid combination iteration** (cycling formulas mid-orbit)
+- Renders **Flame / IFS chaos-game** fractals as a second GPU point-cloud mode — up to 4 affine+variation "xforms," weighted random walk, flam3-style log-density color averaging
 - Encodes and pushes the rendered output to **Restream** (and multiple simultaneous destinations) via RTMP/RTMPS
 
 ---
@@ -225,6 +226,55 @@ current `zoom`/`offset`, same convention `fractal.frag`'s `main()` uses, so
 and any such change auto-resets the accumulation buffer, since the sampling
 domain just moved.
 
+### Kleinian Limit Set (`mandelbulb.frag`, `u_fractal_3d == 4`)
+
+Same box-fold-and-scale IFS loop as `DE_mandelbox` above — reuses its
+`u_mb_scale`/`u_mb_fold` uniforms — with one swap: Mandelbox's two-tier
+fixed-radius ball fold (`if (r2<0.25) ... else if (r2<1.0) ...`) is replaced
+by a single *continuous* sphere inversion, `z *= max(minR2/dot(z,z), 1.0)`.
+That one change is the well-documented "Grandma's formula" construction from
+fractal-art circles — a sphere inversion is a generator of a Möbius
+transformation group, so iterating it is iterating a Kleinian group, and the
+result is the lace-like circle-packing limit set instead of Mandelbox's boxy
+structures. `u_kleinian_min_r2` (the inversion radius²) is the only
+Kleinian-specific parameter.
+
+### Flame / IFS Chaos-Game Pipeline (`flame_*.vert/.geom/.frag`)
+
+A second point-cloud accumulation mode, reusing Buddhabrot's architecture
+(ping-pong accumulation texture, decay pass, geometry-shader points pass,
+tone-mapped display pass into `m_fbo`) but with the classic fractal-flame
+(Scott Draves / flam3) iteration rule instead of an escape-time orbit:
+
+- **No escape/non-escape split, so one pass per sample suffices** (unlike
+  Buddhabrot's two-pass trick): `flame_points.geom` runs a short discarded
+  "burn-in" so the walk converges onto the attractor, then plots every
+  subsequent step.
+- At each step, one of up to 4 affine+variation **"xforms"** is picked at
+  random, weighted by `flameWeight[]` (normalised and uploaded as cumulative
+  buckets so the shader's pick is a cheap threshold walk). A curated set of
+  8 cheap, visually distinct variations is implemented (Linear, Sinusoidal,
+  Spherical, Swirl, Horseshoe, Polar, Handkerchief, Spiral) — not flam3's
+  full ~100, to stay real-time on a geometry shader.
+- A running color coordinate blends toward each picked xform's
+  `flameColor[]` every step (`mix(color, xformColor, 0.5)`, the standard
+  flam3 convention), sampled through the shared IQ cosine palette and
+  emitted per point as `g_color`.
+- The accumulation texture is **RGBA32F**, not Buddhabrot's plain RGB32F:
+  RGB sums the emitted color, alpha sums the hit count. `buddhabrot_decay.frag`
+  was generalised to decay the full `vec4` (harmless for Buddhabrot, whose
+  texture has no alpha channel) specifically so both pipelines could share
+  one decay shader.
+- `flame_display.frag` divides RGB by alpha to get the *average* color per
+  pixel, then drives brightness from `log(1 + hitcount * brightness)` rather
+  than a straight power curve — that log-density tone map is what gives
+  flame fractals their glowing-highlight-with-visible-shadow-detail look.
+
+The "Randomize xforms" UI button samples new affine coefficients from
+`globalEntropy()` (the dual hardware/quantum RNG) within a range chosen to
+keep the IFS contractive, since chaos-game convergence requires it — an
+expansive xform set just renders as an empty/dark frame, not a crash.
+
 ### RTMP Output to Restream
 1. `StreamOutput` opens an `AVFormatContext` with `rtmp://live.restream.io/live/<key>`
 2. Uses `libx264` encoder (via `avcodec`) at configurable bitrate
@@ -272,14 +322,15 @@ domain just moved.
 ### Panel: 3-D Fractal
 | Control | Type | Effect |
 |---------|------|--------|
-| 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia / 3D Complex (Peng) |
-| Mandelbox scale | drag float | IFS fold-and-scale factor (typ. 2.0) |
-| Mandelbox fold | drag float | box fold limit |
+| 3-D type | combo | Mandelbulb / Mandelbox / Quaternion Julia / 3D Complex (Peng) / Kleinian Limit Set |
+| Mandelbox scale | drag float | IFS fold-and-scale factor (typ. 2.0) — shared with Kleinian |
+| Mandelbox fold | drag float | box fold limit — shared with Kleinian (box half-size) |
+| Kleinian min R² | drag float | sphere-inversion radius² threshold — the one Kleinian-specific parameter |
 
 ### Panel: Buddhabrot / Nebulabrot
 | Control | Type | Effect |
 |---------|------|--------|
-| Enable Buddhabrot Mode | checkbox | exclusive mode switch — bypasses the 2-D blend / 3-D raymarch / distortion paths entirely |
+| Enable Buddhabrot Mode | checkbox | exclusive mode switch — bypasses the 2-D blend / 3-D raymarch / distortion / flame paths entirely |
 | Nebulabrot (RGB) | checkbox | off = single-channel density through the shared palette; on = R/G/B use independent iteration-cap thresholds |
 | Samples / frame | slider 1000–60000 | random orbits launched per frame — primary perf/quality dial |
 | Iter R / G / B | slider 1–128 | iteration caps, hard-limited by the GPU geometry-shader `max_vertices` budget |
@@ -289,6 +340,22 @@ domain just moved.
 | Reset accumulation | button | force-clears the buffer (zoom/iteration/hybrid changes already auto-reset it) |
 | Cycle formulas | checkbox | hybrid combination iteration — switches the orbit formula every N steps |
 | Switch every / Formula count / per-slot formula | slider / slider / combo | hybrid cycle configuration (Mandelbrot / Burning Ship / Tricorn / Celtic) |
+
+### Panel: Flame / IFS Chaos Game
+| Control | Type | Effect |
+|---------|------|--------|
+| Enable Flame Mode | checkbox | exclusive mode switch — bypasses the 2-D blend / 3-D raymarch / distortion / Buddhabrot paths entirely |
+| Walks / frame | slider 1000–60000 | independent chaos-game walks launched per frame — primary perf/quality dial |
+| Steps / walk | slider 4–128 | plotted iterations per walk, same GPU geometry-shader budget as Buddhabrot |
+| Burn-in | slider 0–50 | discarded warm-up iterations so each walk starts on the attractor |
+| Decay / Brightness / Gamma | sliders | buffer fade + log-density tone-map shaping (see architecture notes above) |
+| Reset accumulation | button | force-clears the buffer |
+| Randomize xforms | button | entropy-seeded random affine+variation set, kept contractive so the chaos game converges |
+| Active xforms | slider 1–4 | how many of the 4 xform slots participate |
+| a/b, c/d, e/f (translate) | drag float2 ×3 per xform | the xform's affine transform (2×2 linear + translate) |
+| Variation | combo per xform | Linear / Sinusoidal / Spherical / Swirl / Horseshoe / Polar / Handkerchief / Spiral |
+| Weight | slider per xform | selection probability at each chaos-game step (auto-normalised) |
+| Color | slider per xform | palette coordinate the running walk color blends toward when picked |
 
 ### Panel: Stream Output
 | Control | Type |
@@ -331,9 +398,10 @@ uniform bool  u_geo_tile;
 uniform float u_geo_warp;         // orbit-trap warp strength (0=coloring only)
 
 // ── 3-D fractal (mandelbulb.frag) ────────────────────────────────────────────
-uniform int   u_fractal_3d;       // 0=Mandelbulb 1=Mandelbox 2=Quaternion Julia 3=3D Complex (Peng)
-uniform float u_mb_scale;         // Mandelbox: IFS scale factor
-uniform float u_mb_fold;          // Mandelbox: box fold limit
+uniform int   u_fractal_3d;       // 0=Mandelbulb 1=Mandelbox 2=Quaternion Julia 3=3D Complex (Peng) 4=Kleinian
+uniform float u_mb_scale;         // Mandelbox / Kleinian: IFS scale factor
+uniform float u_mb_fold;          // Mandelbox / Kleinian: box fold limit / half-size
+uniform float u_kleinian_min_r2;  // Kleinian: sphere-inversion radius^2 threshold
 
 // ── Video ────────────────────────────────────────────────────────────────────
 uniform sampler2D u_video_tex;

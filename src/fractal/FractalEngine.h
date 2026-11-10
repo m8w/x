@@ -68,10 +68,12 @@ struct FractalEngine {
     int   geoKaleid       = 0;    // 0=off  N=segment count (2–16)
 
     // ── 3-D fractal type (mandelbulb.frag u_fractal_3d) ───────────────────────
-    // 0=Mandelbulb  1=Mandelbox  2=Quaternion Julia  3=3D Complex (Peng)
+    // 0=Mandelbulb  1=Mandelbox  2=Quaternion Julia  3=3D Complex (Peng)  4=Kleinian Limit Set
     int   fractal3D       = 0;
     float mbScale         = 2.0f;
     float mbFold          = 1.0f;
+    // Kleinian-only: sphere-inversion radius^2 threshold (shares mbScale/mbFold above)
+    float kleinianMinR2   = 0.3f;
 
     // ── Chaos domain warp (fractal.frag) ─────────────────────────────────────
     // Applied as a pre-iteration UV warp so chaos geometry is baked into
@@ -160,6 +162,41 @@ struct FractalEngine {
     // so it can be consumed (and cleared) by Renderer::render() even though
     // that method takes FractalEngine by const reference.
     mutable bool buddhaResetRequested = true;
+
+    // ── Flame / IFS Chaos-Game (flame_*.vert/.geom/.frag) ───────────────────────
+    // When true, Renderer switches to the GPU chaos-game point-cloud pipeline —
+    // same exclusive-mode pattern as buddhabrotMode/distortionMode, and shares
+    // its decay/ping-pong/display-pass architecture (RGBA32F: RGB=summed
+    // color, A=hit count, vs. Buddhabrot's plain RGB32F density).
+    bool  flameMode    = false;
+    int   flameSamples = 20000;   // chaos-game walks launched per frame
+    int   flameSteps   = 60;      // plotted iterations per walk, capped at 128 (GS max_vertices budget)
+    int   flameBurnIn  = 20;      // discarded warm-up iterations before plotting starts
+
+    float flameDecay      = 0.985f;  // per-frame buffer fade, same meaning as buddhaDecay
+    float flameBrightness = 1.0f;    // log-density tone-map gain
+    float flameGamma      = 0.6f;    // post-curve shaping on top of the log tone map
+
+    // Up to 4 affine+variation "xforms" (flam3 terminology). Each step of the
+    // chaos game picks one at random, weighted by flameWeight[] (normalised
+    // before upload), applies its affine transform then its variation, and
+    // blends the running color coordinate toward flameColor[] — the classic
+    // fractal-flame recipe. Variation IDs: 0=Linear 1=Sinusoidal 2=Spherical
+    // 3=Swirl 4=Horseshoe 5=Polar 6=Handkerchief 7=Spiral.
+    // Default: a 4-corner contraction IFS with varied variations per slot —
+    // a reasonable non-trivial starting point, fully tunable from the UI.
+    float flameA[4] = { 0.5f,  0.5f, -0.5f,  0.5f};
+    float flameB[4] = { 0.0f,  0.0f,  0.0f,  0.0f};
+    float flameC[4] = { 0.0f,  0.0f,  0.0f,  0.0f};
+    float flameD[4] = { 0.5f,  0.5f,  0.5f, -0.5f};
+    float flameE[4] = { 0.0f,  0.5f,  0.5f,  0.0f};
+    float flameF[4] = { 0.0f,  0.5f,  0.0f, -0.5f};
+    int   flameVariation[4] = {1, 3, 6, 2};
+    float flameWeight[4]    = {0.25f, 0.25f, 0.25f, 0.25f};
+    float flameColor[4]     = {0.0f, 0.33f, 0.66f, 1.0f};
+    int   flameXformCount   = 4;   // how many of the 4 slots are active (1-4)
+
+    mutable bool flameResetRequested = true;
 
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and

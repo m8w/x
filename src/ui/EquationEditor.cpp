@@ -68,6 +68,8 @@ void EquationEditor::draw() {
         drawDistortionPanel();
     if (ImGui::CollapsingHeader("Buddhabrot / Nebulabrot"))
         drawBuddhabrotPanel();
+    if (ImGui::CollapsingHeader("Flame / IFS Chaos Game"))
+        drawFlamePanel();
     if (ImGui::CollapsingHeader("FFT / AFT Spectral Chain"))
         drawFftPanel();
     if (ImGui::CollapsingHeader("Recording (4K / 8K)"))
@@ -231,6 +233,7 @@ static const char* k3DTypes[] = {
     "Mandelbox",
     "Quaternion Julia",
     "3D Complex (Peng)",
+    "Kleinian Limit Set",
 };
 
 void EquationEditor::drawFractalPanel() {
@@ -437,17 +440,27 @@ void EquationEditor::drawFractalPanel() {
 
     // -- 3-D fractal (mandelbulb.frag) -----------------------------------------
     ImGui::TextDisabled("3-D fractal (when Mandelbulb blend > 0.5)");
-    ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 4);
+    ImGui::Combo("3D type", &m_engine.fractal3D, k3DTypes, 5);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "3D Complex (Peng): a commutative, associative 3-D complex\n"
             "algebra distinct from the Mandelbulb's triplex power --\n"
             "multiplication chains Euler's formula across two orthogonal\n"
             "imaginary axes instead of a spherical-coordinate power.\n"
-            "Uses the Power slider above as its exponent.");
-    if (m_engine.fractal3D == 1) {
+            "Uses the Power slider above as its exponent.\n\n"
+            "Kleinian Limit Set: a Mobius-transformation IFS -- same box-fold\n"
+            "family as Mandelbox, but with a continuous sphere inversion in\n"
+            "place of Mandelbox's two-tier fold, giving the lace-like\n"
+            "circle-packing look of a Kleinian group's limit set.");
+    if (m_engine.fractal3D == 1 || m_engine.fractal3D == 4) {
         ImGui::DragFloat("MB scale", &m_engine.mbScale, 0.01f, 0.5f, 4.0f);
         ImGui::DragFloat("MB fold",  &m_engine.mbFold,  0.01f, 0.1f, 3.0f);
+    }
+    if (m_engine.fractal3D == 4) {
+        ImGui::DragFloat("Kleinian min R\xc2\xb2", &m_engine.kleinianMinR2, 0.005f, 0.01f, 2.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Sphere-inversion radius\xc2\xb2 threshold -- the one\n"
+                              "parameter unique to the Kleinian limit set.");
     }
 }
 
@@ -2931,7 +2944,10 @@ void EquationEditor::drawColorSynthPanel() {
 void EquationEditor::drawDistortionPanel() {
     auto& E = m_engine;
 
-    ImGui::Checkbox("Enable Distortion Mode", &E.distortionMode);
+    if (ImGui::Checkbox("Enable Distortion Mode", &E.distortionMode) && E.distortionMode) {
+        E.buddhabrotMode = false;
+        E.flameMode      = false;
+    }
     if (E.distortionMode) {
         ImGui::Separator();
         ImGui::TextDisabled("Fractal blend is paused while Distortion Mode is on.");
@@ -2976,9 +2992,13 @@ static const char* kBuddhaHybridFormulas[] = {
 void EquationEditor::drawBuddhabrotPanel() {
     auto& E = m_engine;
 
-    bool wasOn = E.buddhabrotMode;
-    ImGui::Checkbox("Enable Buddhabrot Mode", &E.buddhabrotMode);
-    if (E.buddhabrotMode != wasOn) E.buddhaResetRequested = true;
+    if (ImGui::Checkbox("Enable Buddhabrot Mode", &E.buddhabrotMode)) {
+        E.buddhaResetRequested = true;
+        if (E.buddhabrotMode) {
+            E.distortionMode = false;
+            E.flameMode      = false;
+        }
+    }
     if (E.buddhabrotMode) {
         ImGui::Separator();
         ImGui::TextDisabled("Fractal blend is paused while Buddhabrot Mode is on.\n"
@@ -3066,6 +3086,124 @@ void EquationEditor::drawBuddhabrotPanel() {
             ImGui::TextDisabled("slot %d", i + 1);
             ImGui::PopID();
         }
+    }
+
+    if (dis) ImGui::EndDisabled();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// FLAME / IFS CHAOS GAME  -  GPU point-cloud chaos-game accumulation
+// ════════════════════════════════════════════════════════════════════════════════
+static const char* kFlameVariations[] = {
+    "Linear", "Sinusoidal", "Spherical", "Swirl",
+    "Horseshoe", "Polar", "Handkerchief", "Spiral"
+};
+
+void EquationEditor::drawFlamePanel() {
+    auto& E = m_engine;
+
+    if (ImGui::Checkbox("Enable Flame Mode", &E.flameMode)) {
+        E.flameResetRequested = true;
+        if (E.flameMode) {
+            E.distortionMode = false;
+            E.buddhabrotMode = false;
+        }
+    }
+    if (E.flameMode) {
+        ImGui::Separator();
+        ImGui::TextDisabled("Fractal blend is paused while Flame Mode is on.\n"
+                            "Classic fractal-flame chaos game: random walks pick one of the\n"
+                            "xforms below at each step and accumulate color + density.");
+        ImGui::Spacing();
+    }
+
+    bool dis = !E.flameMode;
+    if (dis) ImGui::BeginDisabled();
+
+    int samples = E.flameSamples;
+    if (ImGui::SliderInt("Walks / frame", &samples, 1000, 60000))
+        E.flameSamples = samples;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Independent chaos-game walks launched every frame —\n"
+                          "the main perf/quality dial. Lower this first if frame rate drops.");
+
+    if (ImGui::SliderInt("Steps / walk", &E.flameSteps, 4, 128)) E.flameResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plotted iterations per walk, hard-capped at 128 by the\n"
+                          "same GPU geometry-shader budget Buddhabrot uses.");
+    if (ImGui::SliderInt("Burn-in", &E.flameBurnIn, 0, 50)) E.flameResetRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Discarded warm-up iterations before plotting starts, so each\n"
+                          "walk has converged onto the attractor before it's drawn.");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Accumulation --");
+    ImGui::SliderFloat("Decay", &E.flameDecay, 0.90f, 1.0f, "%.3f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Same meaning as Buddhabrot's decay: 1.0 = classic long-exposure,\n"
+                          "lower keeps the image alive/breathing for a live stream.");
+    ImGui::SliderFloat("Brightness", &E.flameBrightness, 0.1f, 10.0f, "%.2f");
+    ImGui::SliderFloat("Gamma",      &E.flameGamma,      0.15f, 2.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shapes the log-density tone map — flame fractals use log(1+count)\n"
+                          "instead of a straight power curve, which is what gives them\n"
+                          "glowing highlights with visible detail in the dark areas.");
+
+    if (ImGui::Button("Reset accumulation")) E.flameResetRequested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Randomize xforms")) {
+        auto& ent = globalEntropy();
+        for (int i = 0; i < 4; i++) {
+            // Keep each 2x2 block's singular values < 1 so the IFS stays
+            // contractive and the chaos game converges to a bounded
+            // attractor instead of flying apart — sample within a disc
+            // scaled well under 1 rather than the full [-1,1] box.
+            E.flameA[i] = ent.uniformF(-0.8f, 0.8f);
+            E.flameB[i] = ent.uniformF(-0.8f, 0.8f);
+            E.flameC[i] = ent.uniformF(-0.8f, 0.8f);
+            E.flameD[i] = ent.uniformF(-0.8f, 0.8f);
+            E.flameE[i] = ent.uniformF(-1.0f, 1.0f);
+            E.flameF[i] = ent.uniformF(-1.0f, 1.0f);
+            E.flameVariation[i] = ent.uniformI(0, 7);
+            E.flameWeight[i]    = ent.uniformF(0.1f, 1.0f);
+            E.flameColor[i]     = ent.uniformF(0.0f, 1.0f);
+        }
+        E.flameResetRequested = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Quantum/hardware-entropy-seeded random xform set — the fast way\n"
+                          "to explore new flame shapes without hand-tuning coefficients.");
+
+    // ── Per-xform rows ──────────────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("-- Xforms (affine + variation, picked by weight each step) --");
+    ImGui::SliderInt("Active xforms", &E.flameXformCount, 1, 4);
+
+    for (int i = 0; i < E.flameXformCount; i++) {
+        ImGui::PushID(i);
+        ImGui::Text("Xform %d", i + 1);
+
+        float ab[2] = {E.flameA[i], E.flameB[i]};
+        if (ImGui::DragFloat2("a / b", ab, 0.01f)) { E.flameA[i] = ab[0]; E.flameB[i] = ab[1]; E.flameResetRequested = true; }
+        float cd[2] = {E.flameC[i], E.flameD[i]};
+        if (ImGui::DragFloat2("c / d", cd, 0.01f)) { E.flameC[i] = cd[0]; E.flameD[i] = cd[1]; E.flameResetRequested = true; }
+        float ef[2] = {E.flameE[i], E.flameF[i]};
+        if (ImGui::DragFloat2("e / f (translate)", ef, 0.01f)) { E.flameE[i] = ef[0]; E.flameF[i] = ef[1]; E.flameResetRequested = true; }
+
+        if (ImGui::Combo("Variation", &E.flameVariation[i], kFlameVariations, 8))
+            E.flameResetRequested = true;
+        ImGui::SliderFloat("Weight", &E.flameWeight[i], 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Selection probability at each chaos-game step —\n"
+                              "normalised against the other active xforms automatically.");
+        ImGui::SliderFloat("Color", &E.flameColor[i], 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Palette coordinate this xform blends the running\n"
+                              "walk color toward whenever it's picked.");
+
+        ImGui::Separator();
+        ImGui::PopID();
     }
 
     if (dis) ImGui::EndDisabled();
@@ -3339,8 +3477,8 @@ void EquationEditor::saveSettings(const std::string& path) const {
             E.geoShape, E.geoSides, E.geoRadius, E.geoRotation);
     fprintf(f, "geo_tile=%d\ngeo_warp=%f\ngeo_mirror=%d\ngeo_kaleid=%d\n",
             (int)E.geoTile, E.geoWarp, E.geoMirror, E.geoKaleid);
-    fprintf(f, "fractal_3d=%d\nmb_scale=%f\nmb_fold=%f\n",
-            E.fractal3D, E.mbScale, E.mbFold);
+    fprintf(f, "fractal_3d=%d\nmb_scale=%f\nmb_fold=%f\nkleinian_min_r2=%f\n",
+            E.fractal3D, E.mbScale, E.mbFold, E.kleinianMinR2);
     fprintf(f, "chaos_mode=%d\nchaos_strength=%f\nchaos_scale=%f\nchaos_speed=%f\n",
             E.chaosMode, E.chaosStrength, E.chaosScale, E.chaosSpeed);
     fprintf(f, "distortion_mode=%d\ndistort_speed=%f\ndistort_blobs=%d\n",
@@ -3471,6 +3609,19 @@ void EquationEditor::saveSettings(const std::string& path) const {
             E.buddhaHybridList[0], E.buddhaHybridList[1],
             E.buddhaHybridList[2], E.buddhaHybridList[3]);
 
+    // [flame]
+    fprintf(f, "\n[flame]\n");
+    fprintf(f, "mode=%d\nsamples=%d\nsteps=%d\nburn_in=%d\nxform_count=%d\n",
+            (int)E.flameMode, E.flameSamples, E.flameSteps, E.flameBurnIn, E.flameXformCount);
+    fprintf(f, "decay=%f\nbrightness=%f\ngamma=%f\n",
+            E.flameDecay, E.flameBrightness, E.flameGamma);
+    for (int i = 0; i < 4; i++)
+        fprintf(f, "x%d_a=%f\nx%d_b=%f\nx%d_c=%f\nx%d_d=%f\nx%d_e=%f\nx%d_f=%f\n"
+                   "x%d_var=%d\nx%d_weight=%f\nx%d_color=%f\n",
+                i, E.flameA[i], i, E.flameB[i], i, E.flameC[i], i, E.flameD[i],
+                i, E.flameE[i], i, E.flameF[i],
+                i, E.flameVariation[i], i, E.flameWeight[i], i, E.flameColor[i]);
+
     // [audio] — device selection removed from this branch
 
     // [stream]
@@ -3537,6 +3688,7 @@ void EquationEditor::loadSettings(const std::string& path) {
     E.fractal3D      = ini_i(m, "fractal.fractal_3d",      E.fractal3D);
     E.mbScale        = ini_f(m, "fractal.mb_scale",        E.mbScale);
     E.mbFold         = ini_f(m, "fractal.mb_fold",         E.mbFold);
+    E.kleinianMinR2  = ini_f(m, "fractal.kleinian_min_r2", E.kleinianMinR2);
     E.chaosMode      = ini_i(m, "fractal.chaos_mode",      E.chaosMode);
     E.chaosStrength  = ini_f(m, "fractal.chaos_strength",  E.chaosStrength);
     E.chaosScale     = ini_f(m, "fractal.chaos_scale",     E.chaosScale);
@@ -3747,6 +3899,29 @@ void EquationEditor::loadSettings(const std::string& path) {
     E.buddhaHybridList[2] = ini_i(m, "buddhabrot.hybrid_2", E.buddhaHybridList[2]);
     E.buddhaHybridList[3] = ini_i(m, "buddhabrot.hybrid_3", E.buddhaHybridList[3]);
     E.buddhaResetRequested = true;   // always start with a clean accumulation buffer
+
+    // [flame]
+    E.flameMode       = ini_b(m, "flame.mode",        E.flameMode);
+    E.flameSamples    = ini_i(m, "flame.samples",     E.flameSamples);
+    E.flameSteps      = ini_i(m, "flame.steps",       E.flameSteps);
+    E.flameBurnIn     = ini_i(m, "flame.burn_in",     E.flameBurnIn);
+    E.flameXformCount = ini_i(m, "flame.xform_count", E.flameXformCount);
+    E.flameDecay      = ini_f(m, "flame.decay",       E.flameDecay);
+    E.flameBrightness = ini_f(m, "flame.brightness",  E.flameBrightness);
+    E.flameGamma      = ini_f(m, "flame.gamma",       E.flameGamma);
+    for (int i = 0; i < 4; i++) {
+        char key[32];
+        snprintf(key, sizeof(key), "flame.x%d_a", i); E.flameA[i] = ini_f(m, key, E.flameA[i]);
+        snprintf(key, sizeof(key), "flame.x%d_b", i); E.flameB[i] = ini_f(m, key, E.flameB[i]);
+        snprintf(key, sizeof(key), "flame.x%d_c", i); E.flameC[i] = ini_f(m, key, E.flameC[i]);
+        snprintf(key, sizeof(key), "flame.x%d_d", i); E.flameD[i] = ini_f(m, key, E.flameD[i]);
+        snprintf(key, sizeof(key), "flame.x%d_e", i); E.flameE[i] = ini_f(m, key, E.flameE[i]);
+        snprintf(key, sizeof(key), "flame.x%d_f", i); E.flameF[i] = ini_f(m, key, E.flameF[i]);
+        snprintf(key, sizeof(key), "flame.x%d_var",    i); E.flameVariation[i] = ini_i(m, key, E.flameVariation[i]);
+        snprintf(key, sizeof(key), "flame.x%d_weight", i); E.flameWeight[i]    = ini_f(m, key, E.flameWeight[i]);
+        snprintf(key, sizeof(key), "flame.x%d_color",  i); E.flameColor[i]     = ini_f(m, key, E.flameColor[i]);
+    }
+    E.flameResetRequested = true;   // always start with a clean accumulation buffer
 
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);

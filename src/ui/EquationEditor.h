@@ -106,6 +106,7 @@ private:
     void drawDistortionPanel();
     void drawChaosPanel();
     void drawBuddhabrotPanel();
+    void drawFlamePanel();
     void drawFftPanel();
     void drawRecordPanel();
     void drawPresetsPanel();

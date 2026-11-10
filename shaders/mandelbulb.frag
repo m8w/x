@@ -1,6 +1,6 @@
 #version 410 core
 // 3-D fractal renderer — ray-marched via distance estimator.
-// Four modes selectable via u_fractal_3d:
+// Five modes selectable via u_fractal_3d:
 //   0  Mandelbulb   (spherical power-n, classic 3-D fractal)
 //   1  Mandelbox    (folding + scaling IFS — box-like structures)
 //   2  Quaternion Julia  (4-D Julia set, 3-D cross-section)
@@ -9,6 +9,11 @@
 //      dimensions", Kuan Peng 2022. Distinct from the triplex power used by
 //      Mandelbulb: multiplication here chains Euler's formula across two
 //      orthogonal imaginary axes rather than a spherical-coordinate power.)
+//   4  Kleinian Limit Set  (Möbius-transformation IFS — box fold + continuous
+//      sphere inversion, same family as Mandelbox but tuned for the lace-like
+//      circle-packing look of a Kleinian group's limit set rather than
+//      Mandelbox's boxy structures. Shares u_mb_scale/u_mb_fold with
+//      Mandelbox; u_kleinian_min_r2 is the one Kleinian-specific parameter.)
 
 in  vec2 v_uv;
 out vec4 fragColor;
@@ -19,9 +24,10 @@ uniform float u_power;          // Mandelbulb: 2=sphere 8=classic >8=spiky
 uniform int   u_max_iter;
 uniform float u_zoom;
 uniform vec2  u_julia_c;        // Quaternion Julia: c = (x, y, 0, 0)
-uniform int   u_fractal_3d;     // 0=Mandelbulb 1=Mandelbox 2=QuatJulia 3=3D Complex (Peng)
-uniform float u_mb_scale;       // Mandelbox scale  (default 2.0)
-uniform float u_mb_fold;        // Mandelbox fold   (default 1.0)
+uniform int   u_fractal_3d;     // 0=Mandelbulb 1=Mandelbox 2=QuatJulia 3=3D Complex (Peng) 4=Kleinian
+uniform float u_mb_scale;       // Mandelbox / Kleinian scale  (default 2.0)
+uniform float u_mb_fold;        // Mandelbox / Kleinian box half-size (default 1.0)
+uniform float u_kleinian_min_r2; // Kleinian sphere-inversion radius^2 threshold
 uniform sampler2D u_video_tex;
 uniform sampler2D u_overlay_tex;
 uniform float     u_overlay_blend;
@@ -64,6 +70,38 @@ float DE_mandelbox(vec3 pos) {
         float r2 = dot(z,z);
         if      (r2 < 0.25)        { z *= 4.0;       dr *= 4.0;       }
         else if (r2 < 1.0)         { float k=1.0/r2; z *= k; dr *= k; }
+
+        z  = z * scale + pos;
+        dr = dr * abs(scale) + 1.0;
+
+        if (length(z) > 100.0) break;
+    }
+    return (length(z) - abs(scale-1.0)*2.0 / abs(dr));
+}
+
+// ── Kleinian Limit Set ────────────────────────────────────────────────────────
+// Same box-fold + scale-and-translate IFS as Mandelbox above, with one swap:
+// a *continuous* sphere inversion (max(minR2/r2, 1.0)) in place of Mandelbox's
+// two-tier fixed-radius ball fold. That single change is what turns the boxy
+// Mandelbox look into a Kleinian group's lace-like circle-packing limit set —
+// this is the well-known "Grandma's formula" construction from fractal-art
+// circles (sphere inversion ⇄ generators of a Möbius transformation group).
+float DE_kleinian(vec3 pos) {
+    float scale = u_mb_scale;
+    float box   = u_mb_fold;
+    float minR2 = u_kleinian_min_r2;
+    vec3  z     = pos;
+    float dr    = 1.0;
+
+    for (int i=0; i<min(u_max_iter, 128); i++) {
+        // Box fold: reflect z components back into [-box, box]
+        z = clamp(z, -box, box)*2.0 - z;
+
+        // Continuous sphere inversion (the Möbius-transformation step)
+        float r2 = dot(z,z);
+        float k  = max(minR2/r2, 1.0);
+        z  *= k;
+        dr *= k;
 
         z  = z * scale + pos;
         dr = dr * abs(scale) + 1.0;
@@ -148,6 +186,7 @@ float DE(vec3 p) {
     if (u_fractal_3d == 1) return DE_mandelbox(p);
     if (u_fractal_3d == 2) return DE_quatjulia(p);
     if (u_fractal_3d == 3) return DE_complex3d(p);
+    if (u_fractal_3d == 4) return DE_kleinian(p);
     return DE_mandelbulb(p);
 }
 

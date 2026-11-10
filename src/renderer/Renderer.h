@@ -47,13 +47,25 @@ private:
 
     // Buddhabrot / Nebulabrot point-cloud accumulation pipeline
     ShaderProgram m_shaderBuddhaPoints;   // buddhabrot_points.vert/.geom/.frag
-    ShaderProgram m_shaderBuddhaDecay;    // fractal.vert + buddhabrot_decay.frag
+    ShaderProgram m_shaderBuddhaDecay;    // fractal.vert + buddhabrot_decay.frag — shared with Flame below
     ShaderProgram m_shaderBuddhaDisplay;  // fractal.vert + buddhabrot_display.frag
     GLuint        m_buddhaFbo    = 0;
     GLuint        m_buddhaTex[2] = {0, 0};  // ping-pong accumulation targets
     int           m_buddhaIdx    = 0;
     int           m_buddhaW      = 0;
     int           m_buddhaH      = 0;
+
+    // Flame / IFS chaos-game point-cloud pipeline — reuses m_shaderBuddhaDecay
+    // (format-agnostic: decays the full vec4) but needs its own textures
+    // since Flame's accumulation is RGBA32F (color+hitcount) vs Buddhabrot's
+    // plain RGB32F (density only).
+    ShaderProgram m_shaderFlamePoints;    // flame_points.vert/.geom/.frag
+    ShaderProgram m_shaderFlameDisplay;   // fractal.vert + flame_display.frag
+    GLuint        m_flameFbo    = 0;
+    GLuint        m_flameTex[2] = {0, 0};
+    int           m_flameIdx    = 0;
+    int           m_flameW      = 0;
+    int           m_flameH      = 0;
     // Spectral post-process FBO (ping-pong target)
     GLuint        m_spectralFbo = 0;
     GLuint        m_spectralTex = 0;
@@ -76,6 +88,8 @@ private:
     void ensureSpectralFBO(int w, int h);
     bool ensureBuddhaFBO(int w, int h);   // returns true if (re)allocated
     void renderBuddhabrot(int w, int h, const FractalEngine& engine);
+    bool ensureFlameFBO(int w, int h);    // returns true if (re)allocated
+    void renderFlame(int w, int h, const FractalEngine& engine);
     void uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                         const FractalEngine& engine,
                         const BlendController& blend,

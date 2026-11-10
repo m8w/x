@@ -19,6 +19,8 @@ Renderer::~Renderer() {
     if (m_spectralTex)  glDeleteTextures(1, &m_spectralTex);
     if (m_buddhaFbo)    glDeleteFramebuffers(1, &m_buddhaFbo);
     if (m_buddhaTex[0]) glDeleteTextures(2, m_buddhaTex);
+    if (m_flameFbo)     glDeleteFramebuffers(1, &m_flameFbo);
+    if (m_flameTex[0])  glDeleteTextures(2, m_flameTex);
 }
 
 void Renderer::init() {
@@ -32,6 +34,10 @@ void Renderer::init() {
                                        sd + "/buddhabrot_points.frag");
     m_shaderBuddhaDecay.loadFromFiles  (sd + "/fractal.vert", sd + "/buddhabrot_decay.frag");
     m_shaderBuddhaDisplay.loadFromFiles(sd + "/fractal.vert", sd + "/buddhabrot_display.frag");
+    m_shaderFlamePoints.loadFromFiles(sd + "/flame_points.vert",
+                                      sd + "/flame_points.geom",
+                                      sd + "/flame_points.frag");
+    m_shaderFlameDisplay.loadFromFiles(sd + "/fractal.vert", sd + "/flame_display.frag");
 
     // Empty VAO — vertex positions are generated in the vertex shader
     glGenVertexArrays(1, &m_vao);
@@ -192,6 +198,112 @@ void Renderer::renderBuddhabrot(int w, int h, const FractalEngine& eng) {
     eng.buddhaResetRequested = false;   // mutable field — fine on a const&
 }
 
+bool Renderer::ensureFlameFBO(int w, int h) {
+    if (m_flameW == w && m_flameH == h) return false;
+    if (m_flameFbo)    glDeleteFramebuffers(1, &m_flameFbo);
+    if (m_flameTex[0]) glDeleteTextures(2, m_flameTex);
+
+    glGenTextures(2, m_flameTex);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, m_flameTex[i]);
+        // RGBA: RGB accumulates summed color, A accumulates hit count —
+        // flame_display.frag divides RGB by A to average color per pixel.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glGenFramebuffers(1, &m_flameFbo);
+
+    m_flameW   = w;
+    m_flameH   = h;
+    m_flameIdx = 0;
+    return true;
+}
+
+void Renderer::renderFlame(int w, int h, const FractalEngine& eng) {
+    bool recreated = ensureFlameFBO(w, h);
+    bool reset = eng.flameResetRequested || recreated;
+
+    int writeIdx = 1 - m_flameIdx;
+    int readIdx  = m_flameIdx;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_flameFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_flameTex[writeIdx], 0);
+    glViewport(0, 0, w, h);
+
+    // ── Decay pass (shared shader with Buddhabrot — decays the full vec4) ───
+    if (reset) {
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    } else {
+        m_shaderBuddhaDecay.use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_flameTex[readIdx]);
+        m_shaderBuddhaDecay.setInt  ("u_prev_tex", 0);
+        m_shaderBuddhaDecay.setFloat("u_decay",    eng.flameDecay);
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    // ── Points pass: chaos-game walks on the GPU, additively accumulate ─────
+    m_shaderFlamePoints.use();
+    m_shaderFlamePoints.setFloat2("u_resolution", (float)w, (float)h);
+    m_shaderFlamePoints.setFloat ("u_zoom",       eng.zoom);
+    m_shaderFlamePoints.setFloat2("u_offset",     eng.offset.x, eng.offset.y);
+    m_shaderFlamePoints.setFloat ("u_seed",       globalEntropy().randomF() * 97931.0f);
+    m_shaderFlamePoints.setInt   ("u_steps",      std::min(eng.flameSteps, 128));
+    m_shaderFlamePoints.setInt   ("u_burn_in",    eng.flameBurnIn);
+    m_shaderFlamePoints.setInt   ("u_xform_count",std::max(1, std::min(eng.flameXformCount, 4)));
+    for (int i = 0; i < 4; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "u_xform_a[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameA[i]);
+        snprintf(name, sizeof(name), "u_xform_b[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameB[i]);
+        snprintf(name, sizeof(name), "u_xform_c[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameC[i]);
+        snprintf(name, sizeof(name), "u_xform_d[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameD[i]);
+        snprintf(name, sizeof(name), "u_xform_e[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameE[i]);
+        snprintf(name, sizeof(name), "u_xform_f[%d]", i); m_shaderFlamePoints.setFloat(name, eng.flameF[i]);
+        snprintf(name, sizeof(name), "u_xform_variation[%d]", i); m_shaderFlamePoints.setInt(name, eng.flameVariation[i]);
+        snprintf(name, sizeof(name), "u_xform_color[%d]", i);     m_shaderFlamePoints.setFloat(name, eng.flameColor[i]);
+    }
+    // Normalise weights into cumulative buckets on upload so the shader's
+    // threshold walk is a simple, branch-cheap comparison.
+    {
+        int   n = std::max(1, std::min(eng.flameXformCount, 4));
+        float total = 0.0f;
+        for (int i = 0; i < n; i++) total += std::max(0.0f, eng.flameWeight[i]);
+        if (total < 1e-6f) total = 1.0f;
+        for (int i = 0; i < n; i++) {
+            char name[32];
+            snprintf(name, sizeof(name), "u_xform_weight[%d]", i);
+            m_shaderFlamePoints.setFloat(name, std::max(0.0f, eng.flameWeight[i]) / total);
+        }
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_POINTS, 0, std::max(0, eng.flameSamples));
+    glDisable(GL_BLEND);
+
+    // ── Display pass: log-density tone-map into the main FBO ────────────────
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    glViewport(0, 0, w, h);
+    m_shaderFlameDisplay.use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_flameTex[writeIdx]);
+    m_shaderFlameDisplay.setInt  ("u_accum_tex",  0);
+    m_shaderFlameDisplay.setFloat("u_brightness", eng.flameBrightness);
+    m_shaderFlameDisplay.setFloat("u_gamma",      eng.flameGamma);
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    m_flameIdx = writeIdx;
+    eng.flameResetRequested = false;   // mutable field — fine on a const&
+}
+
 void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
                                const FractalEngine& eng,
                                const BlendController& blend,
@@ -232,6 +344,7 @@ void Renderer::uploadUniforms(ShaderProgram& prog, int w, int h, float time,
     prog.setInt   ("u_fractal_3d",      eng.fractal3D);
     prog.setFloat ("u_mb_scale",        eng.mbScale);
     prog.setFloat ("u_mb_fold",         eng.mbFold);
+    prog.setFloat ("u_kleinian_min_r2", eng.kleinianMinR2);
     // Chaos domain warp
     prog.setInt   ("u_chaos_mode",      eng.chaosMode);
     prog.setFloat ("u_chaos_strength",  eng.chaosStrength);
@@ -273,6 +386,8 @@ void Renderer::render(int width, int height, float time,
         // writes its tone-mapped output straight into m_fbo/m_fboTex so the
         // spectral pass and stream/record readback need no changes at all.
         renderBuddhabrot(width, height, engine);
+    } else if (engine.flameMode) {
+        renderFlame(width, height, engine);
     } else {
         // Choose shader
         float bw[5]; blend.weights(bw);

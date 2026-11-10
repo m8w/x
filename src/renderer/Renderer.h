@@ -39,6 +39,7 @@ private:
     ShaderProgram m_shaderBulb;       // fractal.vert + mandelbulb.frag
     ShaderProgram m_shaderDistort;    // fractal.vert + distortion.frag
     ShaderProgram m_shaderSpectral;   // fractal.vert + spectral.frag
+    ShaderProgram m_shaderQuatFeedback; // fractal.vert + quat_feedback.frag
     GLuint        m_vao       = 0;
     GLuint        m_fbo       = 0;
     GLuint        m_fboTex    = 0;
@@ -78,6 +79,17 @@ private:
     float         m_fftVisGain[4]    = {1.0f, 1.0f, 1.0f, 1.0f};
     std::vector<uint8_t> m_pixels;
 
+    // Quaternion feedback post-process (ping-pong target; not an exclusive
+    // mode, chains after spectral). m_quatActive mirrors engine.quatFeedbackEnabled
+    // each render() call so fboPixels() — called later with no engine access —
+    // knows whether to read this pass's output for stream/record encoding.
+    GLuint m_quatFbo    = 0;
+    GLuint m_quatTex[2] = {0, 0};
+    int    m_quatIdx    = 0;
+    int    m_quatW      = 0;
+    int    m_quatH      = 0;
+    bool   m_quatActive = false;
+
     // Double-buffered PBOs for async glReadPixels (no GPU pipeline stall)
     GLuint m_pbo[2]  = {0, 0};
     int    m_pboIdx  = 0;
@@ -86,6 +98,7 @@ private:
 
     void ensureFBO(int w, int h);
     void ensureSpectralFBO(int w, int h);
+    bool ensureQuatFBO(int w, int h);     // returns true if (re)allocated
     bool ensureBuddhaFBO(int w, int h);   // returns true if (re)allocated
     void renderBuddhabrot(int w, int h, const FractalEngine& engine);
     bool ensureFlameFBO(int w, int h);    // returns true if (re)allocated

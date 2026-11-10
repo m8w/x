@@ -21,6 +21,8 @@ Renderer::~Renderer() {
     if (m_buddhaTex[0]) glDeleteTextures(2, m_buddhaTex);
     if (m_flameFbo)     glDeleteFramebuffers(1, &m_flameFbo);
     if (m_flameTex[0])  glDeleteTextures(2, m_flameTex);
+    if (m_quatFbo)      glDeleteFramebuffers(1, &m_quatFbo);
+    if (m_quatTex[0])   glDeleteTextures(2, m_quatTex);
 }
 
 void Renderer::init() {
@@ -38,6 +40,7 @@ void Renderer::init() {
                                       sd + "/flame_points.geom",
                                       sd + "/flame_points.frag");
     m_shaderFlameDisplay.loadFromFiles(sd + "/fractal.vert", sd + "/flame_display.frag");
+    m_shaderQuatFeedback.loadFromFiles(sd + "/fractal.vert", sd + "/quat_feedback.frag");
 
     // Empty VAO — vertex positions are generated in the vertex shader
     glGenVertexArrays(1, &m_vao);
@@ -95,6 +98,39 @@ void Renderer::ensureSpectralFBO(int w, int h) {
 
     m_spectralW = w;
     m_spectralH = h;
+}
+
+bool Renderer::ensureQuatFBO(int w, int h) {
+    if (m_quatW == w && m_quatH == h) return false;
+    if (m_quatFbo)    glDeleteFramebuffers(1, &m_quatFbo);
+    if (m_quatTex[0]) glDeleteTextures(2, m_quatTex);
+
+    glGenTextures(2, m_quatTex);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, m_quatTex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glGenFramebuffers(1, &m_quatFbo);
+
+    // Clear both ping-pong targets to black on (re)allocation so the first
+    // feedback sample — read before either texture has been written by a
+    // real pass — can't show undefined texture memory.
+    glBindFramebuffer(GL_FRAMEBUFFER, m_quatFbo);
+    glViewport(0, 0, w, h);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    for (int i = 0; i < 2; i++) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_quatTex[i], 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+
+    m_quatW   = w;
+    m_quatH   = h;
+    m_quatIdx = 0;
+    return true;
 }
 
 bool Renderer::ensureBuddhaFBO(int w, int h) {
@@ -448,6 +484,7 @@ void Renderer::render(int width, int height, float time,
 
     // ── Spectral post-process pass ───────────────────────────────────────────
     GLuint outputFbo = m_fbo;
+    GLuint outputTex = m_fboTex;
     if (m_spectralEnabled) {
         ensureSpectralFBO(width, height);
         glBindFramebuffer(GL_FRAMEBUFFER, m_spectralFbo);
@@ -465,6 +502,46 @@ void Renderer::render(int width, int height, float time,
         glBindVertexArray(m_vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         outputFbo = m_spectralFbo;
+        outputTex = m_spectralTex;
+    }
+
+    // ── Quaternion feedback post-process pass ────────────────────────────────
+    // Not an exclusive mode — chains after spectral on top of whatever is
+    // already in outputTex, so it composes with every fractal mode above,
+    // including Buddhabrot/Flame.
+    m_quatActive = engine.quatFeedbackEnabled;
+    if (m_quatActive) {
+        ensureQuatFBO(width, height);  // clears fresh textures to black on (re)allocation
+        int writeIdx = 1 - m_quatIdx;
+        int readIdx  = m_quatIdx;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_quatFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, m_quatTex[writeIdx], 0);
+        glViewport(0, 0, width, height);
+
+        m_shaderQuatFeedback.use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, outputTex);
+        m_shaderQuatFeedback.setInt  ("u_fbo_tex",  0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m_quatTex[readIdx]);
+        m_shaderQuatFeedback.setInt  ("u_prev_tex", 1);
+        m_shaderQuatFeedback.setFloat2("u_resolution", (float)width, (float)height);
+        m_shaderQuatFeedback.setFloat ("u_time",       time);
+        m_shaderQuatFeedback.setFloat ("u_amount",     engine.quatFeedbackAmount);
+        m_shaderQuatFeedback.setFloat ("u_decay",      engine.quatFeedbackDecay);
+        m_shaderQuatFeedback.setFloat ("u_warp",       engine.quatFeedbackWarp);
+        m_shaderQuatFeedback.setFloat ("u_real_rate",  engine.quatRealRate);
+        m_shaderQuatFeedback.setFloat ("u_imag_rate",  engine.quatImagRate);
+        m_shaderQuatFeedback.setFloat3("u_axis", engine.quatAxis.x, engine.quatAxis.y, engine.quatAxis.z);
+
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        outputFbo = m_quatFbo;
+        outputTex = m_quatTex[writeIdx];
+        m_quatIdx = writeIdx;
     }
 
     // Blit to default framebuffer
@@ -496,8 +573,11 @@ const uint8_t* Renderer::fboPixels(int width, int height) {
     int writeIdx = m_pboIdx;
     int readIdx  = 1 - m_pboIdx;
 
-    // When spectral is active AND onStream, encode the post-processed frame
-    GLuint readFbo = (m_spectralEnabled && m_spectralOnStream) ? m_spectralFbo : m_fbo;
+    // Quaternion feedback (if active) always chains last, then spectral
+    // (if active AND onStream), otherwise the plain fractal FBO.
+    GLuint readFbo = m_quatActive ? m_quatFbo
+                    : (m_spectralEnabled && m_spectralOnStream) ? m_spectralFbo
+                    : m_fbo;
 
     // Queue async readback into writeIdx — GPU DMA, returns immediately
     glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);

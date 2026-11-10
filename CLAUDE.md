@@ -10,6 +10,7 @@ Real-time fractal renderer that:
 - Maps the video stream onto the fractal surface using escape-time UV mapping
 - Renders **Buddhabrot / Nebulabrot** as a GPU point-cloud orbit-accumulation mode, with optional **hybrid combination iteration** (cycling formulas mid-orbit)
 - Renders **Flame / IFS chaos-game** fractals as a second GPU point-cloud mode — up to 4 affine+variation "xforms," weighted random walk, flam3-style log-density color averaging
+- Layers an optional **Quaternion Feedback** post-process trail — a non-commutative 3-D rotation (two independent rates) drives a UV-warped self-sampling feedback loop, stacking on top of any other mode
 - Encodes and pushes the rendered output to **Restream** (and multiple simultaneous destinations) via RTMP/RTMPS
 
 ---
@@ -275,6 +276,42 @@ The "Randomize xforms" UI button samples new affine coefficients from
 keep the IFS contractive, since chaos-game convergence requires it — an
 expansive xform set just renders as an empty/dark frame, not a crash.
 
+### Quaternion Feedback (`quat_feedback.frag`)
+
+Unlike every mode above, this is a **post-process pass, not an exclusive
+mode** — `Renderer::render()` chains it right after the spectral pass, on
+top of whatever `outputTex` already holds (2-D blend, raymarch, Buddhabrot,
+Flame, even Distortion), so it composes with everything instead of
+replacing it.
+
+It originated from a user-supplied framework describing "thought streams"
+as quaternions (`w, i, j, k`) navigating a "True Time" complex plane where
+`Cause + Effect = 1`. That framing is evocative, not physics the code can
+assert as fact, so here's the honest translation: the one piece of genuinely
+well-defined math in it — a quaternion as an axis-angle 3-D rotation,
+applied via `q·v·q⁻¹` — is real and implementable, and that's exactly what
+got built. "Real time" and "imaginary time" survive only as the *names* of
+two independent rotation rates (`quatRealRate`, `quatImagRate`); there's no
+literal second time axis.
+
+Mechanically: each frame, the previous feedback frame (`m_quatTex[readIdx]`,
+a ping-pong pair parallel to Buddhabrot/Flame's) is re-sampled at a UV
+offset equal to a rotated probe vector's XY. Two quaternion rotations —
+same `quatAxis` family, cyclically permuted so they share no single axis,
+driven at the two independent rates — are composed with `qMul` before being
+applied. Because quaternion multiplication doesn't commute, that composed
+rotation never settles into a flat, repeating 2-D spin; the resulting
+feedback trail braids and crosses itself instead. The sampled trail is
+decayed (`quatFeedbackDecay`) and blended on top of (never replacing) the
+fresh render, then written to the write half of the ping-pong pair.
+
+This is a single stateless fragment pass — no geometry shader, no
+two-step decay-then-accumulate like Buddhabrot/Flame need — so it's cheap
+enough to leave running continuously. `fboPixels()` picks its output for
+stream/record encoding whenever it's active, same precedence the spectral
+pass already had (`m_quatActive` is captured once per `render()` call since
+`fboPixels()` has no direct access to `FractalEngine`).
+
 ### RTMP Output to Restream
 1. `StreamOutput` opens an `AVFormatContext` with `rtmp://live.restream.io/live/<key>`
 2. Uses `libx264` encoder (via `avcodec`) at configurable bitrate
@@ -356,6 +393,16 @@ expansive xform set just renders as an empty/dark frame, not a crash.
 | Variation | combo per xform | Linear / Sinusoidal / Spherical / Swirl / Horseshoe / Polar / Handkerchief / Spiral |
 | Weight | slider per xform | selection probability at each chaos-game step (auto-normalised) |
 | Color | slider per xform | palette coordinate the running walk color blends toward when picked |
+
+### Panel: Quaternion Feedback
+| Control | Type | Effect |
+|---------|------|--------|
+| Enable Quaternion Feedback | checkbox | post-process only — not exclusive, layers on top of any other mode |
+| Amount | slider 0–1 | 0 = fractal only, 1 = feedback trail dominates (adds on top, never blanks) |
+| Decay | slider 0.80–0.999 | per-frame trail fade; lower = shorter trails |
+| Warp | slider 0–0.1 | UV-offset magnitude from the rotation |
+| Real rate / Imaginary rate | sliders ±3 | two rotation rates composed non-commutatively (see architecture notes) |
+| i / j / k axis | drag float3 | quaternion rotation axis weights, normalised in-shader |
 
 ### Panel: Stream Output
 | Control | Type |

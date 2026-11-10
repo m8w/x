@@ -82,6 +82,8 @@ void EquationEditor::draw() {
         drawBuddhabrotPanel();
     if (ImGui::CollapsingHeader("Flame / IFS Chaos Game"))
         drawFlamePanel();
+    if (ImGui::CollapsingHeader("Quaternion Feedback"))
+        drawQuatFeedbackPanel();
     if (ImGui::CollapsingHeader("FFT / AFT Spectral Chain"))
         drawFftPanel();
     if (ImGui::CollapsingHeader("Recording (4K / 8K)"))
@@ -3098,6 +3100,61 @@ void EquationEditor::drawFlamePanel() {
     if (dis) ImGui::EndDisabled();
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// QUATERNION FEEDBACK  -  post-process feedback trail, non-exclusive
+// ════════════════════════════════════════════════════════════════════════════════
+void EquationEditor::drawQuatFeedbackPanel() {
+    auto& E = m_engine;
+
+    ImGui::Checkbox("Enable Quaternion Feedback", &E.quatFeedbackEnabled);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Post-process feedback trail: each frame re-samples the previous\n"
+            "feedback frame at a UV offset driven by a true 3-D quaternion\n"
+            "rotation, instead of a flat 2-D spin. Not an exclusive mode --\n"
+            "stacks on top of whatever is already on screen, including\n"
+            "Buddhabrot/Flame.\n\n"
+            "\"Real\"/\"Imaginary\" rate naming is evocative, not a physics\n"
+            "claim: two independent rotation rates are composed\n"
+            "non-commutatively so the trail's swirl direction keeps drifting\n"
+            "instead of settling into a repeating circle.");
+
+    bool dis = !E.quatFeedbackEnabled;
+    if (dis) ImGui::BeginDisabled();
+
+    ImGui::SliderFloat("Amount", &E.quatFeedbackAmount, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 = fractal only, no trail.  1 = feedback trail dominates\n"
+                          "(trails add on top of the fresh render, never blank it).");
+    ImGui::SliderFloat("Decay", &E.quatFeedbackDecay, 0.80f, 0.999f, "%.3f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How fast the trail fades each frame -- lower = shorter trails.");
+    ImGui::SliderFloat("Warp", &E.quatFeedbackWarp, 0.0f, 0.1f, "%.3f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("UV-offset magnitude from the rotation -- how far each\n"
+                          "feedback sample is displaced from its source pixel.");
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("-- Two rotation rates (\"Real\" / \"Imaginary\") --");
+    ImGui::SliderFloat("Real rate",      &E.quatRealRate, -3.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Imaginary rate", &E.quatImagRate, -3.0f, 3.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pick values with no simple integer ratio (default 1.0 /\n"
+                          "0.37) so the composed rotation axis keeps drifting instead\n"
+                          "of repeating. Equal rates collapse the braid into a plain spin.");
+
+    float axis[3] = {E.quatAxis.x, E.quatAxis.y, E.quatAxis.z};
+    if (ImGui::DragFloat3("i / j / k axis", axis, 0.01f, -1.0f, 1.0f))
+        E.quatAxis = {axis[0], axis[1], axis[2]};
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Quaternion rotation axis weights. Normalised automatically\n"
+                          "in the shader; the scalar (w) component isn't exposed\n"
+                          "directly -- it falls out of the rotation angle (cos/sin)\n"
+                          "the same way it does for any axis-angle quaternion.");
+
+    if (dis) ImGui::EndDisabled();
+}
+
 // -- Chaos Effects -------------------------------------------------------------
 //
 // Pre-iteration domain warps inspired by chaos theory.  Applied to the complex
@@ -3523,6 +3580,13 @@ void EquationEditor::saveSettings(const std::string& path) const {
                 i, E.flameE[i], i, E.flameF[i],
                 i, E.flameVariation[i], i, E.flameWeight[i], i, E.flameColor[i]);
 
+    // [quat_feedback]
+    fprintf(f, "\n[quat_feedback]\n");
+    fprintf(f, "enabled=%d\namount=%f\ndecay=%f\nwarp=%f\n",
+            (int)E.quatFeedbackEnabled, E.quatFeedbackAmount, E.quatFeedbackDecay, E.quatFeedbackWarp);
+    fprintf(f, "real_rate=%f\nimag_rate=%f\naxis_x=%f\naxis_y=%f\naxis_z=%f\n",
+            E.quatRealRate, E.quatImagRate, E.quatAxis.x, E.quatAxis.y, E.quatAxis.z);
+
     // [audio]
     fprintf(f, "\n[audio]\n");
     if (m_audio) {
@@ -3846,6 +3910,17 @@ void EquationEditor::loadSettings(const std::string& path) {
         snprintf(key, sizeof(key), "flame.x%d_color",  i); E.flameColor[i]     = ini_f(m, key, E.flameColor[i]);
     }
     E.flameResetRequested = true;   // always start with a clean accumulation buffer
+
+    // [quat_feedback]
+    E.quatFeedbackEnabled = ini_b(m, "quat_feedback.enabled",   E.quatFeedbackEnabled);
+    E.quatFeedbackAmount  = ini_f(m, "quat_feedback.amount",    E.quatFeedbackAmount);
+    E.quatFeedbackDecay   = ini_f(m, "quat_feedback.decay",     E.quatFeedbackDecay);
+    E.quatFeedbackWarp    = ini_f(m, "quat_feedback.warp",      E.quatFeedbackWarp);
+    E.quatRealRate        = ini_f(m, "quat_feedback.real_rate", E.quatRealRate);
+    E.quatImagRate        = ini_f(m, "quat_feedback.imag_rate", E.quatImagRate);
+    E.quatAxis.x          = ini_f(m, "quat_feedback.axis_x",    E.quatAxis.x);
+    E.quatAxis.y          = ini_f(m, "quat_feedback.axis_y",    E.quatAxis.y);
+    E.quatAxis.z          = ini_f(m, "quat_feedback.axis_z",    E.quatAxis.z);
 
     // [stream]
     m_bitrateKbps = ini_i(m, "stream.bitrate_kbps", m_bitrateKbps);

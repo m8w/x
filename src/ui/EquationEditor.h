@@ -145,6 +145,7 @@ private:
     void drawChaosPanel();
     void drawBuddhabrotPanel();
     void drawFlamePanel();
+    void drawQuatFeedbackPanel();
     void drawFftPanel();
     void drawRecordPanel();
     void drawPresetsPanel();

@@ -188,6 +188,25 @@ struct FractalEngine {
 
     mutable bool flameResetRequested = true;
 
+    // ── Quaternion Feedback (quat_feedback.frag) ────────────────────────────────
+    // A post-process feedback-trail pass, NOT an exclusive mode — it layers on
+    // top of whatever is already on screen (2-D blend, raymarch, Buddhabrot,
+    // Flame, even Distortion), chained right after the spectral pass. Each
+    // frame the previous feedback frame is re-sampled at a UV offset driven
+    // by a 3-D quaternion rotation (two independent rotation rates composed
+    // non-commutatively), giving a braided, self-crossing trail instead of a
+    // flat 2-D spin. "Real"/"imaginary" rate naming is evocative, not a
+    // physics claim — see CLAUDE.md for the honest translation notes.
+    bool  quatFeedbackEnabled = false;
+    float quatFeedbackAmount  = 0.5f;    // 0=fractal only  1=feedback trail dominates
+    float quatFeedbackDecay   = 0.96f;   // per-frame trail fade
+    float quatFeedbackWarp    = 0.02f;   // UV-offset magnitude from the rotation
+    float quatRealRate = 1.0f;    // "real time" rotation rate (rad/s)
+    float quatImagRate = 0.37f;   // "imaginary time" rotation rate (rad/s) — deliberately
+                                   // a non-integer ratio to quatRealRate so the combined
+                                   // rotation axis drifts instead of repeating
+    glm::vec3 quatAxis = {0.41f, 0.71f, 0.58f};  // i,j,k axis weights (normalised in-shader)
+
     // ── Distortion mode (distortion.frag) ────────────────────────────────────
     // When true, the Renderer switches to the iridescent metaball shader and
     // bypasses the fractal blend pipeline entirely.
